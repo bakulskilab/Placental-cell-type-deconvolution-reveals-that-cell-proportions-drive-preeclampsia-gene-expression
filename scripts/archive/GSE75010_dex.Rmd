@@ -1,0 +1,282 @@
+---
+title: "Limma Analysis of Cox Preeclampsia GSE75010 Study"
+subtitle: "Kyle Campbell - November 6th, 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+# Update R all installed R Packages
+# update.packages(ask = FALSE)
+library(grid)
+library(gridExtra)
+library(knitr)
+library(pheatmap)
+library(RColorBrewer)
+library(tidyverse)
+
+library(BiocManager)
+library(biomaRt)
+library(DESeq2)
+library(edgeR)
+library(EnhancedVolcano)
+library(GO.db)
+library(GEOquery)
+library(mygene)
+library(org.Hs.eg.db)
+library(topGO)
+
+knitr::opts_chunk$set(echo=TRUE)
+
+data_dir <- "C:/Users/k_cam/Downloads/scRNA_hpc_qc/"
+```
+Based on Bioconductor workflow http://www.bioconductor.org/packages/release/workflows/vignettes/maEndToEnd/inst/doc/MA-Workflow.html#14_a_pathway_enrichment_analysis_using_reactome and limma user guide https://bioconductor.org/packages/3.12/bioc/vignettes/limma/inst/doc/usersguide.pdf. https://hbctraining.github.io/Training-modules/Visualization_in_R/lessons/03_advanced_visualizations.html also used to guide Volcano plot construction.
+## Load and format data
+Load normalized expression data and cleaned metadata from script "GSE75010_preprocess.Rmd".
+```{r}
+expr <- read.csv(paste0(data_dir, "GSE75010_complete_dataset.csv.gz"))
+meta <- readRDS(paste0(data_dir, "GSE75010_merged_abundances2020-10-16.rda"))
+#gse <- getGEO("GSE75010", GSEMatrix = TRUE)
+```
+Based on the phenoData, this array platform is single color.
+```{r}
+#colnames(gse$GSE75010_series_matrix.txt.gz@phenoData@data)
+```
+Reformat expression data to a matrix with genes as rownames.
+```{r}
+genes <- expr %>% dplyr::select(X)
+rownames(expr) <- genes$X
+expr <- expr %>% dplyr::select(-X)
+expr <- as.matrix(expr)
+```
+Initialize an expression set object.
+```{r}
+d <- ExpressionSet(expr)
+# Clean-up
+rm (gse, genes, expr)
+```
+Add metadata.
+```{r}
+# Drop p-value, correlation, and RMSE
+meta <- meta[,1:19]
+pData(d) <- meta
+# Clean-up
+rm(meta)
+```
+## PCA projection
+PCA for low-dimensional representation.
+```{r}
+PCA <- prcomp(t(exprs(d)), scale = FALSE)
+percentVar <- round(100*PCA$sdev^2/sum(PCA$sdev^2),1)
+sd_ratio <- sqrt(percentVar[2] / percentVar[1])
+
+pca.dataGG <- data.frame(PC1 = PCA$x[,1], PC2 = PCA$x[,2],
+                    Study = 
+                     pData(d)$batch,
+                    Phenotype = 
+                     pData(d)$phenotype)
+ggplot(pca.dataGG, aes(PC1, PC2)) +
+      geom_point(aes(shape = Phenotype, colour = Study)) +
+  ggtitle("PCA plot of the calibrated, summarized data") +
+  xlab(paste0("PC1, VarExp: ", percentVar[1], "%")) +
+  ylab(paste0("PC2, VarExp: ", percentVar[2], "%")) +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  coord_fixed(ratio = sd_ratio) +
+  scale_shape_manual(values = c(1:8))
+```
+
+No apparent clustering by study source. Some separation in outcome by PC1.
+## Defining and fitting the model
+Create the design matrix. Covariates will be case-control status, sex, gestational age in weeks, and batch.
+```{r}
+covariates <- c("phenotype", "sex", "ga", "batch")
+phenotype <- phenoData(d)$phenotype
+sex <- phenoData(d)$sex
+ga <- phenoData(d)$ga
+batch <- phenoData(d)$batch
+
+design.formula <- as.formula(paste0("~", paste(covariates, collapse = " + ")))
+design <- model.matrix(design.formula)
+```
+Fit the model.
+```{r}
+fit <- lmFit(d, design)
+fit <- eBayes(fit)
+```
+Extract model results.
+```{r}
+hits <- topTable(fit, coef = "phenotypePE", number = Inf)
+```
+Histogram of raw p-values
+```{r}
+hist(hits$P.Value, col = brewer.pal(3, name = "Set2")[1],
+     main = "Pre-eclamptic patients vs. controls", xlab = "P-values")
+```
+Histogram of FDR-adjusted p-values.
+```{r}
+hist(hits$adj.P.Val, col = brewer.pal(3, name = "Set2")[1],
+     main = "Pre-eclamptic patients vs. controls", xlab = "FDR-adjusted p-values")
+```
+
+## Report results
+Add boolean significance vector to our results table.
+```{r}
+# Set p-value threshold
+threshold <- .05
+hits$sig <- hits$adj.P.Val < threshold
+print(paste0(length(which(hits$sig)), " significant hits at FDR-adjusted cutoff of ", threshold)) 
+```
+
+```{r}
+res <- rownames_to_column(hits, "gene_symbol")
+```
+Get the top hits.
+```{r}
+# Get the top downregulated hits
+downreg <- res %>%
+  filter(adj.P.Val < .05) %>%
+  filter(logFC < 0) %>%
+  arrange(logFC)
+#Get the top upregulated hits.
+upreg <- res %>%
+  filter(adj.P.Val < .05) %>%
+  filter(logFC > 0) %>%
+  arrange(desc(logFC))
+```
+Label genes of interest by name, the top 10 upregulated and downregulated hits and hand-chosen extravillous trophoblast marker gene HLA-G.
+```{r}
+num.to.plot <- 10
+genes.of.interest <- c("HLA-G")
+top.upreg <- upreg$gene_symbol[1:num.to.plot]
+top.downreg <- downreg$gene_symbol[1:num.to.plot]
+genes.to.plot <- c(top.upreg, top.downreg, genes.of.interest)
+res$label[(res$gene_symbol %in% genes.to.plot)] <- T
+```
+Volcano plot of results. The chunk above will determine which genes are labelled in the plot.
+```{r}
+# Volcano plot
+plot1 <- ggplot(res) +
+        geom_point(aes(x=logFC, y=-log10(adj.P.Val), colour=sig)) +
+        geom_text_repel(aes(x = logFC, y = -log10(adj.P.Val),
+                            label = ifelse(
+                              label, gene_symbol, ""
+                            ))) +
+        geom_hline(yintercept = -log10(threshold), linetype="dotted") +
+        ggtitle("Pre-eclamptic cases vs controls") +
+        xlab("log2 fold change") + 
+        ylab("-log10 adjusted p-value") +
+        theme(legend.position = "none",
+              plot.title = element_text(size = rel(1.5), hjust = 0.5),
+              axis.title = element_text(size = rel(1.25)))
+plot1
+```
+
+## Defining and fitting the cell type proportion-adjusted model
+Create the design matrix. Covariates will be case-control status, sex, gestational age in weeks, batch, and naive T cell, activated T cell, Hofbauer, fibroblast, CD14+ Monocytes, .
+```{r}
+covariates <- c("phenotype", "sex", "ga", "batch", "naive_t_cells", "hofabuer_cells", "fibroblasts", "cd14_monocytes", "activated_t_cells", "extravillous_trophoblasts")
+phenotype <- phenoData(d)$phenotype
+sex <- phenoData(d)$sex
+ga <- phenoData(d)$ga
+batch <- phenoData(d)$batch
+naive_t_cells <- phenoData(d)$naive_t_cells
+hofabuer_cells <-  phenoData(d)$hofbauer_cells
+fibroblasts <-  phenoData(d)$fibroblasts
+cd14_monocytes <- phenoData(d)$cd14_monocytes
+activated_t_cells <- d$activated_t_cells
+extravillous_trophoblasts <- d$extravillous_trophoblasts
+
+design.formula <- as.formula(paste0("~", paste(covariates, collapse = " + ")))
+design <- model.matrix(design.formula)
+```
+Fit the model.
+```{r}
+fit <- lmFit(d, design)
+fit <- eBayes(fit)
+```
+Extract model results.
+```{r}
+hits <- topTable(fit, coef = "phenotypePE", number = Inf)
+```
+Histogram of raw p-values.
+```{r}
+hist(hits$P.Value, col = brewer.pal(3, name = "Set2")[1],
+     main = "Cell type-adjusted pre-eclamptic patients vs. controls", xlab = "P-values")
+```
+Histogram of FDR-adjusted p-values.
+```{r}
+hist(hits$adj.P.Val, col = brewer.pal(3, name = "Set2")[1],
+     main = "Cell type-adjusted pre-eclamptic patients vs. controls", xlab = "FDR-adjusted p-values")
+```
+
+## Report results
+Add boolean significance vector to our results table. Zero FDR-adjusted results at chosen threshold.
+```{r}
+# Set p-value threshold
+threshold <- .3
+hits$sig <- hits$adj.P.Val < threshold
+print(paste0(length(which(hits$sig)), " significant hits at FDR-adjusted cutoff of ", threshold)) 
+```
+
+```{r}
+res <- rownames_to_column(hits, "gene_symbol")
+```
+Get the top hits.
+```{r}
+# Get the top downregulated hits
+downreg <- res %>%
+  filter(adj.P.Val < threshold) %>%
+  filter(logFC < 0) %>%
+  arrange(logFC)
+#Get the top upregulated hits.
+upreg <- res %>%
+  filter(adj.P.Val < threshold) %>%
+  filter(logFC > 0) %>%
+  arrange(desc(logFC))
+```
+Label genes of interest by name. Because there are limited hits, plot all hits at FDR-adjusted p-value threshold. Also included a label for the extreme outlier "LEP."
+```{r}
+#num.to.plot <- 10
+#genes.of.interest <- c("HLA-G")
+#top.upreg <- upreg$gene_symbol[1:num.to.plot]
+#top.downreg <- downreg$gene_symbol[1:num.to.plot]
+#genes.to.plot <- c(top.upreg, top.downreg, genes.of.interest)
+logFC.outlier <- res %>%
+  filter(logFC > .41)
+all.hits <- res %>%
+  filter(adj.P.Val < threshold)
+genes.to.plot <- c(all.hits$gene_symbol, logFC.outlier$gene_symbol)
+res$label[(res$gene_symbol %in% genes.to.plot)] <- T
+```
+Volcano plot of results. The chunk above will determine which genes are labelled in the plot.
+```{r}
+# Volcano plot
+plot2 <- ggplot(res) +
+        geom_point(aes(x=logFC, y=-log10(adj.P.Val), colour=sig)) +
+        geom_text_repel(aes(x = logFC, y = -log10(adj.P.Val),
+                            label = ifelse(
+                              label, gene_symbol, ""
+                            ))) +
+        geom_hline(yintercept = -log10(threshold), linetype="dotted") +
+        ggtitle("Cell type-adjusted pre-eclamptic cases vs controls") +
+        xlab("log2 fold change") + 
+        ylab("-log10 adjusted p-value") +
+        theme(legend.position = "none",
+              plot.title = element_text(size = rel(1.5), hjust = 0.5),
+              axis.title = element_text(size = rel(1.25)))
+plot2
+```
+Manually set axis limits and drawing side-by-side.
+```{r}
+p1 <- plot1 + coord_cartesian(xlim = c(-.45, 1.2), ylim = c(0, 5)) + ggtitle("Unadjusted")
+#ggsave(paste0(data_dir, "GSE75010_dex_unadj_", Sys.Date(), ".png"), device = png())
+p2 <- plot2 + coord_cartesian(xlim = c(-.45, 1.2), ylim = c(0, 5)) + ggtitle("Cell type-adjusted") +
+  geom_hline(yintercept = -log10(.05), linetype="dotted")
+#ggsave(paste0(data_dir, "GSE75010_dex_adj_", Sys.Date(), ".png"), device = png())
+```
+Draw and save.
+```{r}
+#png(paste0(data_dir, "GSE75010_dex_2_panel", Sys.Date(), ".png"))
+grid.newpage()
+grid.draw(cbind(ggplotGrob(p1), ggplotGrob(p2)))
+#dev.off()
+```

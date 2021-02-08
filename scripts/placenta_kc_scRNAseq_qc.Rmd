@@ -1,0 +1,188 @@
+---
+title: "KC scRNA-seq import and QC of placental villous tissue"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::knit_engines$set(python = reticulate::eng_python)
+
+#install.packages("package_name",  repos="http://cran.us.r-project.org") # Only this mirror worked for multiple packages
+library(knitr)
+library(tidyverse)
+library(devtools)
+library(Seurat)
+#remotes::install_github('satijalab/seurat-wrappers')
+library(SeuratWrappers)
+library(cowplot)
+library(rgl)
+library(EnvStats)
+library(reticulate)
+library(clustree)
+library(Matrix)
+
+#remotes::install_github('chris-mcginnis-ucsf/DoubletFinder') #Install DoubletFinder and depends
+library(DoubletFinder)
+
+# Bioconductor packages
+library(DropletUtils)
+library(edgeR)
+library(scater)
+# Set seed since this pipeline includes stochastic algorithms
+set.seed(1)
+# Set default working directory
+data_dir <- "C:/Users/k_cam/Downloads/scRNA_hpc_qc/"
+```
+### Important References
+Minimal QC recommended: Current best practices in single‐cell RNA‐seq analysis: a tutorial
+Orchestrating Single-cell Analysis
+### Compiling Issues
+This document had trouble compiling via knitr and pandoc. The following thread fixed the issue (https://github.com/rstudio/rstudio/issues/3661).
+## Create and merge Seurat objects from CellRanger count output
+Feature names cannot have underscores and are automatically replaced with dashes.
+```{r}
+# Function to convert from 10x output to seurat object with no filtering
+tenx_to_seu <- function(counts.matrix, project.name) {
+  CreateSeuratObject(counts = counts.matrix,
+                     min.features=0, min.cells=0,
+                     project = project.name)
+}
+# Apply function to each count matrix
+kc40.1 <- tenx_to_seu(counts.matrix = readRDS(paste0(data_dir, "kc40_1_raw.rda")),
+                      project.name = "kc40.1")
+kc40.2 <- tenx_to_seu(counts.matrix = readRDS(paste0(data_dir, "kc40_2_raw.rda")),
+                      project.name = "kc40.2")
+kc42.1 <- tenx_to_seu(counts.matrix = readRDS(paste0(data_dir, "kc42_1_raw.rda")),
+                      project.name = "kc42.1")
+kc42.2 <- tenx_to_seu(counts.matrix = readRDS(paste0(data_dir, "kc42_2_raw.rda")),
+                      project.name = "kc42.2")
+# Merge
+kc <- merge(kc40.1, y = c(kc40.2, kc42.1, kc42.2), add.cell.ids = c("kc40.1", "kc40.2", "kc42.1", "kc42.2"), project = "kc")
+# Clean-up memory
+rm(kc40.1, kc40.2, kc42.1, kc42.2)
+```
+
+```{r}
+# Convert to SingleCellExperiment for QC
+sce <- as.SingleCellExperiment(kc)
+# Clean-up memory
+rm(kc)
+```
+
+```{r}
+bcrank <- barcodeRanks(counts(sce))
+# Only showing unique points for plotting speed.
+uniq <- !duplicated(bcrank$rank)
+plot(bcrank$rank[uniq], bcrank$total[uniq], log="xy",
+    xlab="Rank", ylab="Total UMI count", cex.lab=1.2)
+
+abline(h=metadata(bcrank)$inflection, col="darkgreen", lty=2)
+abline(h=metadata(bcrank)$knee, col="dodgerblue", lty=2)
+
+legend("bottomleft", legend=c("Inflection", "Knee"), 
+        col=c("darkgreen", "dodgerblue"), lty=2, cex=1.2)
+```
+```{r}
+# emptyDrops performs Monte Carlo simulations to compute p-values,
+# so we need to set the seed to obtain reproducible results.
+set.seed(1)
+e.out <- emptyDrops(counts(sce))
+
+# See ?emptyDrops for an explanation of why there are NA values.
+summary(e.out$FDR <= 0.001)
+# Want to see 0 in the Sig FALSE, Limited TRUE cell. If not, increase MC simulations to reach 0
+table(Sig=e.out$FDR <= 0.001, Limited=e.out$Limited)
+```
+```{r}
+set.seed(100)
+limit <- 100   
+all.out <- emptyDrops(counts(sce), lower=limit, test.ambient=TRUE)
+hist(all.out$PValue[all.out$Total <= limit & all.out$Total > 0],
+    xlab="P-value", main="", col="grey80") 
+```
+```{r}
+# Drop empty droplets based on MC metrics above
+sce <- sce[,which(e.out$FDR <= 0.001)]
+# Memory clean-up
+rm(bcrank, all.out, e.out)
+```
+## Calculate QC Metrics
+Calculate %reads mapping to mitochondrial genes
+```{r}
+is.mito <- grepl("^MT-", rownames(sce))
+sce <- addPerCellQC(sce, subsets=list(Mito=is.mito))
+colnames(colData(sce))
+```
+Perform outlier detection for unique RNA molecules, genes detected per cell, and percentage mitochondiral gene mapping.
+```{r}
+qc.lib <- isOutlier(sce$sum, log=TRUE, type="lower")
+qc.nexpr <- isOutlier(sce$detected, log=TRUE, type="lower")
+qc.mito <- isOutlier(sce$subsets_Mito_percent, type="higher")
+
+print(paste0("Cells with less than ", ceiling(as.numeric(attr(qc.lib, "thresholds")["lower"])), " unique RNA molecules are outliers"))
+print(paste0("Cells with less than ", ceiling(as.numeric(attr(qc.nexpr, "thresholds")["lower"])), " unique genes per cell are outliers"))
+print(paste0("Cells with more than ", floor(as.numeric(attr(qc.mito, "thresholds")["higher"])), "% mitochondrial-mapping reads are outliers"))
+```
+Tabulate the number of cells to be dropped for outlier status.
+```{r}
+# Cells that are outliers on any of the previous metrics
+discard <- qc.lib | qc.nexpr | qc.mito
+# Summarize the number of cells removed for each reason.
+DataFrame(LibSize=sum(qc.lib), NExprs=sum(qc.nexpr), MitoProp=sum(qc.mito), Total=sum(discard))
+```
+Add metadata.
+```{r}
+sce$discard <- discard
+```
+QC plots.
+```{r}
+plotColData(sce, x="sum", y="subsets_Mito_percent", colour_by = "discard") + scale_x_log10()
+plotColData(sce, x="detected", y="subsets_Mito_percent", colour_by = "discard") + scale_x_log10()
+```
+
+```{r}
+plotColData(sce, x="ident", y="sum", colour_by="discard") + 
+        scale_y_log10() + ggtitle("Total count")
+plotColData(sce, x="ident", y="detected", colour_by="discard") + 
+        scale_y_log10() + ggtitle("Detected features")
+plotColData(sce, x="ident", y="subsets_Mito_percent", 
+        colour_by="discard") + ggtitle("Mito percent")
+```
+Exploratory investigation of variance explained by metadata.
+```{r}
+vars <- getVarianceExplained(logNormCounts(sce), 
+    variables=c("ident", "subsets_Mito_percent", "sum", "detected"))
+plotExplanatoryVariables(vars)
+```
+Subset to QC-filtered cells.
+```{r}
+# Keeping the columns we DON'T want to discard.
+filtered <- sce[,!discard]
+dropped <- as.numeric(summary(discard)["TRUE"])
+kept <- as.numeric(summary(discard)["FALSE"])
+print(paste0(dropped, " cells were filtered, yielding ", kept, " remaining cells"))
+```
+Identify if a rare cell type might have been discarded.
+```{r}
+lost <- calculateAverage(counts(sce)[,!discard])
+kept <- calculateAverage(counts(sce)[,discard])
+
+logged <- cpm(cbind(lost, kept), log=TRUE, prior.count=2)
+logFC <- logged[,1] - logged[,2]
+abundance <- rowMeans(logged)
+```
+Blue points are mitochondrial genes and are expected to be downregulated. Exclusion of a cell type may be indicated by overexpression on this plot, of which there does not appear to be strong overexpression.
+```{r}
+plot(abundance, logFC, xlab="Average count", ylab="Log-FC (lost/kept)", pch=16)
+points(abundance[is.mito], logFC[is.mito], col="dodgerblue", pch=16)
+```
+Convert to Seurat object for further preprocessing and analysis and save.
+```{r}
+kc <- as.Seurat(filtered)
+#saveRDS(kc, paste0(data_dir, "placenta_scRNA_seq_kc_filtered_", Sys.Date(), ".rda"))
+```
+
+```{r}
+# Rename Samples KC_40_1 and KC_40_2 have been renamed 1A and 1B; KC_42_1 and KC_42_2 <- 2A and 2B.
+#levels(All@active.ident) <- c("Placenta 1A", "Placenta 1B", "Placenta 2A", "Placenta 2B")
+```

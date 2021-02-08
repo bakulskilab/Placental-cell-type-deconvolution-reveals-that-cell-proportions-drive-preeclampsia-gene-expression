@@ -1,0 +1,74 @@
+---
+title: "Single-cell CIBERSORTx Signature Matrix Prep"
+author: "Kyle Campbell"
+date: "12/30/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(Seurat)
+knitr::opts_chunk$set(echo = TRUE)
+
+data_dir <- "/nfs/turbo/bakulski1/People/kyleac/placenta_single_cell/data/"
+```
+
+## Helpful pages
+The CIBERSORTX article uses CPM for 3' Chromium 10X and MAS5 or RMA normalization with custom CDFv21 for microarrays. Plan to use CPM for scRNA-seq data.
+
+This CIBERSORT article explains that microarray signature matrix can be used to deconvolve RNA-seq samples but recommends interpreting p-values with caution, but does not provide normalization intstructions.
+
+"Importantly, all expression data should be non-negative, devoid of missing values, and represented in non-log linear space. For Affymetrix microarrays, a custom chip definition file (CDF) is recommended (see section 3.2.2) and should be normalized with MAS5 or RMA. Illumina Beadchip and single color Agilent arrays should be processed as described in the limma package. Standard RNA-Seq expression quantification metrics, such as fragments per kilobase per million (FPKM) and transcripts per kilobase million (TPM), are suitable for use with CIBERSORT.
+
+The platform and methods used to generate data for the signature matrix ideally should be identical to that applied to analysis of the mixture samples. While SVR is robust to unknown cell populations, performance can be adversely affected by genes that are highly expressed in a relevant unknown cell population (e.g., in the malignant cells) but not by any immune components present in the signature matrix. A simple option implemented in CIBERSORT to limit this effect is to remove genes highly expressed in non-hematopoietic cells or tumor cells. If expression data is available from purified tumor cells for the malignancy to be studied, this can be used as a guideline to filter other confounding genes from the signature matrix."
+https://www-ncbi-nlm-nih-gov.proxy.lib.umich.edu/pmc/articles/PMC5895181/
+
+Microarray expression units:
+https://www.researchgate.net/post/What_exactly_is_the_unit_of_measure_in_microarray_experiments
+https://www.biostars.org/p/214013/
+http://www.ub.edu/stat/docencia/bioinformatica/microarrays/ADM/slides/2_PreprocessingMicroarrayData-2-Preprocessing%20and%20Normalization.pdf
+
+Should use raw files processed together for integrating datasets:
+https://www.biostars.org/p/309365/
+
+GEOQuery vignette:
+https://www.bioconductor.org/packages/release/bioc/vignettes/GEOquery/inst/doc/GEOquery.html
+
+
+## Prep Single-cell Data
+
+Load
+```{r}
+seu <- readRDS(paste0(data_dir, "cleaned_combined_seurat_2020-12-22.rda"))
+```
+
+```{r}
+# Extract counts
+counts <- as.matrix(seu@assays$RNA@counts)
+# Extract per-cell cell type identities
+types <- as.character(Idents(seu))
+# Unload Seurat for extra memory
+rm(seu)
+
+# Add empty row and populate with per-cell cell type identities
+empty_row <- character(dim(counts)[2])
+counts <- rbind(empty_row, counts)
+counts[1,] <- types
+
+# Add empty column and populate with genes
+empty_column <- character(dim(counts)[1])
+counts <- cbind(empty_column, counts)
+genes <- rownames(counts)
+counts[,1] <- genes
+
+# Reformat column 1
+counts[1,1] <- "GeneSymbol"
+colnames(counts) <- NULL
+rownames(counts) <- NULL
+counts <- as.data.frame(counts)
+names(counts) <- NULL
+```
+
+```{r}
+write.table(x=counts, sep = '\t', quote = F, row.names = F, col.names = F, file = paste0(data_dir, "KC_Pique-Regi_sc_signature_matrix_input_", Sys.Date(), ".txt"))
+```

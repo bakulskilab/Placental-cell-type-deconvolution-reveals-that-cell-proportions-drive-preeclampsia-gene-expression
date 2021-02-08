@@ -1,0 +1,37 @@
+#!/bin/bash
+# The interpreter used to execute the script
+
+#SBATCH --job-name=popscle_pileup_pr481
+#SBATCH --mail-user=kyleac@umich.edu
+#SBATCH --mail-type=BEGIN,END
+#SBATCH --cpus-per-task=4
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=4
+#SBATCH --mem-per-cpu=6GB
+#SBATCH --time 12:00:00
+#SBATCH --account=bakulski1
+#SBATCH --partition=standard
+#SBATCH --output=/nfs/turbo/bakulski1/People/kyleac/placenta_single_cell/popscle_out/%x-%j.log
+
+module load singularity
+module load Bioinformatics
+module load samtools
+module load bcftools
+
+# make output dir
+rm -r /nfs/turbo/bakulski1/People/kyleac/placenta_single_cell/popscle_out/pr_481
+mkdir /nfs/turbo/bakulski1/People/kyleac/placenta_single_cell/popscle_out/pr_481
+
+# unzip barcodes matrix
+gunzip /scratch/bakulski_root/bakulski1/kyleac/cellranger/run_cellranger_count/batch_pique_regi_tnl_481/outs/filtered_feature_bc_matrix/barcodes.tsv.gz
+
+# run the .sif popscle command through the singularity container
+singularity exec popscle_latest.sif \
+popscle dsc-pileup \
+--sam /scratch/bakulski_root/bakulski1/kyleac/cellranger/run_cellranger_count/batch_pique_regi_tnl_481/outs/possorted_genome_bam.bam \
+--vcf /nfs/turbo/bakulski1/People/kyleac/placenta_single_cell/1000g_ref/1000g_ref_sorted_as_in_bam.vcf \
+--out /nfs/turbo/bakulski1/People/kyleac/placenta_single_cell/popscle_out/pr_481/ \
+--group-list /scratch/bakulski_root/bakulski1/kyleac/cellranger/run_cellranger_count/batch_pique_regi_tnl_481/outs/filtered_feature_bc_matrix/barcodes.tsv
+
+# re-zip barcodes matrix
+gunzip /scratch/bakulski_root/bakulski1/kyleac/cellranger/run_cellranger_count/batch_pique_regi_tnl_481/outs/filtered_feature_bc_matrix/barcodes.tsv.gz

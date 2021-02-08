@@ -1,0 +1,387 @@
+---
+title: "KC and PR scRNA-seq import of filtered 10x output and QC of placental villous tissue"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::knit_engines$set(python = reticulate::eng_python)
+
+#install.packages("package_name",  repos="http://cran.us.r-project.org") # Only this mirror worked for multiple packages
+library(knitr)
+library(tidyverse)
+library(devtools)
+library(Seurat)
+#remotes::install_github('satijalab/seurat-wrappers')
+library(SeuratWrappers)
+library(cowplot)
+library(rgl)
+library(EnvStats)
+library(reticulate)
+library(clustree)
+library(Matrix)
+
+#remotes::install_github('chris-mcginnis-ucsf/DoubletFinder') #Install DoubletFinder and depends
+library(DoubletFinder)
+
+# Bioconductor packages
+library(DropletUtils)
+library(edgeR)
+library(scater)
+# Set seed since this pipeline includes stochastic algorithms
+set.seed(1)
+# Set default working directory
+data_dir <- "C:/Users/k_cam/Google Drive/Placenta_Cell_Types/RNA/placenta_rna/data/"
+results_dir <- "C:/Users/k_cam/Google Drive/Placenta_Cell_Types/RNA/placenta_rna/results/single_cell_qc/"
+```
+### Important References
+Minimal QC recommended: Current best practices in single‐cell RNA‐seq analysis: a tutorial
+Orchestrating Single-cell Analysis
+https://bioconductor.org/packages/release/bioc/vignettes/DropletUtils/inst/doc/DropletUtils.html
+### Compiling Issues
+This document had trouble compiling via knitr and pandoc. The following thread fixed the issue (https://github.com/rstudio/rstudio/issues/3661).
+## Custom function to create list of Seurat objects from 10x output directories
+```{r}
+# Function to convert from 10x output to seurat object with no filtering
+tenx_to_seu <- function(tenx_directory, name) {
+  seu <- CreateSeuratObject(
+    counts = Read10X(tenx_directory),
+    project = name)
+  return(seu)
+}
+```
+## Get list of Seurat objects
+```{r}
+raw_dir <- paste0(data_dir, "tenx_outs/")
+# Pull full file paths
+names <- 
+  grep(
+    dir(
+      path = raw_dir             #list all files, unfortunately includes .ini files
+      ),
+    pattern = "(kc|pr)(.\\d+)+", #pattern to search for, excludes .ini files
+    value = T                    #return matches
+    )
+files <-
+  paste0(
+    raw_dir, 
+    names
+  )
+# Create list of Seurat objects
+counts <- map2(files, names, tenx_to_seu)
+# Name list
+names(counts) <- names
+# Manually add batch metadata to distinguish kc from pr
+counts$kc.40.1$'batch' <- "kc"
+counts$kc.40.2$'batch' <- "kc"
+counts$kc.42.1$'batch' <- "kc"
+counts$kc.42.2$'batch' <- "kc"
+counts$pr.478$'batch' <- "pr"
+counts$pr.481$'batch' <- "pr"
+counts$pr.484$'batch' <- "pr"
+# Manually add bioreplicate metadata
+counts$kc.40.1$'biorep' <- "kc.40"
+counts$kc.40.2$'biorep' <- "kc.40"
+counts$kc.42.1$'biorep' <- "kc.42"
+counts$kc.42.2$'biorep' <- "kc.42"
+counts$pr.478$'biorep' <- "pr.478"
+counts$pr.481$'biorep' <- "pr.481"
+counts$pr.484$'biorep' <- "pr.484"
+```
+## Create list of freemuxlet raw output data
+```{r}
+freemux_dir <- paste0(data_dir, "freemuxlet/raw_data/")
+names <- 
+  grep(
+    dir(
+      path = freemux_dir             #list all files, unfortunately includes .ini files
+      ),
+    pattern = "(kc|pr)(_\\d+)+", #pattern to search for, excludes .ini files
+    value = T                    #return matches
+    )
+files <-
+  paste0(
+    freemux_dir, 
+    names
+  )
+# Read in freemuxlet dataframes, specifying the datatype in each column
+freemux.clusters <- lapply(files, readr::read_tsv, col_types = "iciiffdfddddfdfddfdd")
+names(freemux.clusters) <- names
+
+# Optional? 'QC' freemux output?
+```
+## Custom function to add freemuxlet cluster assignment to Seurat MetaData
+```{r}
+# Add freemuxlet cluster assignment to Seurat Metadata
+AddFreemuxletMetaData <- function(seu, freemux.data, col.name) {
+  seu.barcodes <- tibble (
+    BARCODE = rownames(seu@meta.data)) # get barcodes list from Seurat object
+  join <- left_join(                      # join freemuxlet assignment with barcodes
+    seu.barcodes,
+    freemux.data %>%
+      dplyr::select(BARCODE, BEST.GUESS) %>%
+      mutate(
+        BEST.GUESS = fct_recode(          # Refactor freemuxlet assignments
+          BEST.GUESS,
+          "1" = "1,1",
+          "0" = "0,0",
+          "doublet" = "1,0"
+        )
+      )
+  )
+  seu <- AddMetaData(seu,                 # Add MetaData to Seurat object
+                     join %>% pull(BEST.GUESS),
+                     col.name = col.name)
+  return(seu)                             # Return augmented Seurat object
+}
+```
+## Add freemuxlet cluster assignment to Seurat objects
+Error output for pr.478 because it is the only dataset with no assigned doublets. Output appears normal otherwise
+```{r}
+mapped <-
+  map2(counts,                              # List of Seurat objects
+       freemux.clusters,                    # List of freemuxlet raw data
+       AddFreemuxletMetaData,               # Function to call
+       col.name = "freemuxlet.assignments") # Every metadata column has same name
+
+rm(counts)       # Remove data
+rm(freemux.clusters) # Remove data
+```
+## Merge Seurat objects and remove doublets
+```{r}
+# Merge, adding cell id information because barcodes can and have been duplicated across experiments
+kc.seu <- merge(x = mapped[[1]],                # Seurat object
+             y = mapped[(2:4)],             # List
+             add.cell.ids = names(mapped)[1:4])   # Add cell IDs using names
+# Remove doublets
+kc.seu <- subset(x = kc.seu,
+              subset = freemuxlet.assignments == "doublet",
+              invert = T)
+
+# Merge, adding cell id information becaue barcodes can and have been duplicated across experiments
+pr.seu <- merge(x = mapped[[5]],                # Seurat object
+             y = mapped[(6:7)],             # List
+             add.cell.ids = names(mapped)[5:7])   # Add cell IDs using names
+pr.seu <- subset(x = pr.seu,
+              subset = freemuxlet.assignments == "doublet",
+              invert = T)
+```
+
+# KC QC
+```{r}
+# Convert to SingleCellExperiment for QC
+sce <- as.SingleCellExperiment(kc.seu)
+# Factorize the batch variable
+sce$batch <- as.factor(sce$batch)
+```
+
+## Droplet Calling
+Skipping droplet calling since 10x already filters that under Cell Ranger 4.0 based on Aaron Lun's EmptyDroplets().
+
+## Calculate QC Metrics
+Increased NMADs to 4 because NMAD of 3.0 looks too restrictive for KC data. Looks like an appropriate compromise based on QC plots.
+```{r}
+# Find mitochondrial genes
+is.mito <- grepl("^MT-", rownames(sce))
+# Add per cell QC metrics to the object
+sce <- addPerCellQC(sce, subsets = list(Mito=is.mito))
+
+# Create QC data frame
+qc.df <- perCellQCMetrics(sce, subsets = list(Mito=is.mito))
+# Reasons for exclusion, considering batch
+batch.reasons <- quickPerCellQC(qc.df, batch=sce$batch,
+                                sub.fields = "subsets_Mito_percent",
+                                nmads = 4)
+colSums(as.matrix(batch.reasons))
+
+# Add discard metadata to object
+sce$discard <- batch.reasons$discard
+discard <- batch.reasons$discard
+```
+
+QC plots.
+```{r}
+plotColData(sce, x="sum", y="subsets_Mito_percent", colour_by = "discard") + scale_x_log10()
+plotColData(sce, x="detected", y="subsets_Mito_percent", colour_by = "discard") + scale_x_log10()
+```
+
+```{r}
+plotColData(sce, x="ident", y="sum", colour_by="discard") + 
+        scale_y_log10() + ggtitle("Total count")
+plotColData(sce, x="ident", y="detected", colour_by="discard") + 
+        scale_y_log10() + ggtitle("Detected features")
+plotColData(sce, x="ident", y="subsets_Mito_percent", 
+        colour_by="discard") + ggtitle("Mito percent")
+```
+Exploratory investigation of variance explained by metadata.
+```{r}
+#vars <- getVarianceExplained(logNormCounts(sce), 
+#    variables=c("ident", "subsets_Mito_percent", "sum", "detected"))
+#plotExplanatoryVariables(vars)
+```
+Subset to QC-filtered cells.
+```{r}
+# Keeping the columns we DON'T want to discard.
+filtered <- sce[,!discard]
+dropped <- as.numeric(summary(discard)["TRUE"])
+kept <- as.numeric(summary(discard)["FALSE"])
+print(paste0(dropped, " cells were filtered, yielding ", kept, " remaining cells"))
+```
+Identify if a rare cell type might have been discarded.
+```{r}
+lost <- calculateAverage(counts(sce)[,!discard])
+kept <- calculateAverage(counts(sce)[,discard])
+
+logged <- cpm(cbind(lost, kept), log=TRUE, prior.count=2)
+logFC <- logged[,1] - logged[,2]
+abundance <- rowMeans(logged)
+```
+
+Blue points are mitochondrial genes and are expected to be downregulated. Exclusion of a cell type may be indicated by overexpression on this plot, of which there does not appear to be strong overexpression.
+```{r}
+plot(abundance, logFC, xlab="Average count", ylab="Log-FC (lost/kept)", pch=16)
+points(abundance[is.mito], logFC[is.mito], col="dodgerblue", pch=16)
+```
+Even at NMAD = 4, CSH1 is differentially underexpressed, indicates omission of syncytiotrophoblasts, possibly correct since syncytiotrophoblast may have been differentially technically less sound.
+```{r}
+# Pull out differentially regulated genes
+logFC[logFC < -2]
+
+plotExpression(sce, features = "CSH1", x = "subsets_Mito_percent")
+plotExpression(filtered, features = "CSH1", x = "subsets_Mito_percent")
+
+plotExpression(sce, features = "CSH1", x = "total")
+plotExpression(filtered, features = "CSH1", x = "total")
+
+plotExpression(sce, features = "CSH1", x = "detected")
+plotExpression(filtered, features = "CSH1", x = "detected")
+```
+
+Convert to Seurat object for further preprocessing and analysis and save.
+```{r}
+kc <- as.Seurat(filtered)
+#saveRDS(kc, paste0(data_dir, "placenta_scRNA_seq_kc_filtered_", Sys.Date(), ".rda"))
+```
+
+Explore batch effect in KC samples. There doesn't appear to be much of a batch effect.
+```{r}
+# Should normalize and find variable features in each dataset separately
+kc <- NormalizeData(object = kc, normalization.method = "LogNormalize", scale.factor = 10000)
+kc <- FindVariableFeatures(object = kc)
+kc <- ScaleData(kc)
+kc <- RunPCA(kc, features = VariableFeatures(object = kc))
+ElbowPlot(object = kc, ndims = 100)
+DimPlot(kc, reduction = "pca", group.by = 'orig.ident')
+DimPlot(kc, reduction = "pca", group.by = 'biorep')
+```
+
+```{r}
+# Rename Samples KC_40_1 and KC_40_2 have been renamed 1A and 1B; KC_42_1 and KC_42_2 <- 2A and 2B.
+#levels(All@active.ident) <- c("Placenta 1A", "Placenta 1B", "Placenta 2A", "Placenta 2B")
+```
+
+# Pique-Regi data QC
+
+```{r}
+# Convert to SingleCellExperiment for QC
+sce <- as.SingleCellExperiment(pr.seu)
+# Factorize the batch variable
+sce$batch <- as.factor(sce$batch)
+# Clean-up memory
+# rm(seu)
+```
+
+## Droplet Calling
+Skipping droplet calling since 10x already filters that under Cell Ranger 4.0 based on Aaron Lun's EmptyDroplets().
+
+## Calculate QC Metrics
+Increased NMADs to 3.5 because NMAD of 3.0 looks too restrictive for KC data and 4.0 looked to permissive for PR data. Looks like an appropriate compromise based on QC plots.
+```{r}
+# Find mitochondrial genes
+is.mito <- grepl("^MT-", rownames(sce))
+# Add per cell QC metrics to the object
+sce <- addPerCellQC(sce, subsets = list(Mito=is.mito))
+
+# Create QC data frame
+qc.df <- perCellQCMetrics(sce, subsets = list(Mito=is.mito))
+# Reasons for exclusion, considering batch
+batch.reasons <- quickPerCellQC(qc.df,
+                                sub.fields = "subsets_Mito_percent",
+                                nmads = 3) # default nmads is 3
+colSums(as.matrix(batch.reasons))
+
+# Add discard metadata to object
+sce$discard <- batch.reasons$discard
+discard <- batch.reasons$discard
+```
+
+QC plots.
+```{r}
+plotColData(sce, x="sum", y="subsets_Mito_percent", colour_by = "discard") + scale_x_log10()
+plotColData(sce, x="detected", y="subsets_Mito_percent", colour_by = "discard") + scale_x_log10()
+```
+
+```{r}
+plotColData(sce, x="ident", y="sum", colour_by="discard") + 
+        scale_y_log10() + ggtitle("Total count")
+plotColData(sce, x="ident", y="detected", colour_by="discard") + 
+        scale_y_log10() + ggtitle("Detected features")
+plotColData(sce, x="ident", y="subsets_Mito_percent", 
+        colour_by="discard") + ggtitle("Mito percent")
+```
+Exploratory investigation of variance explained by metadata.
+```{r}
+#vars <- getVarianceExplained(logNormCounts(sce), 
+#    variables=c("ident", "subsets_Mito_percent", "sum", "detected"))
+#plotExplanatoryVariables(vars)
+```
+Subset to QC-filtered cells.
+```{r}
+# Keeping the columns we DON'T want to discard.
+filtered <- sce[,!discard]
+dropped <- as.numeric(summary(discard)["TRUE"])
+kept <- as.numeric(summary(discard)["FALSE"])
+print(paste0(dropped, " cells were filtered, yielding ", kept, " remaining cells"))
+```
+Identify if a rare cell type might have been discarded.
+```{r}
+lost <- calculateAverage(counts(sce)[,!discard])
+kept <- calculateAverage(counts(sce)[,discard])
+
+logged <- cpm(cbind(lost, kept), log=TRUE, prior.count=2)
+logFC <- logged[,1] - logged[,2]
+abundance <- rowMeans(logged)
+```
+
+Blue points are mitochondrial genes and are expected to be downregulated. Exclusion of a cell type may be indicated by overexpression on this plot, of which there does not appear to be strong overexpression.
+```{r}
+plot(abundance, logFC, xlab="Average count", ylab="Log-FC (lost/kept)", pch=16)
+points(abundance[is.mito], logFC[is.mito], col="dodgerblue", pch=16)
+```
+No clear cell types omitted based on my prior knowledge.
+```{r}
+logFC[logFC < -2]
+```
+
+Convert to Seurat object for further preprocessing and analysis and save.
+```{r}
+pr <- as.Seurat(filtered)
+```
+
+Explore batch effect in PR samples. There may be some batch effect.
+```{r}
+# Should normalize and find variable features in each dataset separately
+pr <- NormalizeData(object = pr, normalization.method = "LogNormalize", scale.factor = 10000)
+pr <- FindVariableFeatures(object = pr)
+pr <- ScaleData(pr)
+pr <- RunPCA(pr, features = VariableFeatures(object = pr))
+ElbowPlot(object = pr, ndims = 100)
+DimPlot(pr, reduction = "pca", group.by = 'orig.ident')
+```
+
+# TODO
+Clean-up merged object, looks like merging causes duplicate metadata columns
+```{r}
+merged <- merge(kc, pr)
+#saveRDS(merged, paste0(data_dir, "kc_pr_qc_merged_", Sys.Date(), ".rda"))
+```

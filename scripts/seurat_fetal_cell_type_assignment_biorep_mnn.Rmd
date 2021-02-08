@@ -1,0 +1,572 @@
+---
+title: "Fetal Cell type assignment - correcting by biorep for batch"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::knit_engines$set(python = reticulate::eng_python)
+
+#install.packages("package_name",  repos="http://cran.us.r-project.org") # Only this mirror worked for multiple packages
+library(knitr)
+library(tidyverse)
+library(devtools)
+library(Seurat)
+#remotes::install_github('satijalab/seurat-wrappers')
+library(SeuratWrappers)
+library(cowplot)
+library(rgl)
+library(EnvStats)
+library(reticulate)
+library(clustree)
+library(Matrix)
+
+# Bioconductor packages
+#remotes::install_github('chris-mcginnis-ucsf/DoubletFinder') #Install DoubletFinder and depends
+library(batchelor)
+library(edgeR)
+library(scater)
+# Set seed since this pipeline includes stochastic algorithms
+set.seed(1)
+# Set default working directory
+data_dir <- "C:/Users/k_cam/Google Drive/Placenta_Cell_Types/RNA/placenta_rna/data/"
+```
+# Single-cell RNA-seq analysis of KC and TNL Pique-Regi placental villous tissue samples
+### Important References
+Minimal QC recommended: Current best practices in single‐cell RNA‐seq analysis: a tutorial
+Orchestrating Single-cell Analysis
+### Compiling Issues
+This document had trouble compiling via knitr and pandoc. The following thread fixed the issue (https://github.com/rstudio/rstudio/issues/3661).
+
+## Load Input Data
+```{r}
+seu <- readRDS(paste0(data_dir, "fetal_assigned_res.0.3_2020-12-16.rda"))
+```
+
+```{r}
+DimPlot(seu, group.by = 'seurat_clusters', label = T, pt.size = .25)
+```
+
+
+Split into maternal versus fetal subsets.
+```{r}
+split <- SplitObject(seu, split.by = 'fetal')
+rm(seu) # Clean memory
+fetal <- split$Fetal
+maternal <- split$Maternal
+rm(split) # Clean memory
+```
+
+```{r}
+DimPlot(fetal) + ggtitle("Fetal")
+DimPlot(maternal) + ggtitle("Maternal")
+```
+Custom function to run fastMNN pipe with 
+```{r}
+pipe.fast.mnn <- function(seu, batch) {
+  seu <- RunFastMNN(object.list = SplitObject(seu, split.by = batch), verbose = T)
+  print(seu@tools$RunFastMNN@metadata$merge.info$lost.var)
+  seu <- RunUMAP(seu, reduction = "mnn", dims = 1:30)
+  seu <- FindNeighbors(seu, reduction = "mnn", dims = 1:30)
+  seu <- FindClusters(seu, res = 0.2)
+  return(seu)
+}
+```
+
+```{r}
+fetal <- pipe.fast.mnn(fetal, "biorep")
+DimPlot(fetal, group.by = "seurat_clusters", label = T, pt.size =.25)
+```
+
+```{r}
+# Function that accepts Seurat  that has been processed up to the clustering step, clusters at desired resolutions (vector), adds cluster identities at different resolutions, and returns Seurat object with resolution cluster identities
+Seurat_clustree <- function (seuratObject, resolutions) {
+  
+  for(hyperparameter in resolutions) {
+    print(hyperparameter)
+    prefix <- paste0("res.", hyperparameter)
+    print(prefix)
+    seuratObject <- FindClusters(object = seuratObject, resolution = hyperparameter)
+    seuratObject <- AddMetaData(object = seuratObject, metadata = seuratObject$seurat_clusters, col.name = prefix)
+  }
+  return(seuratObject)
+}
+
+resolutions <- seq(from = 0.1, to = 0.8, by = .1)
+fetal <- Seurat_clustree(fetal, resolutions)
+```
+Iterating over 0.2 to 0.7 clustering resolution, .3 looks stable. Additional divisions at .5
+```{r clustree_graph}
+clustree(fetal, prefix = "res.", node_colour = "sc3_stability") + theme(legend.position = "bottom") + guides(edge_alpha = F)
+```
+Resolution 0.1 to 0.2 just changes cell assignment some. From 0.2 to 0.3, makes 2 more splits by large cytotrophoblast cluster, likely by sex, more thoroughly explored below. Set default resolution to 0.2.
+```{r}
+DimPlot(fetal, group.by = 'res.0.1', label = T, pt.size = .25)
+DimPlot(fetal, group.by = 'res.0.2', label = T, pt.size = .25)
+DimPlot(fetal, group.by = 'res.0.3', label = T, pt.size = .25)
+DimPlot(fetal, group.by = 'res.0.4', label = T, pt.size = .25)
+# Set default to 0.2
+fetal <- FindClusters(fetal, res = 0.2)
+```
+
+```{r}
+DimPlot(fetal, group.by = 'biorep', label = F, pt.size = .25)
+```
+
+```{r}
+fetal.markers.res.0.2 <- FindAllMarkers(fetal)
+```
+
+```{r}
+ct.diff <- FindMarkers(fetal, ident.1 = "7", ident.2 = "0", min.pct = 0, logfc.threshold = 0, only.pos = F, min.cells.feature = 1, min.cells.group = 1)
+
+ct.markers <- FindMarkers(fetal, ident.1 = "7", ident.2 = "0")
+
+ct.markers %>%
+  arrange(desc(avg_logFC)) %>%
+  view()
+```
+
+```{r}
+ct.diff %>% rownames_to_column(var = "gene") %>%
+  filter(gene %in% c("PAGE4", "XIST", "DDX3X", "E1F1AX", "TOP2A", "PCNA", "MKI67"))
+```
+Trying to tease apart proliferative CTs at the ST surface from interstitial CTs. Pique-regi et al. used sex-specific transcripts that may have been counfounded by fetal sex. Let's look some more canonical markers from "Expression of the proliferation markers Ki67 and transferrin receptor by human trophoblast populations (1988)". Ki67 very highly expressed in cluster 7 compared to 0 and is a marker of CTs near the ST interace. Transferrin, however, was deteced only in a couple cells at very low level. In addition, a differential expression test between the 2 clusters revealed very high expression of PCNA, a cofactor of DNA polymerase delta and TOP2A, DNA Topoisomerase II Alpha.
+```{r}
+# Cytotrophoblasts
+FeaturePlot(object = fetal,
+            features = c("XIST", "PAGE4"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+FeaturePlot(object = fetal,
+            features = c("EIF1AX", "DDX3X"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+FeaturePlot(object = fetal,
+            features = c("MKI67", "TF"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+FeaturePlot(object = fetal,
+            features = c("PCNA", "TOP2A"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+AverageExpression(fetal, features = c("PAGE4", "XIST", "DDX3X", "EIF1AX"))
+AverageExpression(fetal, features = c("PAGE4", "TOP2A", "PCNA", "MKI67", "TF"))
+```
+
+A small sex difference is clear in the KC data. A very large sex difference is apparent in the PR data. 
+```{r}
+split <- SplitObject(fetal, split.by = 'batch')
+kc <- split$kc
+DimPlot(kc, group.by = "seurat_clusters", label = T, pt.size =.25) + NoLegend()
+DimPlot(kc, group.by = "orig.ident", label = F, pt.size =.25)
+pr <- split$pr
+DimPlot(pr, group.by = "seurat_clusters", label = T, pt.size =.25) + NoLegend()
+DimPlot(pr, group.by = "orig.ident", label = F, pt.size =.25)
+rm(split)
+```
+
+Key gene expression markers
+```{r}
+# Cytotrophoblasts
+FeaturePlot(object = fetal,
+            features = c("KRT8", "PAGE4"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+# Fibroblasts
+FeaturePlot(object = fetal,
+            features = c("COL1A1"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+# Monocyte (and potential CD1C+ Dendritic Cell subset)
+FeaturePlot(object = fetal,
+            features = c("CD1C", "CD14"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+FeaturePlot(object = fetal,
+            features = c("CD1C", "CLEC9A"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+# FCGR3A+ Monocytes
+FeaturePlot(object = fetal,
+            features = c("FCGR3A", "MS4A7"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+# Hofbauer
+FeaturePlot(object = fetal,
+            features = c("CD163", "CD14"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+FeaturePlot(object = fetal,
+            features = c("LYVE1"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+# B Cells
+FeaturePlot(object = fetal,
+            features = c("CD79A"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+# Extravillous Trophoblast (EVT)
+FeaturePlot(object = fetal,
+            features = c("MMP2", "HLA-G"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+# Endothelial
+FeaturePlot(object = fetal,
+            features = c("KDR", "ESAM"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+# pDC ref: "Single-cell RNA-seq reveals new types of human blood dendritic cells, monocytes and progenitors"
+# Looks like pDC are actually off the tail of 
+FeaturePlot(object = fetal,
+            features = c("HLA-DRA"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+FeaturePlot(object = fetal,
+            features = c("CLEC4C", "IL3RA"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+FeaturePlot(object = fetal,
+            features = c("GZMB", "SERPINF1"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+FeaturePlot(object = fetal,
+            features = c("IL3RA"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+# DC 1, bizarrely, no CLEC9A expression, which is supposed to clearly delineate a THBD+ subset, but shows up in the small cluster thought to be pDC
+FeaturePlot(object = fetal,
+            features = c("THBD", "CLEC9A"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+# RBCs
+FeaturePlot(object = fetal,
+            features = c("HBB", "HBG2"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+```
+
+```{r}
+monocytes <- subset(fetal, idents = c("4", "10"))
+monocytes <- pipe.fast.mnn(monocytes, batch = "biorep")
+```
+
+```{r}
+monocytes <- Seurat_clustree(monocytes, seq(0.1, 0.8, by = 0.1))
+clustree(monocytes, prefix = "res.", node_colour = "sc3_stability") + theme(legend.position = "bottom") + guides(edge_alpha = F)
+```
+
+```{r}
+monocytes <- FindClusters(monocytes, resolution = 0.3)
+DimPlot(monocytes, group.by = 'seurat_clusters', label = T, pt.size = .25)
+```
+
+```{r}
+monocytes.markers <- FindAllMarkers(monocytes)
+```
+"Single-cell RNA-seq reveals new types of human blood dendritic cells, monocytes and progenitors" for marker genes for the small monocyte population. pDC cluster may contain the "new" DC5 population from this paper, but leaving as pDC.
+```{r}
+# FCGR3A+ Monocytes not well separated by clustering, leave as CD14+ monocytes
+FeaturePlot(object = monocytes,
+            features = c("FCGR3A", "CD14"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+# Dendritic cell from Seurat Guided Clustering Vignette
+FeaturePlot(object = monocytes,
+            features = c("FCER1A", "CST3"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+
+FeaturePlot(object = monocytes,
+            features = c("THBD", "LYZ"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+FeaturePlot(object = monocytes,
+            features = c("VCAN", "ANXA1"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+
+
+# Rare population does not look like conventional dendritic based on lack of expression of CD1C and THBD
+# Possibly cDC progenitor with some SEMA4D 
+# CD100
+VlnPlot(monocytes, "SEMA4D")
+# CD141
+VlnPlot(monocytes, c("CD1C", "THBD"))
+
+# DC5, new popn.
+VlnPlot(monocytes, "PPP1R14A")
+VlnPlot(monocytes, "CD22")
+VlnPlot(monocytes, "DAB2")
+
+# pDC markers, CD123
+VlnPlot(monocytes, "IL3RA")
+VlnPlot(monocytes, "ITM2C")
+VlnPlot(monocytes, "SERPINF1")
+VlnPlot(monocytes, "GZMB")
+
+# Does not express pan-lymphocyte marker
+VlnPlot(monocytes, "IL7R")
+```
+Using reasolution of 0.3, the FCGR3A+ monocytes (and possibly the related FCER1A+ DC subtype comes with) are cluster identity 2, will not pull out because it's such a small population.
+```{r}
+fcgr3a.monoctyes <- WhichCells(monocytes, ident = "2")
+```
+
+```{r}
+t.cells <- subset(fetal, idents = c("1", "2"))
+t.cells <- pipe.fast.mnn(t.cells, batch = "biorep")
+```
+
+```{r}
+t.cells <- Seurat_clustree(t.cells, seq(0.1, 0.8, by = 0.1))
+clustree(t.cells, prefix = "res.", node_colour = "sc3_stability") + theme(legend.position = "bottom") + guides(edge_alpha = F)
+t.cells <- FindClusters(t.cells, resolution = 0.8)
+DimPlot(t.cells, group.by = 'seurat_clusters', label = T, pt.size = .25)
+#t.cells.markers <- FindAllMarkers(t.cells)
+```
+
+```{r}
+t.cells <- RenameIdents(t.cells,
+                      "0" = "Naive CD4+ T Cells",
+                      "1" = "CD8+ Cytotoxic T Cells",
+                      "2" = "Naive CD8+ T Cells",
+                      "3" = "Memory CD4+ T Cells",
+                      "4" = "GZMK+ Natural Killer",
+                      "5" = "Natural Killer T Cells",
+                      "6" = "GZMB+ Natural"
+                      )
+DimPlot(t.cells, group.by = 'ident', label = T, repel = T, pt.size = .25) + NoLegend()
+# saveRDS(t.cells, file = paste0(data_dir, "t_cells_subcluster", Sys.Date(), ".rda"))
+# t.cells <- readRDS(paste0(data_dir, "t_cells_subcluster2020-12-21.rda"))
+```
+
+
+Differentiating CD4 from CD8 T cells
+https://satijalab.org/seurat/v3.1/pbmc3k_tutorial.html Seurat cell type assignment
+```{r}
+# Naive CD4+
+FeaturePlot(object = t.cells,
+            features = c("IL7R", "CCR7", "CD4"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+# T Cell naive markers, not really used
+FeaturePlot(object = t.cells,
+            features = c("SELL", "LRRN3"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+# Memory CD4+
+FeaturePlot(object = t.cells,
+            features = c("IL7R", "S100A4"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+# T regs do not come out clearly, not used
+FeaturePlot(object = t.cells,
+            features = c("IL2RA", "FOXP3"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+# TRM/TEM markers found in some CD8+ T cells, not used
+FeaturePlot(object = t.cells,
+            features = c("CXCR6"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+FeaturePlot(object = t.cells,
+            features = c("ITGA1"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+# NCAM1 = CD56, NK specific marker, but can also be expressed by T cells; KLRB1 is NK1.1 (CD161)
+FeaturePlot(object = t.cells,
+            features = c("NCAM1", "KLRB1"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+# NK subtypes GZMB vs. GZMK
+FeaturePlot(object = t.cells,
+            features = c("GZMB", "GZMK"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+```
+
+"Single-cell transcriptomic landscape of nucleated cells in umbilical cord blood" KLRB1+ in the T cell CD8+ Cytotoxic is different from the publication. Otherwise, it seems that cluster 5 is NKT due to CD3E and NK markers and clusters 4 vs. 6 distinguish NK subtypes GZMB+ vs GZMK+.
+```{r}
+VlnPlot(t.cells, features = "CD3E")
+VlnPlot(t.cells, features = "CD4")
+VlnPlot(t.cells, features = "CD8A")
+VlnPlot(t.cells, features = "KLRB1")
+VlnPlot(t.cells, features = c("GZMB", "GZMK")).
+VlnPlot(t.cells, features = c("S100A4", "IL7R"))
+# Resident Memory CD4+ T Cell Markers (https://www.rndsystems.com/product-highlights/antibodies-memory-t-cell-subset-identification), CD69 and CD103 (TIGAE)
+VlnPlot(t.cells, features = c("CD69", "ITGAE"))
+```
+
+```{r}
+mesenchymal <- subset(fetal, idents = "3")
+mesenchymal <- pipe.fast.mnn(mesenchymal, "biorep")
+```
+
+```{r}
+mesenchymal <- Seurat_clustree(mesenchymal, seq(0.1, 0.8, by = 0.1))
+clustree(mesenchymal, prefix = "res.", node_colour = "sc3_stability") + theme(legend.position = "bottom") +
+  guides(edge_alpha = F)
+```
+
+```{r}
+mesenchymal <- FindClusters(mesenchymal, resolution = 0.1)
+DimPlot(mesenchymal, group.by = 'seurat_clusters', label = T, pt.size = .25)
+mesenchymal.markers <- FindAllMarkers(mesenchymal)
+```
+
+"Fibroblasts and mesenchymal stem cells: Two sides of the same coin?"
+"Intrinsic multipotential mesenchymal stromal cell activity in gelatinous Heberden’s nodes in osteoarthritis at clinical presentation"
+Reviewing the differentially expressed genes from the above reference, it's clear that the larger cluster is composed of mesenchymal stem cells.
+```{r}
+mesenchymal <- RenameIdents(mesenchymal,
+                            "0" = "Mesenchymal Stem Cells",
+                            "1" = "Fibroblasts")
+DimPlot(mesenchymal, group.by = "ident", label = T, repel = T, pt.size = .25 ) + NoLegend()
+```
+
+Rename fetal clusters
+```{r}
+fetal <- RenameIdents(fetal,
+                      "0" = "Interstitial Cytotrophoblasts",
+                      "1" = "T Cells",
+                      "2" = "NK/T Cells",
+                      "3" = "Mesenchymal",
+                      "4" = "CD14+ Monocytes", 
+                      "5" = "Hofbauer Cells",
+                      "6" = "B Cells",
+                      "7" = "Proliferative Cytotrophoblasts",
+                      "8" = "Extravillous Trophoblasts",
+                      "9" = "Syncytiotrophoblast",
+                      "10" = "Plasmacytoid Dendritic Cells",
+                      "11" = "Endothelial Cells",
+                      "12" = "Nucleated Red Blood Cells",
+                      "13" = "13")
+# Stash identities for later use if needed
+fetal <- StashIdent(fetal, "fetal.res.0.2.cell.type.labelled")
+```
+
+Overwrite coarse cell type labels with subclustering labels.
+```{r}
+fetal <- SetIdent(fetal, cells = WhichCells(t.cells), value = Idents(t.cells))
+fetal <- SetIdent(fetal, cells = WhichCells(mesenchymal), value = Idents(mesenchymal))
+fetal <- StashIdent(fetal, "fetal.res.0.2.subclustered.labelled")
+```
+
+```{r}
+DimPlot(fetal, label = T, repel = T, pt.size = .25, label.size = 3) + NoLegend()
+```
+
+Initial findDoubletClusters by cluster readily identified 13 as a doublet cluster. Removed and re-run.
+```{r}
+library(scDblFinder)
+library(scran)
+fetal.sce <- as.SingleCellExperiment(fetal)
+dbl <- findDoubletClusters(fetal.sce, clusters = fetal.sce$fetal.res.0.2.subclustered.labelled)
+dbl.df <- as.data.frame(dbl)
+#saveRDS(dbl.df, file = paste0(data_dir, "fetal.res.0.2.subcluster.labelled.initial.doublet.finder", Sys.Date(), ".rda"))
+```
+
+Try simulation approach to finding doublets. Cluster 13 clearly comes out, but so also does the tail off the B Cells population.
+```{r}
+dbl.dens <- computeDoubletDensity(fetal.sce)
+fetal$dbl.dens <- dbl.dens
+FeaturePlot(fetal, features = "dbl.dens")
+```
+
+```{r}
+small <- subset(fetal, idents = c("Nucleated Red Blood Cells", "Plasmacytoid Dendritic Cells"))
+FeaturePlot(object = small,
+            features = c("HBG2", "ITM2C"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+FeaturePlot(object = small,
+            features = c("HBG2", "CD79A"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+FeaturePlot(object = small,
+            features = c("ITM2C", "CD79A"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+VlnPlot(small, features = c("HBG2", "CD79A", "ITM2C"))
+DimPlot(small)
+dbl.dens.small <- FeaturePlot(small, features = "dbl.dens")
+VlnPlot(small, features = "dbl.dens")
+```
+
+```{r}
+pdc.b <- CellSelector(plot = dbl.dens.small)
+pdc.single.outliers <- CellSelector(plot = dbl.dens.small)
+pdc.high.dbl <- CellSelector(plot = dbl.dens.small)
+pdc.high.dbl.2 <- CellSelector(plot = dbl.dens.small)
+pdc.nrbc <- CellSelector(plot = dbl.dens.small)
+cells.to.drop <- c(pdc.b, pdc.single.outliers, pdc.high.dbl, pdc.high.dbl.2, pdc.nrbc)
+#saveRDS(cells.to.drop, paste0(data_dir, "cell_selector_dropped_pdc_rbc_clusters_", Sys.Date(), ".rda"))
+```
+
+```{r}
+smaller <- subset(small, cells = cells.to.drop, invert = T)
+DimPlot(smaller)
+FeaturePlot(smaller, features = c("HBG2", "ITM2C"))
+FeaturePlot(smaller, features = c("dbl.dens"))
+FeaturePlot(smaller, features = c("HBG2", "DDX3Y"))
+```
+```{r}
+rbc.plot <- FeaturePlot(smaller, features = "HBG2")
+rbc.1 <- CellSelector(rbc.plot)
+rbc.2 <- CellSelector(rbc.plot)
+```
+```{r}
+smaller <- SetIdent(smaller, cells = rbc.1, value = "RBC1")
+smaller <- SetIdent(smaller, cells = rbc.2, value = "RBC2")
+# No apparent difference between the two RBC clusters
+rbc.markers <- FindMarkers(smaller, ident.1 = "RBC1", ident.2 = "RBC2")
+```
+
+```{r}
+# Reset nRBC identities
+smaller <- SetIdent(smaller, cells = rbc.1, value = "Nucleated Red Blood Cells")
+smaller <- SetIdent(smaller, cells = rbc.2, value = "Nucleated Red Blood Cells")
+```
+
+```{r}
+dropped.13 <- WhichCells(fetal, idents = "13")
+#saveRDS(dropped.13, file = paste0(data_dir, "ct_mesenchymal_doublet_cluster_ids_", Sys.Date(), ".rda"))
+# Dropping doublets from pDC, nRBC with cells.to.drop
+cells.to.drop
+drop.fetal <- c(dropped.13, cells.to.drop)
+fetal <- subset(fetal, cells = drop.fetal, invert = T)
+fetal <- RenameIdents(fetal, "Interstitial Cytotrophoblasts" = "Cytotrophoblasts")
+fetal <- StashIdent(fetal, "final_clusters")
+#saveRDS(fetal, paste0(data_dir,"cleaned_fetal_seurat", Sys.Date(), ".rda"))
+fetal <- readRDS(paste0(data_dir, "cleaned_fetal_seurat2020-12-22.rda"))
+```
+
+Rename cell type clusters with Fetal label
+```{r}
+idents <- Idents(fetal)
+cell.type <- paste0("Fetal ", idents)
+Idents(fetal) <- cell.type
+fetal <- StashIdent(fetal, "cell.type")
+#saveRDS(fetal, paste0(data_dir, "named_cleaned_fetal_seurat_2020-12-22.rda"))
+named.fetal <- readRDS(paste0(data_dir, "named_cleaned_fetal_seurat_2020-12-22.rda"))
+```
+
+```{r}
+DimPlot(named.fetal, label = T, repel = T, pt.size = .25, label.size = 3) + NoLegend()
+```
+
+```{r}
+ggsave(filename = paste0(data_dir, "fetal_cleaned_", Sys.Date(), ".png"), device = "png")
+```
+
+## Confirming CD4+ Memory T Cells assignment
+High S100A4, CD4 expression and low CCR7, CD8A expression indicates CD4+ Memory T Cell Assignment.
+```{r}
+FeaturePlot(named.fetal, features = "S100A4")
+```
+```{r}
+VlnPlot(named.fetal, features = c("S100A4" , "CCR7"))
+VlnPlot(named.fetal, features = c("CD8A", "CD4"))
+```
+

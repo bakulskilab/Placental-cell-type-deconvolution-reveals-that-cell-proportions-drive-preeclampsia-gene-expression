@@ -1,0 +1,266 @@
+---
+title: "GSE75010 Cell Type Proportion Prep"
+author: "Kyle Campbell"
+date: "1/1/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(factoextra)
+library(tidyverse)
+library(betareg)
+library(boot)
+library(psych)
+library(readxl)
+
+# BiocPackages to use with GEOquery
+library(Biobase)
+library(BiocGenerics)
+library(GEOquery)
+
+data_dir <- "C:/Users/k_cam/Google Drive/Placenta_Cell_Types/RNA/placenta_rna/data/"
+```
+Leavy & Cox et al. previously analyzed the 7 microarray studies in:
+Large Scale Aggregate Microarray Analysis Reveals Three Distinct Molecular Subclasses of Human Preeclampsia
+
+## GEO Query
+Pull GEO accession as GSE Matrix file
+```{r}
+#gse <- getGEO("GSE75010", GSEMatrix = TRUE)
+#saveRDS(gse, paste0(data_dir, "GSE75010_GSEMatrix.rda"))
+gse <- readRDS(paste0(data_dir, "GSE75010_GSEMatrix.rda"))
+head(gse[[1]])
+# Detailed phenotype data
+#head(gse$GSE75010_series_matrix.txt.gz@phenoData@data)
+```
+Pull relevant information from the Cox PE dataset. Overlapping covariates between the Cox datasets are fetal sex and gestational age. GSE75010 additionally contains ethnicity, gestational age in days, attempted vaginal delivery, and mode of delivery whereas the aggregated microarrays contain occurrence of labor alone and nationality.
+```{r}
+# Pull SAMPLE_XXXXX,  PE vs. non-PE, GA, and sex from Cox dataset
+cox <- gse$GSE75010_series_matrix.txt.gz@phenoData@data[,c("description", "characteristics_ch1", "characteristics_ch1.18", "characteristics_ch1.20")]
+cox <- rownames_to_column(cox, "gsm")
+cox$batch <- "GSE75010"
+colnames(cox) <- c("gsm", "sample", "phenotype", "ga", "sex", "batch")
+cox <- cox %>%
+  dplyr::select(sample, phenotype, batch, ga, sex)
+head(cox)
+```
+Recode Cox dataset to match microarray data.
+```{r}
+# Recode diagnosis: non-PE to control
+cox$phenotype <- sapply(cox$phenotype,
+       function(x) gsub(x, pattern = ".*[\\-]PE",
+       replacement = "C"
+       ))
+# Recode diagnosis: PE to PE
+cox$phenotype <- sapply(cox$phenotype,
+       function(x) gsub(x, pattern = ".*[^\\-]PE",
+       replacement = "PE"
+       ))
+# Recode ga (week): xx to xx weeks and convert to numeric
+cox$ga <- sapply(cox$ga,
+       function(x) gsub(x, pattern = ".*[^0-9]{2}",
+       replacement = ""
+       ))
+cox$ga <- as.numeric(cox$ga)
+# Recode sex
+cox$sex <- sapply(cox$sex,
+       function(x) gsub(x, pattern = ".*[^F|M]",
+       replacement = ""
+       ))
+head(cox)
+```
+Pull relevant information from the microarray aggregation done by Cox group.
+```{r}
+array <- read_excel(paste0(data_dir, "journal.pone.0116508.s014.xlsx"), col_names = TRUE)
+head(array)
+array <- array %>%
+  dplyr::select(Sample, Phenotype, Batch, GA, `Fetal Sex`)
+colnames(array) <- c("sample", "phenotype", "batch", "ga", "sex")
+head(array)
+```
+Merging the two metadata tables
+```{r}
+concat <- rbind(cox, array)
+head(concat)
+dim(concat)
+```
+## Cell Type Proportions Exploration and Dimension Reduction
+
+Import CIBERSORT cell type fraction imputation data.
+```{r}
+frac <- read_excel(paste0(data_dir, "cibersortx/output/CIBERSORTx_Job36_Results_no_min_expr_2000_max_genes.xlsx"))
+colnames(frac)[1] <- "sample"
+head(frac)
+dim(frac)
+```
+```{r}
+pca.prep <- frac %>%
+  dplyr::select(!c(sample, 'P-value', Correlation, RMSE))
+```
+
+Run PCA
+```{r}
+res.pca <- prcomp(pca.prep, scale = T)
+```
+
+Scree plot
+```{r}
+fviz_eig(res.pca)
+```
+
+Graph of individuals. Individuals with a similar profile are grouped together.
+```{r}
+fviz_pca_ind(res.pca,
+             col.ind = "cos2", # Color by the quality of representation
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             label = F
+             )
+```
+Graph of variables. Positive correlated variables point to the same side of the plot. Negative correlated variables point to opposite sides of the graph
+```{r}
+fviz_pca_var(res.pca,
+             col.var = "contrib", # Color by contributions to the PC
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = TRUE,     # Avoid text overlapping 
+             ) + 
+  theme(legend.position = "none")
+#ggsave(paste0(results_dir, "variables_pca_", Sys.Date(), ".png"))
+```
+
+```{r}
+groups <- t1$phenotype
+fviz_pca_ind(res.pca,
+             col.ind = groups, # color by groups
+             palette = c("#00AFBB",  "#FC4E07"),
+             addEllipses = TRUE, # Concentration ellipses
+             legend.title = "Groups",
+             repel = TRUE,
+             label = F
+             )
+#ggsave(paste0(results_dir, "individuals_pca_", Sys.Date(), ".png"))
+```
+
+Calculate the coordinates for the levels of grouping variables. The coordinates for a given group is calculated as the mean coordinates of the individuals in the group.
+```{r}
+# 1. Individual coordinates
+res.ind <- get_pca_ind(res.pca)
+# 2. Coordinate of groups
+coord.groups <- res.ind$coord %>%
+  as_data_frame() %>%
+  select(Dim.1, Dim.2) %>%
+  mutate(category = groups) %>%
+  group_by(category) %>%
+  summarise(
+    Dim.1 = mean(Dim.1),
+    Dim.2 = mean(Dim.2)
+    )
+coord.groups
+```
+
+Project gestational age onto PC1xPC2. The coordinates of a given quantitative variable are calculated as the correlation between the quantitative variable and the principal components.
+```{r}
+ga <- t1$ga
+# Predict coordinates and compute cos2
+quanti.coord <- cor(ga, res.pca$x)
+quanti.cos2 <- quanti.coord^2
+# Graph of variables including supplementary variables
+p <- fviz_pca_var(res.pca)
+fviz_add(p, quanti.coord, color ="blue", geom="arrow")
+
+#ggsave(paste0(results_dir, "variables_pca_plus_ga_", Sys.Date(), ".png"))
+```
+
+
+```{r}
+# Helper function 
+#::::::::::::::::::::::::::::::::::::::::
+var_coord_func <- function(loadings, comp.sdev){
+  loadings*comp.sdev
+}
+# Compute Coordinates
+#::::::::::::::::::::::::::::::::::::::::
+loadings <- res.pca$rotation
+sdev <- res.pca$sdev
+var.coord <- t(apply(loadings, 1, var_coord_func, sdev)) 
+head(var.coord[, 1:4])
+```
+
+```{r}
+# Compute Cos2
+#::::::::::::::::::::::::::::::::::::::::
+var.cos2 <- var.coord^2
+head(var.cos2[, 1:4])
+```
+
+PC1 is predominately placental types, PCs 2:5 are primarily immune cells, PC 6 is primarily placental
+```{r}
+# Compute contributions
+#::::::::::::::::::::::::::::::::::::::::
+comp.cos2 <- apply(var.cos2, 2, sum)
+contrib <- function(var.cos2, comp.cos2){var.cos2*100/comp.cos2}
+var.contrib <- t(apply(var.cos2,1, contrib, comp.cos2))
+head(var.contrib[, 1:4])
+View(var.contrib)
+```
+
+Interesting way to visualize the relative abundance of each cell type
+```{r}
+annotation.row <- data.frame( Phenotype = t1$phenotype)
+rownames(annotation.row) <- t1$sample
+pheatmap(active, cutree_rows = 2, annotation_row = annotation.row)
+```
+
+Corrplot to identify inversely correlated proportions. Maternal plasma and B cells are inversely correlated as well as Maternal NK/Fetal CD8+ cytotoxic
+```{r}
+# Compute a correlation matrix
+corr <- round(cor(active), 1)
+
+# Compute a matrix of correlation p-values
+p.mat <- cor_pmat(active)
+
+# Visualize the lower triangle of the correlation matrix
+# Barring the no significant coefficient
+corr.plot <- ggcorrplot(
+  corr, hc.order = TRUE, type = "lower", outline.col = "white",
+  p.mat = p.mat
+  )
+corr.plot + theme(axis.text.x = element_text(angle=45, size = 8), axis.text.y = element_text(size = 8))
+
+#ggsave(paste0(results_dir, "cell_type_proportions_corrplot_", Sys.Date(), ".png"))
+```
+
+
+
+
+
+
+Merge the two phenotype data with the cell type fraction data and factorize appropriate variables. Note typo in ST cell type.
+```{r}
+merged <- left_join(concat, frac)
+merged$phenotype <- as.factor(merged$phenotype)
+merged$batch <- as.factor(merged$batch)
+merged$sex <- as.factor(merged$sex)
+
+#colnames(merged) <- tolower(colnames(merged))
+#colnames(merged) <- str_replace_all(colnames(merged),
+#                                "\\+",
+#                                "_")
+#colnames(merged) <- str_replace_all(colnames(merged),
+#                                "\\s",
+#                                "_")
+#colnames(merged) <- str_replace_all(colnames(merged),
+#                                "\\-",
+#                                "_")
+
+# Fix previous typos
+colnames(merged)[colnames(merged)=="Fetal CD14+ Monoctyes"] <- "Fetal CD14+ Monocytes"
+colnames(merged)[colnames(merged)=="Maternal FCGR3A+ Monoctyes"] <- "Maternal FCGR3A+ Monocytes"
+colnames(merged)[colnames(merged)=="Maternal CD14+ Monotyes"] <- "Maternal CD14+ Monocytes"
+
+head(merged)
+dim(merged)
+saveRDS(merged, paste0(data_dir, "GSE75010_with_abundances", Sys.Date(), ".rda"))
+#saveRDS(merged, paste0(data_dir, "GSE75010_with_abundances2021-01-01.rda"))
+#merged <- readRDS(paste0(data_dir, "GSE75010_merged_abundances2020-10-16.rda"))
+```

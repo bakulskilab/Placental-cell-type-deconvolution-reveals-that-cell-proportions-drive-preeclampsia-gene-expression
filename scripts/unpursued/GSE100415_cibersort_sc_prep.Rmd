@@ -1,0 +1,46 @@
+---
+title: "GSE100415 IUGR Deconvolution Data"
+author: "Kyle Campbell"
+date: "11/03/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+knitr::opts_chunk$set(echo = TRUE)
+
+data_dir <- "C:/Users/k_cam/Downloads/scRNA_hpc_qc/"
+```
+
+## Helpful pages
+The CIBERSORTX article uses CPM for 3' Chromium 10X and MAS5 or RMA normalization with custom CDFv21 for microarrays. Plan to use CPM for scRNA-seq data.
+
+This CIBERSORT article explains that microarray signature matrix can be used to deconvolve RNA-seq samples but recommends interpreting p-values with caution, but does not provide normalization intstructions.
+
+"Importantly, all expression data should be non-negative, devoid of missing values, and represented in non-log linear space. For Affymetrix microarrays, a custom chip definition file (CDF) is recommended (see section 3.2.2) and should be normalized with MAS5 or RMA. Illumina Beadchip and single color Agilent arrays should be processed as described in the limma package. Standard RNA-Seq expression quantification metrics, such as fragments per kilobase per million (FPKM) and transcripts per kilobase million (TPM), are suitable for use with CIBERSORT.
+
+The platform and methods used to generate data for the signature matrix ideally should be identical to that applied to analysis of the mixture samples. While SVR is robust to unknown cell populations, performance can be adversely affected by genes that are highly expressed in a relevant unknown cell population (e.g., in the malignant cells) but not by any immune components present in the signature matrix. A simple option implemented in CIBERSORT to limit this effect is to remove genes highly expressed in non-hematopoietic cells or tumor cells. If expression data is available from purified tumor cells for the malignancy to be studied, this can be used as a guideline to filter other confounding genes from the signature matrix."
+https://www-ncbi-nlm-nih-gov.proxy.lib.umich.edu/pmc/articles/PMC5895181/
+
+Microarray expression units:
+https://www.researchgate.net/post/What_exactly_is_the_unit_of_measure_in_microarray_experiments
+https://www.biostars.org/p/214013/
+http://www.ub.edu/stat/docencia/bioinformatica/microarrays/ADM/slides/2_PreprocessingMicroarrayData-2-Preprocessing%20and%20Normalization.pdf
+
+Should use raw files processed together for integrating datasets:
+https://www.biostars.org/p/309365/
+
+GEOQuery vignette:
+https://www.bioconductor.org/packages/release/bioc/vignettes/GEOquery/inst/doc/GEOquery.html
+
+## Preparing GSE100415 for CibersortX input
+Gene-level processed data from GSE10041, log2-normalized. Will use for mixture file in CIBERSORTX, S-mode deconvolution using our combined single-cell data to generate the signature matrix (since it's Chromium platform)
+```{r}
+expr <- read_tsv(paste0(data_dir, "GSE100415_gene_level_processed_data_header_removed.txt"), col_names = F)
+```
+Reformating the data for intput into CIBERSORTX
+```{r}
+expr[1,1] <- "Gene"
+
+write.table(expr, file = paste0(data_dir, "GSE100415_input_mixture_", Sys.Date(), ".txt"), sep = "\t", quote = F, row.names = F, col.names = F)
+```

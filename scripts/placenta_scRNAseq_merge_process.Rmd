@@ -1,0 +1,697 @@
+---
+title: "scRNA-seq combine KC and PR for processing"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::knit_engines$set(python = reticulate::eng_python)
+
+#install.packages("package_name",  repos="http://cran.us.r-project.org") # Only this mirror worked for multiple packages
+library(knitr)
+library(tidyverse)
+library(devtools)
+library(Seurat)
+#remotes::install_github('satijalab/seurat-wrappers')
+library(SeuratWrappers)
+library(cowplot)
+library(rgl)
+library(EnvStats)
+library(reticulate)
+library(clustree)
+library(Matrix)
+
+# Bioconductor packages
+#remotes::install_github('chris-mcginnis-ucsf/DoubletFinder') #Install DoubletFinder and depends
+library(batchelor)
+library(scDblFinder)
+library(DropletUtils)
+library(DoubletFinder)
+library(edgeR)
+library(scater)
+# Set seed since this pipeline includes stochastic algorithms
+set.seed(1)
+# Set default working directory
+data_dir <- "C:/Users/k_cam/Downloads/scRNA_hpc_qc/"
+```
+## Import data
+```{r}
+kc <- readRDS(paste0(data_dir, "placenta_scRNA_seq_kc_filtered_2020-11-05.rda"))
+#tnl <- readRDS(paste0(data_dir, "placenta_scRNA_seq_pr_filtered_2020-11-06.rda"))
+```
+## Doublet investigation
+Basic processing for doublet investigation.
+```{r}
+kc <- NormalizeData(kc)
+kc <- FindVariableFeatures(kc, selection.method = "vst", nfeatures = 2000)
+kc <- RunFastMNN(object.list = SplitObject(kc, split.by = "orig.ident"))
+kc <- RunUMAP(kc, reduction = "mnn", dims = 1:30)
+#kc <- ScaleData(kc)
+#kc <- RunPCA(kc)
+#kc <- RunUMAP(kc, reduction = "mnn", dims = 1:30)
+#kc <- FindNeighbors(kc)
+```
+SingleR to perform automatic annotation.
+```{r}
+library(celldex) #Bioc
+library(SingleR) #Bioc
+library(scuttle)
+```
+
+```{r}
+# Load atlas dataset
+#hpca.se <- celldex::HumanPrimaryCellAtlasData()
+#pred <- SingleR(test = kc@assays$RNA@data, ref = kc.labels, assay.type.test=1,
+#    labels = hpca.se$label.main)
+```
+
+```{r}
+# Load combined analysis that has detailed cell labels
+combined <- readRDS(paste0(data_dir, "tnl_combined_mnn_labelled.rda"))
+combined <- subset(combined, idents = c("Naive T Cells", "Activated T Cells", "Natural Killer"), invert = TRUE)
+# Load previous data that has better T cell splits
+tcell <- readRDS("E:/All_mnn_labelled.rda")
+tcell <- subset(tcell, idents = c("Activated CD8+ T Cells", "Naive CD4+ T Cells", "Natural Killer", "Naive CD8+ T Cells", "Activated CD4+ T Cells"))
+ref.sce <- merge(combined, tcell, add.cell.ids = c("combined", "tcell"), project = "ref") %>%
+  as.SingleCellExperiment()
+rm(combined, tcell)
+```
+
+```{r}
+# Get normalized counts
+norm <- ref.sce %>%
+  logNormCounts()
+# Get cell labels
+labels <- ref.sce$ident
+# Convert to sce
+kc.sce <- as.SingleCellExperiment(kc)
+pred <- SingleR(test=kc.sce, ref=norm, labels=labels, de.method="wilcox")
+table(pred$labels)
+rm(norm, labels, ref.sce)
+```
+
+```{r}
+plotScoreHeatmap(pred)
+```
+
+```{r}
+plotDeltaDistribution(pred, ncol = 3)
+```
+```{r}
+print(paste0(sum(is.na(pred$pruned.labels)), " ambiguous labels"))
+```
+```{r}
+kc.sce$singler.label <- pred$labels
+kc.sce$singler.pruned <- pred$pruned.labels
+```
+
+```{r}
+kc <- as.Seurat(kc.sce)
+rm(kc.sce)
+```
+Plot UMAP.
+```{r}
+DimPlot(kc, group.by = 'singler.label', label = T) + NoLegend()
+```
+
+
+```{r}
+kc <- NormalizeData(kc)
+kc <- FindVariableFeatures(kc, selection.method = "vst", nfeatures = 2000)
+kc <- ScaleData(kc)
+kc <- RunPCA(kc)
+kc <- RunUMAP(kc, dims = 1:30)
+kc <- FindNeighbors(kc)
+```
+
+Find the optimal pK parameter and pull it as "pK"
+```{r}
+sweep.res.list_kc <- paramSweep_v3(kc, PCs = 1:10, sct = FALSE)
+sweep.stats_kc <- summarizeSweep(sweep.res.list_kc, GT = FALSE)
+bcmvn_kc<- find.pK(sweep.stats_kc)
+# Sort results by pK
+sorted.by.pk <- bcmvn_kc %>%
+  arrange(bcmvn_kc$BCmetric)
+# Select the top result and convert to a number
+pK <- sorted.by.pk$pK[1] %>% as.character %>% as.numeric
+```
+```{r}
+homotypic.prop <- modelHomotypic(kc$singler.label) ## Input cell labels
+nExp_poi <- round(homotypic.prop*nrow(kc@meta.data))  ## use homotypic.prop
+nExp_poi.adj <- round(nExp_poi*(1-homotypic.prop))
+```
+
+```{r}
+kc <- doubletFinder_v3(kc, PCs = 1:10, pN = 0.25, pK = pK, nExp = nExp_poi, reuse.pANN = FALSE, sct = FALSE)
+# TODO programatically pull pANN for reuse
+kc <- doubletFinder_v3(kc, PCs = 1:10, pN = 0.25, pK = 0.09, nExp = nExp_poi.adj, reuse.pANN = "pANN_0.25_0.16_1144", sct = FALSE)
+```
+
+```{r}
+DimPlot(kc, group.by = 'DF.classifications_0.25_0.09_995')
+DimPlot(kc, group.by = 'DF.classifications_0.25_0.16_1144')
+```
+
+
+## Combine data
+```{r}
+all <- merge(kc, tnl, project = "all")
+rm(kc, tnl)
+```
+Add batch metadata.
+```{r}
+all$batch <- str_match(all$orig.ident, pattern = "tnl|kc")
+```
+
+## QC Plots
+Post-filtering QC violin plots. Cells that expressed more than 1000 genes detected in three or more cells are included for downstream analyses. Samples KC_40_1 and KC_40_2 have been renamed 1A and 1B. KC_42_1 and KC_42_2 have been renamed 2A and 2B.
+
+```{r QC_plots}
+VlnPlot(object=all, features='nCount_RNA', pt.size=0.15, group.by = 'orig.ident') + NoLegend() + ggtitle("Total RNA Molecules") + theme(axis.title.x = element_blank())
+VlnPlot(object=all, features='nFeature_RNA',pt.size=0.15, group.by = 'orig.ident') + NoLegend() + ggtitle("Unique Genes Per Cell") + theme(axis.title.x = element_blank())
+VlnPlot(object=all, features='subsets_Mito_percent',pt.size=0.15, group.by = 'orig.ident') + NoLegend() + ggtitle("Percentage of Reads Mapping to Mitochondrial Genes") + theme(axis.title.x = element_blank())
+```
+## QC Tabulation
+```{r QC_Tabulation}
+# Total number of genes
+#genes <- AverageExpression(object = all, features = 'nFeature_RNA', verbose = T)
+#dim(genes$RNA)[1]
+```
+
+## Pre-processing for Clustering
+
+After filtering of unwanted cells and QC assessment, the first step of clustering is to normalize the data. By default (used here), Seurat globally normalizes feature expression for each cell by total expression, multiplies by a scale factor of 10,000, and log-transforms the result.
+
+Find variable features identifies variable genes in a feature selection step for downstream analysis. Default options are the "vst" selection method, and top 2000 features returned. The variance stabilizing transformation (VST) first fits a line to the relationship of log(variance) and log(mean) using local polynomial regression ("loess"). The second step standardizes the feature values using the observed mean and expected variance (given by the fitted line). Feature variance is then calculated on the standardized values after clipping to a maximum (clip.max parameter). "loess.span" is the span paramter used when fitting the variance-mean relationship. After standardization, values larger than "clip.max" will be set to "clip.max"; by default, is 'auto' which sets "clip.max" to the square root of the number of cells.
+
+The top 25 most variables genes are labelled in the plot of standardized varaince versus average gene expression presented below. The top 2000 most variable genes are highlighted in red and are carried through for downstream analysis.
+
+```{r Normalization_and_Feature_Selection}
+
+# Should normalize and find variable features in each dataset separately
+all <- NormalizeData(object = all, normalization.method = "LogNormalize", scale.factor = 10000)
+all <- FindVariableFeatures(object = all)
+
+# Identify the 10 most highly variable genes
+top10 <- head(VariableFeatures(all), 25)
+
+# plot variable features with and without labels
+plot1 <- VariableFeaturePlot(all)
+plot2 <- LabelPoints(plot = plot1, points = top10, repel = TRUE, xnudge = 0, ynudge = 0)
+plot2
+```
+
+The next step is scaling the data, a standard pre-processing step prior to dimension reduction techniques. ScaleData() shifts means expression of each gene to zero and variance to one. One could also regress on a variable such as percent mitochondrial genes to remove unwanted sources of variation. Seurat recommends new pre-print function "SCTransform" for regression.
+
+```{r Scaling}
+all<-ScaleData(all)
+```
+
+The next step is to run PCA using the identified variable features. Default is 50.
+
+```{r PCA}
+all <- RunPCA(object = all, npcs=100, ndims.print = 1:10)
+```
+
+```{r Dimensionality_Reduction}
+DimPlot(object=all, reduction="pca", group.by = 'orig.ident')
+VizDimLoadings(all, dims = 1:2, reduction = "pca")
+```
+
+Elbow plot to identify the dimensionality of the dataset. Seurat errs on the side of selecting more rather than fewer PCs because too few PCs can significantly affect the result.
+
+ElbowPlot() plots the standard deviations (or approximate singular values if running PCAFast) of the principle components for easy identification of an elbow in the graph. This elbow often corresponds well with the significant dims.
+
+GSEA could be conducted on the PCs to see if they identify cell types or a group of similar cell types.
+
+```{r Dataset_Dimensionality}
+ElbowPlot(object = all, ndims = 100)
+```
+
+## Batch Correction and Clustering
+
+Next, we use a non-linear dimensional reduction technique to embed the first 50 PCs of the dataset into two dimensions for visualization and exploration. Seurat recommends using the same number of PCs for t-SNE and neighbor-graph. Each point represents a single cell's transcriptome. Cells with similar gene expression profiles are plotted closer together. To identify communities (cell types in this biological context), Seurat creates a shared nearest neighbor graph and creates communities that optimize "modularity", the density of links within communities compared to links between communities.
+
+Use the first 25 PCs based on the Elbow plot.
+```{r}
+set.seed(100)
+all <- RunFastMNN(object.list = SplitObject(all, split.by = "batch"))
+all <- RunUMAP(object = all, reduction = "mnn", dims = 1:25)
+all <- FindNeighbors(all, reduction = "mnn", dims = 1:25)
+all <- FindClusters(object = all, resolution = 0.8) #default is 0.8; 0.2 looks stable in the kc dataset
+```
+Initial plots.
+```{r}
+DimPlot(all, label = T) + NoLegend()
+DimPlot(all, group.by = 'batch')
+DimPlot(all, group.by = 'orig.ident')
+```
+## Doublet Detection
+Convert to SingleCellExperiment for use with scran.
+```{r}
+all.sce <- as.SingleCellExperiment(all)
+```
+No evidence that any cluster is the result of doublets with default clustering resolution of 0.8.
+```{r}
+tab <- findDoubletClusters(all.sce, all.sce$seurat_clusters)
+as.data.frame(tab@listData)
+rm(all.sce)
+```
+
+```{r}
+all.0.7 <- FindAllMarkers(all)
+```
+
+
+
+
+```{r}
+# CD4 T cells
+FeaturePlot(object = all,
+            features = c("CD3E", "CD4"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+# CD8 T Cells
+FeaturePlot(object = all,
+            features = c("CD8A", "CD8B"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+```
+```{r}
+# Function that accepts Seurat  that has been processed up to the clustering step, clusters at desired resolutions (vector), adds cluster identities at different resolutions, and returns Seurat object with resolution cluster identities
+Seurat_clustree <- function (seuratObject, resolutions) {
+  
+  for(hyperparameter in resolutions) {
+    print(hyperparameter)
+    prefix <- paste0("res.", hyperparameter)
+    print(prefix)
+    seuratObject <- FindClusters(object = seuratObject, resolution = hyperparameter)
+    seuratObject <- AddMetaData(object = seuratObject, metadata = seuratObject$seurat_clusters, col.name = prefix)
+  }
+  return(seuratObject)
+}
+resolutions <- seq(from = 0.2, to = 0.7, by = .1)
+all <- Seurat_clustree(all, resolutions)
+
+clustree(all, prefix = "res.", node_colour = "sc3_stability") + theme(legend.position = "bottom") + guides(edge_alpha = F)
+
+all <- FindClusters(all, resolution = 0.7)
+DimPlot(all, label = T) + NoLegend()
+all.mnn.res.0.7 <- FindAllMarkers(all.mnn)
+```
+
+```{r mnn_reduction_expression}
+# MNN-corrected with UMAP   embeddings
+#saveRDS(all.mnn.labelled, "tnl_combined_mnn_labelled.rda")
+all.mnn.labelled <- readRDS(paste0(data_dir,"tnl_combined_mnn_labelled.rda"))
+
+# MNN-corrected cluster markers
+all.mnn.labelled <- RenameIdents(object = all.mnn.labelled,
+                         "0" = "Cytotrophoblasts",
+                         "1" = "Naive T Cells",
+                         "2" = "CD14+ Monocytes",
+                         "3" = "B Cells",
+                         "4" = "Activated T Cells",
+                         "5" = "Natural Killer",
+                         "6" = "Fibroblasts",
+                         "7" = "FCGR3A+ Monocytes",
+                         "8" = "npiCytotrophoblasts",
+                         "9" = "Hofbauer Cells",
+                         "10" = "Extravillous Trophoblasts",
+                         "11" = "Synctyiotrophoblast",
+                         "12" = "12",
+                         "13" = "13",
+                         "14" = "14",
+                         "15" = "Endothelial Cells",
+                         "16" = "pDC",
+                         "17" = "17")
+all.mnn.labelled <- RenameIdents(object = all.mnn.labelled,
+                         "12" = "Immune Progenitor Mixture")
+
+combined.mnn.res.0.7.labelled <- FindallMarkers(all.mnn.labelled)
+
+DimPlot(all.mnn.labelled, label = T, repel = T, label.size = 4, pt.size = .25) + NoLegend()
+```
+
+```{r Find_All_Markers}
+all.mnn.labelled <- FindClusters(all.mnn.labelled, resolution = 0.7)
+combined.mnn.res.0.7 <- FindallMarkers(all.mnn.labelled)
+saveRDS(combined.mnn.res.0.7, paste0(data_dir, "combined_res_0.7.rda"))
+
+combined.mnn.res.0.7 <- combined.mnn.res.0.2
+
+View(combined.mnn.res.0.7)
+test <- combined.mnn.res.0.7
+levels(test$cluster) <- c("Cytotrophoblasts","Naive T Cells", "CD14+ Monocytes", "B Cells", "Activated T Cells", "Natural Killer", "Fibroblasts", "FCGR3A+ Monocytes", "npiCytotrophoblasts", "Hofbauer Cells", "Extravillous Trophoblasts", "Synctyiotrophoblast", "12", "13", "14", "Endothelial Cells", "pDC", "17")
+
+test.sorted <- test %>%
+  arrange(cluster, desc(avg_logFC), p_val_adj)
+
+write.csv(test, paste0(data_dir, "marker_genes_sorted.csv"))
+
+combined.mnn.res.0.7 %>%
+  filter(cluster == '13') %>%
+  View()
+
+combined.mnn.res.0.7 %>%
+  filter(gene == 'NRP1') %>%
+  View()
+
+View(head(combined.mnn.res.0.7))
+
+FeaturePlot(object = all.mnn.labelled,
+            features = c("NKG7"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+FeaturePlot(object = all.mnn.labelled,
+            features = c("CD52"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+FeaturePlot(object = all.mnn.labelled,
+            features = c("SOX4"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+FeaturePlot(object = all.mnn.labelled,
+            features = c("SOX4"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+
+
+# Clearly shows 15 is endothelial
+VlnPlot(object=all.mnn.labelled, features = c("ESAM", "KDR"), pt.size=0.15) #+ NoLegend()# + ggtitle("Total RNA Molecules")+ theme(axis.title.x = element_blank())
+
+# XAGE 3 expression is puzzling, clearly shows up in trophoblasts as well as 17 and 13
+VlnPlot(object=all.mnn.labelled, features = c("XAGE3", "PAGE4"), pt.size=0.15)
+# Clearly delineates trophoblasts, clusters 13 and 17 are interesting here
+VlnPlot(object=all.mnn.labelled, features = c("PAGE4"), pt.size=0.15)
+
+
+# 0, 8, 9, 11, 15, 17
+VlnPlot(object=all.mnn.labelled, features = c("NRP1"), pt.size=0.15)
+
+# Shows up in 6, 14, 17
+VlnPlot(object=all.mnn.labelled, features = c("MGP"), pt.size=0.15)
+
+# Placenta Growth F
+actor 0, 8, 10, 11, 17, and NOT 13
+VlnPlot(object=all.mnn.labelled, features = c("PGF"), pt.size=0.15)
+
+
+VlnPlot(object=all.mnn.labelled, features = c("CSH1"), pt.size=0.15)
+VlnPlot(object=all.mnn.labelled, features = c("CSH2"), pt.size=0.15)
+
+VlnPlot(object=all.mnn.labelled, features = c("COL1A1"), pt.size=0.15)
+VlnPlot(object=all.mnn.labelled, features = c("CD34"), pt.size=0.15)
+
+VlnPlot(object=all.mnn.labelled, features = c("CD44"), pt.size=0.15)
+
+# Very interesting expression profile, including featured prominently in 16
+VlnPlot(object=all.mnn.labelled, features = c("SOX4"), pt.size=0.15)
+
+# Half of cluster 12 expresses PRSS57
+VlnPlot(object=all.mnn.labelled, features = c("PRSS57"), pt.size=0.15)
+VlnPlot(object=all.mnn.labelled, features = c("ITGAX"), pt.size=0.15)
+
+# Hematopoietic stem cells markers, CD38lo
+VlnPlot(object=all.mnn.labelled, features = c("CD34", "CD59"), pt.size=0.15)
+VlnPlot(object=all.mnn.labelled, features = c("THY1", "CD38"), pt.size=0.15)
+
+# Cell cycle genes, high in 8, outliers in 12/13
+VlnPlot(object=all.mnn.labelled, features = c("CDK1", "RRM2", "CCNB1"), pt.size=0.15)
+
+# Liu et al, 2018 found 2 mesenchymal subtypes in the 1st trimester placenta
+VlnPlot(object=all.mnn.labelled, features = c("DLK1", "IGFBP7", "C1R"), pt.size=0.15)
+VlnPlot(object=all.mnn.labelled, features = c("COL1A1"), pt.size=0.15)
+
+
+cluster17vCTs <- FindMarkers(all.mnn.labelled, ident.1 = '17', ident.2 = '0')
+View(cluster17vCTs)
+cluster17vFBs <- FindMarkers(all.mnn.labelled, ident.1 = '17', ident.2 = '6')
+View(cluster17vFBs)
+
+cluster14v6 <- FindMarkers(all.mnn.labelled, ident.1 = '14', ident.2 = '6')
+View(cluster14v6)
+
+cluster12v15 <- FindMarkers(all.mnn.labelled, ident.1 = '12', ident.2 = '15')
+View(cluster12v15)
+
+cluster13vCTs <- FindMarkers(all.mnn.labelled, ident.1 = '13', ident.2 = '0')
+View(cluster13vCTs)
+```
+
+```{r Subset unknown clusters and Preprocess}
+# Subset to placental cells and unknown
+placenta.subset <- subset(x = all.mnn.labelled, idents = c("Cytotrophoblasts", "Fibroblasts", "npiCytotrophoblasts", "Hofbauer Cells", "Extravillous Trophoblasts", "Synctyiotrophoblast", "12", "13", "14", "Endothelial Cells", "17"))
+DimPlot(placenta.subset, reduction = "umap", label = T, pt.size = .1) + NoLegend()
+
+placenta.subset <- FindVariableFeatures(placenta.subset)
+# Identify the 10 most highly variable genes
+top10 <- head(VariableFeatures(placenta.subset), 25)
+
+# plot variable features with and without labels
+plot1 <- VariableFeaturePlot(placenta.subset)
+plot2 <- LabelPoints(plot = plot1, points = top10, repel = TRUE, xnudge = 0, ynudge = 0)
+plot2
+placenta.subset <- ScaleData(placenta.subset)
+```
+
+
+```{r Subset_clusters}
+# Re-run UMAP and cluster pipeline, using the same mnn-corrected reduction, just with different variable features
+placenta.subset <- RunUMAP(placenta.subset, reduction = "mnn", dims = 1:50)
+placenta.subset <- FindNeighbors(placenta.subset, reduction = "mnn", dims = 1:50)
+placenta.subset <- FindClusters(placenta.subset, resolution = 0.2)
+
+placenta.subset <- RenameIdents(object = placenta.subset,
+                         "0" = "Cytotrophoblasts",
+                         "1" = "Fibroblasts",
+                         "2" = "npiCytotrophoblasts",
+                         "3" = "Hofbauer Cells",
+                         "4" = "Extravillous Trophoblasts",
+                         "5" = "Syncytiotrophoblast Trajectory",
+                         "6" = "6",
+                         "7" = "7",
+                         "8" = "8",
+                         "9" = "Endothelial Cells",
+                         "10" = "10")
+
+#saveRDS(placenta.subset, paste0(data_dir, "placenta_subset.rda"))
+placenta.subset <- readRDS(paste0(data_dir, "placenta_subset.rda"))
+
+```
+
+```{r FindAllMarkers}
+placenta.all.markers <- FindAllMarkers(placenta.subset)
+saveRDS(placenta.all.markers, paste0(data_dir, "placenta_all_markers.rda"))
+placenta.all.markers <- readRDS(paste0(data_dir, "placenta_all_markers.rda"))
+View(placenta.all.markers)
+
+test <- placenta.all.markers
+
+levels(test$cluster) <- c("Cytotrophoblasts", "Fibroblasts", "npiCytotrophoblasts", "Hofbauer Cells", "Extravillous Trophoblasts", "Syncytiotrophoblast Trajectory", "6", "7", "8", "Endothelial Cells", "10")
+View(test)
+
+test.sorted <- test %>%
+  arrange(cluster, desc(avg_logFC), p_val_adj)
+
+write.csv(test, paste0(data_dir, "placenta_marker_genes_sorted.csv"))
+
+# Sort by logFC followed by the p-value
+placenta.all.markers %>%
+  filter(cluster == '7') %>%
+  arrange(desc(avg_logFC), p_val_adj) %>%
+  View()
+```
+
+```{r Subset clusters plots}
+DimPlot(placenta.subset, label = T, repel = T, label.size = 4) + NoLegend()
+DimPlot(placenta.subset, label = F, repel = T, label.size = 4, group.by = 'Sample', pt.size = .05)
+DimPlot(placenta.subset, label = F, repel = T, label.size = 4, group.by = 'Sample', pt.size = .05)
+```
+
+```{r Subset - Marker Gene Expression}
+# Clear EVT and Hofbauer cell divide
+FeaturePlot(object = placenta.subset,
+            features = c("CD163", "CD14"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+
+# Extravillous Trophoblast (EVT)
+FeaturePlot(object = placenta.subset,
+            features = c("MMP2", "HLA-G"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+VlnPlot(object=placenta.subset, features = c("MMP2", "HLA-G"), pt.size=0.15)
+# Looks like EVTs came almost exclusively from the one female TNL sample
+FeaturePlot(object = placenta.subset,
+            features = c("RPS4Y1"),
+            pt.size = 1)
+VlnPlot(object=placenta.subset, features = c("RPS4Y1"), pt.size=0.15)
+
+# Clear endothelial cell divide
+FeaturePlot(object = placenta.subset,
+            features = c("KDR", "ESAM"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+
+# Syncytiotrophoblast markers indicate that there's probably only a very small number
+FeaturePlot(object = placenta.subset,
+            features = c("PSG1", "CSH1"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+
+FeaturePlot(object = placenta.subset,
+            features = c("CD8A", "CD4"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+
+FeaturePlot(object = placenta.subset,
+            features = c("CD8A", "PTPRC"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+FeaturePlot(object = placenta.subset,
+            features = c("CD8A", "NKG7"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+
+VlnPlot(object=placenta.subset, features = c("PTPRC", "IL7R"), pt.size=0.15)
+
+#8, 10, and fibroblasts express DES
+VlnPlot(object=placenta.subset, features = c("DES", "CD248"), pt.size=0.15)
+VlnPlot(object=placenta.subset, features = c("PECAM1"), pt.size=0.15)
+
+# Expressed in 8, middling expression in 10. High expression in Progenitor mixture
+VlnPlot(object=placenta.subset, features = c("VIM"), pt.size=0.15)
+
+
+FeaturePlot(object = placenta.subset,
+            features = c("VIM", "PTPRC"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+
+```
+
+## Save/Load
+```{r reset_All}
+#For Graphing below
+all <- readRDS("E:/all_mnn_labelled_subcluster.rda")
+#all <- all.mnn.labelled.subcluster
+```
+
+## Cluster-specific QC Metrics
+```{r cluster_QC_metrics}
+VlnPlot(object=all, features='nCount_RNA', pt.size=0.15) + NoLegend() + ggtitle("Total RNA Molecules")+ theme(axis.title.x = element_blank())
+VlnPlot(object=all, features='nFeature_RNA', pt.size=0.15) + NoLegend() + ggtitle("Unique Genes Per Cell") + theme(axis.title.x = element_blank())
+VlnPlot(object=all, features='percent.mito', pt.size=0.15) + NoLegend() + ggtitle("Percentage of Reads Mapping to Mitochondrial Genes") + theme(axis.title.x = element_blank())
+```
+
+```{r WIP Supplemental Figure 4 Correlation}
+# From https://github.com/satijalab/seurat/issues/1313
+# In Seurat, easiest method is to average expression across genes, and then use correlation functions
+
+# Subset to individual samples
+One.A <- subset(all, subset = SampleName=="1A")
+One.B <- subset(all, subset = SampleName=="1B")
+Two.A <- subset(all, subset = SampleName=="2A")
+Two.B <- subset(all, subset = SampleName=="2B") 
+
+# Calculate average gene expression across all cells by cluster
+One.A.avg <- AverageExpression(One.A)
+One.B.avg <- AverageExpression(One.B)
+Two.A.avg <- AverageExpression(Two.A)
+Two.B.avg <- AverageExpression(Two.B)
+
+# Biological Correlation
+KC40 <- subset(x = all, subset = (Sample == "KC40"))
+KC42 <- subset(x = all, subset = (Sample == "KC42"))
+
+pearson_bio_cor <- vector(mode=  'numeric', length = 18)
+names(pearson_bio_cor) <- colnames(KC40_expression$RNA)
+
+spearman_bio_cor <- vector(mode=  'numeric', length = 18)
+names(spearman_bio_cor) <- colnames(KC40_expression$RNA)
+
+levels(factor(all$SampleName))
+
+dim(all$SampleName)
+
+# Subset Seurat objects to each sample and average expression across cells within clusters
+for(sample in levels(factor(all$SampleName))) {
+  ObjectName <- paste0("Expression", sample)
+  assign(ObjectName, AverageExpression(subset(x = all, subset = (SampleName == sample))))
+}
+
+for(i in colnames(KC40_expression$RNA)) {
+  
+  p_cor <- cor(x = KC40_expression$RNA[[i]], y = KC42_expression$RNA[[i]], method = "pearson")
+  spear_cor <- cor(x = KC40_expression$RNA[[i]], y = KC42_expression$RNA[[i]], method = "spearman")
+  
+  pearson_bio_cor[[i]] <- p_cor
+  spearman_bio_cor[[i]] <- spear_cor
+}
+
+# Pairwise Correlation
+
+# Distance as a measure of reproducibility in high throughput sequencing
+# https://simplystatistics.org/2015/08/12/correlation-is-not-a-measure-ofreproducibility/
+
+# Takes in a 
+distance_reproducibility <- function(assay) {
+  
+  for(sample in colnames(assay)) {
+    
+  }
+  
+}
+
+pearson_bio_cor <- vector(mode=  'numeric', length = 18)
+names(pearson_bio_cor) <- colnames(KC40_expression$RNA)
+
+spearman_bio_cor <- vector(mode=  'numeric', length = 18)
+names(spearman_bio_cor) <- colnames(KC40_expression$RNA)
+
+for(i in colnames(KC40_expression$RNA)) {
+  
+  p_cor <- cor(x = KC40_expression$RNA[[i]], y = KC42_expression$RNA[[i]], method = "pearson")
+  spear_cor <- cor(x = KC40_expression$RNA[[i]], y = KC42_expression$RNA[[i]], method = "spearman")
+  
+  pearson_bio_cor[[i]] <- p_cor
+  spearman_bio_cor[[i]] <- spear_cor
+}
+
+```
+
+Gene Expression plots for UMAP.
+```{r Expression}
+#Fig 1.B
+p <- FeaturePlot(object = all,
+            features = c("CD79A", "CD4", "CD8A", "CD14"),
+            cols = c("lightgrey", "blue"),
+            blend = F,
+            pt.size = 0.25,
+            combine = F)
+for(i in 1:length(p)) {
+  p[[i]] <- p[[i]] + NoLegend() + NoAxes()
+}
+cowplot::plot_grid(plotlist = p)
+
+
+DotPlot(all, feature = c("CD79A", "CD4", "CD8A", "CD14"))
+```
+
+Double-checking placental cell clusters for male-specific gene expression. Markers come from "Robust and tissue-independent gender-specific transcript biomarkers.", published using peripheral blood as sample source (RPS4Y1, EIF1AY, DDX3Y, KDM5D and XIST; XIST being upregulated in females compared to males).
+
+```{r SexTest}
+# Sex-specific transcripts by placenta
+VlnPlot(object = all.mnn.labelled, features = c("XIST", "RPS4Y1", "EIF1AY", "DDX3Y", "KDM5D"), group.by = 'SampleName')
+
+# RPS4Y1 appears to be the robustly expressed male-specific transcript from the panel above.
+VlnPlot(object = all.mnn.labelled,
+            features = c("RPS4Y1"),
+            group.by = 'seurat_clusters',
+            pt.size = 1)
+# Perhaps 12 is mixture of hematopoietic or less differentiated/more naive cell types from fetal and maternal
+FeaturePlot(object = all.mnn.labelled,
+            features = c("RPS4Y1"),
+            pt.size = 1)
+```

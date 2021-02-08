@@ -1,0 +1,238 @@
+---
+title: "Cell type assignment - correcting pr vs. kc batch"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::knit_engines$set(python = reticulate::eng_python)
+
+#install.packages("package_name",  repos="http://cran.us.r-project.org") # Only this mirror worked for multiple packages
+library(knitr)
+library(tidyverse)
+library(devtools)
+library(Seurat)
+#remotes::install_github('satijalab/seurat-wrappers')
+library(SeuratWrappers)
+library(cowplot)
+library(rgl)
+library(EnvStats)
+library(reticulate)
+library(clustree)
+library(Matrix)
+
+# Bioconductor packages
+#remotes::install_github('chris-mcginnis-ucsf/DoubletFinder') #Install DoubletFinder and depends
+library(batchelor)
+library(edgeR)
+library(scater)
+# Set seed since this pipeline includes stochastic algorithms
+set.seed(1)
+# Set default working directory
+data_dir <- "C:/Users/k_cam/Google Drive/Placenta_Cell_Types/RNA/placenta_rna/data/"
+```
+# Single-cell RNA-seq analysis of KC and TNL Pique-Regi placental villous tissue samples
+### Important References
+Minimal QC recommended: Current best practices in single‐cell RNA‐seq analysis: a tutorial
+Orchestrating Single-cell Analysis
+### Compiling Issues
+This document had trouble compiling via knitr and pandoc. The following thread fixed the issue (https://github.com/rstudio/rstudio/issues/3661).
+
+## Load Data
+```{r}
+seu <- readRDS(paste0(data_dir, "fetal_assigned_res.0.3_2020-12-16.rda"))
+```
+
+```{r}
+DimPlot(seu, group.by = 'seurat_clusters', label = T, pt.size = .25)
+```
+Split into maternal versus fetal subsets.
+```{r}
+split <- SplitObject(seu, split.by = 'fetal')
+rm(seu) # Clean memory
+fetal <- split$Fetal
+maternal <- split$Maternal
+rm(split) # Clean memory
+```
+
+```{r}
+DimPlot(fetal) + ggtitle("Fetal")
+DimPlot(maternal) + ggtitle("Maternal")
+```
+Custom function to run fastMNN pipe with 
+```{r}
+pipe.fast.mnn <- function(seu, batch) {
+  seu <- RunFastMNN(object.list = SplitObject(seu, split.by = batch), verbose = T)
+  seu@tools$RunFastMNN@metadata$merge.info$lost.var
+  seu <- RunUMAP(seu, reduction = "mnn", dims = 1:30)
+  seu <- FindNeighbors(seu, reduction = "mnn", dims = 1:30)
+  seu <- FindClusters(seu, res = 0.2)
+  return(seu)
+}
+```
+
+```{r}
+fetal <- pipe.fast.mnn(fetal, "batch")
+DimPlot(fetal, group.by = "seurat_clusters", label = T, pt.size =.25)
+```
+
+```{r}
+# Function that accepts Seurat  that has been processed up to the clustering step, clusters at desired resolutions (vector), adds cluster identities at different resolutions, and returns Seurat object with resolution cluster identities
+Seurat_clustree <- function (seuratObject, resolutions) {
+  
+  for(hyperparameter in resolutions) {
+    print(hyperparameter)
+    prefix <- paste0("res.", hyperparameter)
+    print(prefix)
+    seuratObject <- FindClusters(object = seuratObject, resolution = hyperparameter)
+    seuratObject <- AddMetaData(object = seuratObject, metadata = seuratObject$seurat_clusters, col.name = prefix)
+  }
+  return(seuratObject)
+}
+
+resolutions <- seq(from = 0.1, to = 0.6, by = .1)
+fetal <- Seurat_clustree(fetal, resolutions)
+```
+Iterating over 0.2 to 0.7 clustering resolution, .3 looks stable. Additional divisions at .5
+```{r clustree_graph}
+clustree(fetal, prefix = "res.", node_colour = "sc3_stability") + theme(legend.position = "bottom") + guides(edge_alpha = F)
+```
+Resolution 0.1 to 0.2 just changes cell assignment some. From 0.2 to 0.3, makes 2 more splits by large cytotrophoblast cluster, likely by sex, more thoroughly explored below. Set default resolution to 0.1.
+```{r}
+DimPlot(fetal, group.by = 'res.0.1', label = T, pt.size = .25)
+DimPlot(fetal, group.by = 'res.0.2', label = T, pt.size = .25)
+DimPlot(fetal, group.by = 'res.0.3', label = T, pt.size = .25)
+DimPlot(fetal, group.by = 'res.0.4', label = T, pt.size = .25)
+# Set default to 0.1
+fetal <- FindClusters(fetal, res = 0.1)
+```
+```{r}
+fetal.markers <- FindAllMarkers(fetal)
+```
+```{r}
+fetal.markers %>%
+  filter(cluster == "9") %>%
+  filter(p_val_adj < 1e-10) %>%
+  arrange(desc(abs(avg_logFC))) %>%
+  filter(avg_logFC > 0) %>%
+  view()
+hist(fetal.markers$p_val)
+hist(fetal.markers$p_val_adj)
+```
+
+Comparing cytotrophoblast clusters 0 and 4, it is very clear the larger clusters are the male samples and the smaller cluster is the female sample (more male samples in dataset than small). 
+```{r}
+ct.diff <- FindMarkers(fetal, ident.1 = "4", ident.2 = "0")
+ct.diff %>%
+  rownames_to_column(var = "gene") %>%
+  view()
+  #arrange(desc(abs(avg_logFC))) %>%
+  filter(avg_logFC > 0) %>%
+  view()
+```
+
+```{r}
+# Cytotrophoblasts
+FeaturePlot(object = fetal,
+            features = c("XIST"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+FeaturePlot(object = fetal,
+            features = c("EIF1AX"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+```
+
+```{r}
+VlnPlot(object= fetal,
+        features = c("XIST", "RPS4Y1", "EIF1AY", "DDX3Y", "KDM5D"),
+        group.by = 'seurat_clusters')
+VlnPlot(object= fetal,
+        features = c("XIST"),
+        group.by = 'seurat_clusters')
+VlnPlot(object= fetal,
+        features = c("DDX3X"),
+        group.by = 'seurat_clusters')
+VlnPlot(object= fetal,
+        features = c("EIF1AY"),
+        group.by = 'seurat_clusters')
+VlnPlot(object= fetal,
+        features = c("PAGE4"),
+        group.by = 'seurat_clusters')
+```
+
+
+```{r}
+DimPlot(fetal, group.by = "seurat_clusters", label = T, pt.size =.25) + NoLegend()
+DimPlot(fetal, group.by = "orig.ident", label = F, pt.size =.25)
+```
+A small sex difference is clear in the KC data. A very large sex difference is apparent in the PR data. 
+```{r}
+split <- SplitObject(fetal, split.by = 'batch')
+kc <- split$kc
+DimPlot(kc, group.by = "seurat_clusters", label = T, pt.size =.25) + NoLegend()
+DimPlot(kc, group.by = "orig.ident", label = F, pt.size =.25)
+pr <- split$pr
+DimPlot(pr, group.by = "seurat_clusters", label = T, pt.size =.25) + NoLegend()
+DimPlot(pr, group.by = "orig.ident", label = F, pt.size =.25)
+```
+
+Key gene expression markers
+```{r}
+# Cytotrophoblasts
+FeaturePlot(object = fetal,
+            features = c("KRT8", "PAGE4"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+# T cells
+FeaturePlot(object = fetal,
+            features = c("CD8A", "CD8B"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+# Natural Killer
+FeaturePlot(object = fetal,
+            features = c("CD4", "NKG7"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+
+# Fibroblasts
+FeaturePlot(object = fetal,
+            features = c("COL1A1"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+# Hofbauer
+FeaturePlot(object = fetal,
+            features = c("CD163", "CD14"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+
+# Extravillous Trophoblast (EVT)
+FeaturePlot(object = fetal,
+            features = c("MMP2", "HLA-G"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+# Endothelial
+FeaturePlot(object = fetal,
+            features = c("KDR", "ESAM"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+# pDC
+FeaturePlot(object = fetal,
+            features = c("HLA-DRA"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+FeaturePlot(object = fetal,
+            features = c("CLEC4C"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+FeaturePlot(object = fetal,
+            features = c("IL3RA"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+# RBCs
+FeaturePlot(object = fetal,
+            features = c("HBB", "HBG2"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+```
+

@@ -1,0 +1,210 @@
+---
+title: "single-cell-analysis"
+author: "Kyle Campbell"
+date: "1/13/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::knit_engines$set(python = reticulate::eng_python)
+
+#install.packages("package_name",  repos="http://cran.us.r-project.org") # Only this mirror worked for multiple packages
+library(devtools)
+library(ggrepel)
+library(knitr)
+library(tidyverse)
+library(Seurat)
+#remotes::install_github('satijalab/seurat-wrappers')
+library(SeuratWrappers)
+library(cowplot)
+library(rgl)
+library(EnvStats)
+library(reticulate)
+library(clustree)
+library(Matrix)
+
+# Bioconductor packages
+#remotes::install_github('chris-mcginnis-ucsf/DoubletFinder') #Install DoubletFinder and depends
+library(batchelor)
+library(edgeR)
+library(scater)
+# Set seed since this pipeline includes stochastic algorithms
+set.seed(1)
+# Set default working directory
+data_dir <- "G:/My Drive/Placenta_Cell_Types/RNA/placenta_rna/data/"
+results_dir <- "G:/My Drive/Placenta_Cell_Types/RNA/placenta_rna/results/seurat/"
+```
+
+Load cleaned Seurat data
+```{r}
+seu <- readRDS(paste0(data_dir,"cleaned_combined_seurat_2020-12-22.rda"))
+```
+
+QC metrics by replicate, TODO: relabel orig.ident for nicer graphs
+```{r}
+VlnPlot(seu, features = "subsets_Mito_percent", pt.size = .1, group.by = "orig.ident") + NoLegend() + 
+  theme(axis.text.x = element_text(size = 8)
+        ) +
+  ggtitle("Percentage of Reads Mapping to Mitochondrial Genes by Replicate")
+#ggsave(paste0(results_dir, "qc_replicate_mito_", Sys.Date(), ".png"))
+
+VlnPlot(seu, features = "nCount_RNA", pt.size = .1, group.by = "orig.ident") + NoLegend() + 
+  theme(axis.text.x = element_text(size = 8)
+        ) +
+  ggtitle("Total RNA Molecules Per Cell by Replicate")
+#ggsave(paste0(results_dir, "qc_replicate_total_RNA_", Sys.Date(), ".png"))
+
+VlnPlot(seu, features = "nFeature_RNA", pt.size = .1, group.by = "orig.ident") + NoLegend() + 
+  theme(axis.text.x = element_text(size = 8)
+        ) +
+  ggtitle("Detected Genes Per Cell by Replicate")
+#ggsave(paste0(results_dir, "qc_replicate_total_genes_", Sys.Date(), ".png"))
+```
+
+VEGFR Receptor expression by cluster
+```{r}
+VlnPlot(seu, features = "KDR") + NoLegend()
+VlnPlot(seu, features = "FLT1") + NoLegend()
+#ggsave(paste0(results_dir, "FLT1_expr_by_cluster_", Sys.Date(), ".png"))
+```
+
+Percentage of fetal cells
+```{r}
+mf <- seu$fetal %>% as.factor() %>% summary()
+percent.fetal <- mf[1]/(mf[1]+mf[2])
+```
+
+```{r}
+View(seu@meta.data)
+```
+
+Paint by fetal/maternal status
+```{r}
+DimPlot(seu, group.by = 'fetal') + NoLegend()
+#ggsave(paste0(results_dir, "seu_group_by_fetal_status_", Sys.Date(), ".png"))
+```
+
+```{r}
+DimPlot(seu, group.by = 'fetal')
+#ggsave(paste0(results_dir, "seu_group_by_fetal_status_legend_", Sys.Date(), ".png"))
+```
+
+```{r}
+seu$batch <- factor(seu$batch, labels = c("KC", "PR"))
+```
+
+Paint by batch
+```{r}
+DimPlot(seu, group.by = 'batch') + NoLegend()
+#ggsave(paste0(results_dir, "seu_group_by_batch_", Sys.Date(), ".png"))
+```
+
+```{r}
+DimPlot(seu, group.by = 'batch')
+#ggsave(paste0(results_dir, "seu_group_by_batch_legend_", Sys.Date(), ".png"))
+```
+
+Subset to and paint by technical replicates
+```{r}
+kc.40 <- subset(seu, subset = biorep == "kc.40")
+Idents(kc.40) %>% levels
+kc.40$orig.ident <- factor(kc.40$orig.ident, labels = c("Sample 1A", "Sample 1B"))
+DimPlot(kc.40, group.by = "orig.ident")
+#ggsave(paste0(results_dir, "seu_group_by_kc40_technical_legend_", Sys.Date(), ".png"))
+rm(kc.40)
+```
+
+Average expression by cell type cluster and run corrtest.
+```{r}
+kc.40.1 <- subset(seu, subset = orig.ident == "kc.40.1")
+cluster.expr.40.1 <- flatten(AverageExpression(kc.40.1))
+
+kc.40.2 <- subset(seu, subset = orig.ident == "kc.40.2")
+cluster.expr.40.2 <- flatten(AverageExpression(kc.40.2))
+
+
+corr.test.res <- map2(cluster.expr.40.1,
+     cluster.expr.40.2,
+     ~ cor.test(.x, .y))
+
+corr.test.pvals <- map(corr.test.res,
+                   ~ .x['p.value'])
+
+pvals <- flatten(corr.test.pvals) %>% flatten
+
+corr.res <- map2(cluster.expr.40.1,
+     cluster.expr.40.2,
+     ~ cor(.x, .y))
+
+cor.df <- corr.res %>% data.frame %>% t
+colnames(cor.df) <- "correlation"
+cor.df <- as.data.frame(cor.df)
+
+cor.df$cell.type <- rownames(cor.df)
+```
+
+```{r}
+ggplot(cor.df, aes(x = correlation)) +
+  geom_dotplot(binwidth = .01) +
+  labs(title = "Sample 1 Cluster Averages Technical Replication", y = element_blank(), x = "Pearson Correlation") +
+  coord_flip() +
+  geom_text_repel(aes(y = .001, x = correlation, label=ifelse(correlation < .9, cell.type, '')), label.padding = 5, force = 2) 
+```
+
+```{r}
+#ggsave(paste0(results_dir, "kc_40_technical_cluster_cor_", Sys.Date(), ".png"))
+```
+
+
+```{r}
+kc.42 <- subset(seu, subset = biorep == "kc.42")
+kc.42$orig.ident <- factor(kc.42$orig.ident, labels = c("Sample 2A", "Sample 2B"))
+DimPlot(kc.42, group.by = "orig.ident")
+#ggsave(paste0(results_dir, "seu_group_by_kc42_technical_legend_", Sys.Date(), ".png"))
+rm(kc.42)
+```
+
+Average expression by cell type cluster and run corrtest. 
+```{r}
+kc.42.1 <- subset(seu, subset = orig.ident == "kc.42.1")
+cluster.expr.42.1 <- flatten(AverageExpression(kc.42.1))
+cluster.expr.42.1$`Fetal Cytotrophoblasts` <- NULL
+
+# KC42.2 contains no cytotrophoblasts, drop from 42.1 to do correlation test
+kc.42.2 <- subset(seu, subset = orig.ident == "kc.42.2")
+cluster.expr.42.2 <- flatten(AverageExpression(kc.42.2))
+
+
+corr.test.res <- map2(cluster.expr.42.1,
+     cluster.expr.42.2,
+     ~ cor.test(.x, .y))
+
+corr.test.pvals <- map(corr.test.res,
+                   ~ .x['p.value'])
+
+pvals <- flatten(corr.test.pvals) %>% flatten
+
+corr.res <- map2(cluster.expr.42.1,
+     cluster.expr.42.2,
+     ~ cor(.x, .y))
+
+cor.df <- corr.res %>% data.frame %>% t
+colnames(cor.df) <- "correlation"
+cor.df <- as.data.frame(cor.df)
+
+cor.df$cell.type <- rownames(cor.df)
+```
+
+```{r}
+ggplot(cor.df, aes(x = correlation)) +
+  geom_dotplot(binwidth = .01) +
+  labs(title = "Sample 2 Cluster Averages Technical Replication", y = element_blank(), x = "Pearson Correlation") +
+  coord_flip() +
+  geom_text_repel(aes(y = .001, x = correlation, label=ifelse(correlation < .9, cell.type, '')), label.padding = 5, force = 2) 
+```
+
+```{r}
+#ggsave(paste0(results_dir, "kc_42_technical_cluster_cor_", Sys.Date(), ".png"))
+```
+

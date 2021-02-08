@@ -1,0 +1,116 @@
+---
+title: "GSE75010"
+author: "Kyle Campbell"
+date: "10/14/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(betareg)
+library(boot)
+library(psych)
+library(readxl)
+
+# BiocPackages to use with GEOquery
+library(Biobase)
+library(BiocGenerics)
+library(GEOquery)
+
+data_dir <- "C:/Users/k_cam/Downloads/scRNA_hpc_qc/"
+```
+Leavy & Cox et al. previously analyzed the 7 microarray studies in:
+Large Scale Aggregate Microarray Analysis Reveals Three Distinct Molecular Subclasses of Human Preeclampsia
+
+## GEO Query
+Pull GEO accession as GSE Matrix file
+```{r}
+#gse <- getGEO("GSE75010", GSEMatrix = TRUE)
+#saveRDS(gse, paste0(data_dir, "GSE75010_GSEMatrix.rda"))
+gse <- readRDS(paste0(data_dir, "GSE75010_GSEMatrix.rda"))
+head(gse[[1]])
+# Detailed phenotype data
+#head(gse$GSE75010_series_matrix.txt.gz@phenoData@data)
+```
+Pull relevant information from the Cox PE dataset. Overlapping covariates between the Cox datasets are fetal sex and gestational age. GSE75010 additionally contains ethnicity, gestational age in days, attempted vaginal delivery, and mode of delivery whereas the aggregated microarrays contain occurrence of labor alone and nationality.
+```{r}
+# Pull SAMPLE_XXXXX,  PE vs. non-PE, GA, and sex from Cox dataset
+cox <- gse$GSE75010_series_matrix.txt.gz@phenoData@data[,c("description", "characteristics_ch1", "characteristics_ch1.18", "characteristics_ch1.20")]
+cox <- rownames_to_column(cox, "gsm")
+cox$batch <- "GSE75010"
+colnames(cox) <- c("gsm", "sample", "phenotype", "ga", "sex", "batch")
+cox <- cox %>%
+  select(sample, phenotype, batch, ga, sex)
+head(cox)
+```
+Recode Cox dataset to match microarray data.
+```{r}
+# Recode diagnosis: non-PE to control
+cox$phenotype <- sapply(cox$phenotype,
+       function(x) gsub(x, pattern = ".*[\\-]PE",
+       replacement = "C"
+       ))
+# Recode diagnosis: PE to PE
+cox$phenotype <- sapply(cox$phenotype,
+       function(x) gsub(x, pattern = ".*[^\\-]PE",
+       replacement = "PE"
+       ))
+# Recode ga (week): xx to xx weeks and convert to numeric
+cox$ga <- sapply(cox$ga,
+       function(x) gsub(x, pattern = ".*[^0-9]{2}",
+       replacement = ""
+       ))
+cox$ga <- as.numeric(cox$ga)
+# Recode sex
+cox$sex <- sapply(cox$sex,
+       function(x) gsub(x, pattern = ".*[^F|M]",
+       replacement = ""
+       ))
+head(cox)
+```
+Pull relevant information from the microarray aggregation done by Cox group.
+```{r}
+array <- read_excel(paste0(data_dir, "Microarray_Data/journal.pone.0116508.s014.xlsx"), col_names = TRUE)
+array <- array %>%
+  select(Sample, Phenotype, Batch, GA, `Fetal Sex`)
+colnames(array) <- c("sample", "phenotype", "batch", "ga", "sex")
+head(array)
+```
+Not sure why the following output is provided by read_excel():
+New names:
+* `40238` -> `40238...7358`
+* `40238` -> `40238...7360`
+Merging the two metadata tables
+```{r}
+concat <- rbind(cox, array)
+head(concat)
+dim(concat)
+```
+Import CIBERSORT cell type fraction imputation data.
+```{r}
+frac <- read_excel(paste0(data_dir, "CIBERSORTx/CIBERSORTx_Job2_Results.xlsx"))
+colnames(frac)[1] <- "sample"
+head(frac)
+dim(frac)
+```
+Merge the two phenotype data with the cell type fraction data and factorize appropriate variables. Note typo in ST cell type.
+```{r}
+merged <- left_join(concat, frac)
+merged$phenotype <- as.factor(merged$phenotype)
+merged$batch <- as.factor(merged$batch)
+merged$sex <- as.factor(merged$sex)
+head(merged)
+colnames(merged) <- tolower(colnames(merged))
+colnames(merged) <- str_replace(colnames(merged),
+                                c("\\s", "\\-"),
+                                "_")
+colnames(merged) <- str_replace(colnames(merged),
+                                "\\+",
+                                "")
+
+head(merged)
+dim(merged)
+saveRDS(merged, paste0(data_dir, "GSE75010_merged_abundances", Sys.Date(), ".rda"))
+merged <- readRDS(paste0(data_dir, "GSE75010_merged_abundances2020-10-16.rda"))
+```

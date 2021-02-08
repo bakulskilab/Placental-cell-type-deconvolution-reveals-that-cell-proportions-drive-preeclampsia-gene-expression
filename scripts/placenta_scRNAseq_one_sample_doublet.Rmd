@@ -1,0 +1,155 @@
+---
+title: "scRNA-seq combine KC and PR for processing"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::knit_engines$set(python = reticulate::eng_python)
+
+#install.packages("package_name",  repos="http://cran.us.r-project.org") # Only this mirror worked for multiple packages
+library(knitr)
+library(tidyverse)
+library(devtools)
+library(Seurat)
+#remotes::install_github('satijalab/seurat-wrappers')
+library(SeuratWrappers)
+library(cowplot)
+library(rgl)
+library(EnvStats)
+library(reticulate)
+library(clustree)
+library(Matrix)
+
+# Bioconductor packages
+#remotes::install_github('chris-mcginnis-ucsf/DoubletFinder') #Install DoubletFinder and depends
+library(batchelor)
+library(scDblFinder)
+library(DropletUtils)
+library(DoubletFinder)
+library(edgeR)
+library(scater)
+# Set seed since this pipeline includes stochastic algorithms
+set.seed(1)
+# Set default working directory
+data_dir <- "C:/Users/k_cam/Downloads/scRNA_hpc_qc/"
+```
+## Import data
+```{r}
+kc <- readRDS(paste0(data_dir, "placenta_scRNA_seq_kc_filtered_2020-11-05.rda"))
+#tnl <- readRDS(paste0(data_dir, "placenta_scRNA_seq_pr_filtered_2020-11-06.rda"))
+```
+Subet to kc40.1 only
+```{r}
+kc <- subset(kc, subset = orig.ident == "kc40.1")
+```
+
+## Doublet investigation
+Basic processing for doublet investigation.
+```{r}
+kc <- NormalizeData(kc)
+kc <- FindVariableFeatures(kc, selection.method = "vst", nfeatures = 2000)
+kc <- ScaleData(kc)
+kc <- RunPCA(kc)
+kc <- RunUMAP(kc, dims = 1:10)
+```
+
+SingleR to perform automatic annotation.
+```{r}
+library(celldex) #Bioc
+library(SingleR) #Bioc
+library(scuttle)
+```
+
+```{r}
+# Load atlas dataset
+#hpca.se <- celldex::HumanPrimaryCellAtlasData()
+#pred <- SingleR(test = kc@assays$RNA@data, ref = kc.labels, assay.type.test=1,
+#    labels = hpca.se$label.main)
+```
+
+```{r}
+# Load combined analysis that has detailed cell labels
+combined <- readRDS(paste0(data_dir, "tnl_combined_mnn_labelled.rda"))
+combined <- subset(combined, idents = c("Naive T Cells", "Activated T Cells", "Natural Killer"), invert = TRUE)
+# Load previous data that has better T cell splits
+tcell <- readRDS("E:/All_mnn_labelled.rda")
+tcell <- subset(tcell, idents = c("Activated CD8+ T Cells", "Naive CD4+ T Cells", "Natural Killer", "Naive CD8+ T Cells", "Activated CD4+ T Cells"))
+ref.sce <- merge(combined, tcell, add.cell.ids = c("combined", "tcell"), project = "ref") %>%
+  as.SingleCellExperiment()
+rm(combined, tcell)
+```
+
+```{r}
+# Get normalized counts
+norm <- ref.sce %>%
+  logNormCounts()
+# Get cell labels
+labels <- ref.sce$ident
+# Convert to sce
+kc.sce <- as.SingleCellExperiment(kc)
+pred <- SingleR(test=kc.sce, ref=norm, labels=labels, de.method="wilcox")
+table(pred$labels)
+rm(norm, labels, ref.sce)
+```
+
+```{r}
+plotScoreHeatmap(pred)
+```
+
+```{r}
+plotDeltaDistribution(pred, ncol = 3)
+```
+```{r}
+print(paste0(sum(is.na(pred$pruned.labels)), " ambiguous labels"))
+```
+```{r}
+kc.sce$singler.label <- pred$labels
+kc.sce$singler.pruned <- pred$pruned.labels
+```
+
+```{r}
+kc <- as.Seurat(kc.sce)
+rm(kc.sce)
+```
+Plot UMAP.
+```{r}
+DimPlot(kc, group.by = 'singler.label', label = T) + NoLegend()
+```
+Rerun processing.
+```{r}
+kc <- NormalizeData(kc)
+kc <- FindVariableFeatures(kc, selection.method = "vst", nfeatures = 2000)
+kc <- ScaleData(kc)
+kc <- RunPCA(kc)
+kc <- RunUMAP(kc, dims = 1:10)
+```
+
+Find the optimal pK parameter and pull it as "pK"
+```{r}
+sweep.res.list_kc <- paramSweep_v3(kc, PCs = 1:10, sct = FALSE)
+sweep.stats_kc <- summarizeSweep(sweep.res.list_kc, GT = FALSE)
+bcmvn_kc<- find.pK(sweep.stats_kc)
+# Sort results by pK
+sorted.by.pk <- bcmvn_kc %>%
+  arrange(bcmvn_kc$BCmetric)
+# Select the top result and convert to a number
+pK <- sorted.by.pk$pK[1] %>% as.character %>% as.numeric
+```
+```{r}
+homotypic.prop <- modelHomotypic(kc$singler.label) ## Input cell labels
+nExp_poi <- round(homotypic.prop*nrow(kc@meta.data))  ## use homotypic.prop
+nExp_poi.adj <- round(nExp_poi*(1-homotypic.prop))
+```
+
+```{r}
+kc <- doubletFinder_v3(kc, PCs = 1:10, pN = 0.25, pK = pK, nExp = nExp_poi, reuse.pANN = FALSE, sct = FALSE)
+# TODO programatically pull pANN for reuse
+kc <- doubletFinder_v3(kc, PCs = 1:10, pN = 0.25, pK = 0.09, nExp = nExp_poi.adj, reuse.pANN = "pANN_0.25_0.06_305", sct = FALSE)
+```
+
+```{r}
+DimPlot(kc, group.by = 'DF.classifications_0.25_0.06_305')
+DimPlot(kc, group.by = 'DF.classifications_0.25_0.09_262')
+DimPlot(kc, group.by = 'singler.label')
+```

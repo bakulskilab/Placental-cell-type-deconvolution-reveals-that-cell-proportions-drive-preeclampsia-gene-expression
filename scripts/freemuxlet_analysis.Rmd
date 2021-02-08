@@ -1,0 +1,107 @@
+---
+title: "Freemuxlet results"
+author: "Kyle Campbell"
+date: "12/12/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(ggridges)
+
+knitr::opts_chunk$set(echo = TRUE)
+
+data_dir <- "C:/Users/k_cam/Google Drive/Placenta_Cell_Types/RNA/placenta_rna/data/freemuxlet/"
+```
+
+```{r}
+# Pull full file paths
+files <- paste0(data_dir, dir(path = data_dir))
+# Pull sample IDs
+names <- str_extract(files, "(kc|pr)(_\\d+)+")
+# Reformat sample IDs
+names <- str_replace_all(names, "_", ".")
+# Read in freemuxlet dataframes, specifying the datatype in each column
+clusters <- lapply(files, readr::read_tsv, col_types = "iciiffdfddddfdfddfdd")
+# Rename the list of dataframes with sample ID
+names(clusters) <- names
+```
+
+```{r}
+# Function to summarize guesses
+summarize_freemuxlet_data <- function(freemux.data) {
+  # Summarize droplet assignment results
+  summary(as.factor(freemux.data$BEST.GUESS))
+}
+
+# Create nested tibble
+df <- tibble(
+  sample = names,
+  data = clusters
+)
+
+# Unnest the data to add sample labels
+all <- df %>% unnest(data)
+
+# Summarize best guess results
+all %>%
+  group_by(sample, BEST.GUESS) %>%
+  tally()
+
+saveRDS(all, paste0(data_dir, "freemuxlet_assignments_", Sys.Date(), ".rda"))
+write_csv(all, paste0(data_dir, "freemuxlet_assignments_", Sys.Date(), ".csv"))
+```
+
+Cluster represents freemuxlet clusters assigned from entire 1-22, X, Y 1000Genomes .vcf reference.
+Cluster.minaf represents 1-22, X 1000Genomes genotype data only, filtering rare variants with MAF < 10%
+
+```{r}
+cluster <- read_tsv(paste0(data_dir, "pr478clusters.txt"))
+cluster.minaf <- read_tsv(paste0(data_dir, "pr478clusters.minAF.txt"))
+
+# Sort both by BARCODE
+cluster <- 
+  cluster %>%
+  arrange(BARCODE)
+cluster.minaf <-
+  cluster.minaf %>%
+  arrange(BARCODE)
+
+# Are there differences in best guess?
+summary(cluster$BEST.GUESS == cluster.minaf$BEST.GUESS)
+
+all.best <- as.factor(cluster$BEST.GUESS)
+summary(all.best)
+minaf.best <- as.factor(cluster.minaf$BEST.GUESS)
+summary(minaf.best)
+```
+Create new variables to investigate differences in assignment
+```{r}
+all <- cluster
+min <- cluster.minaf
+
+mismatch <- !(cluster$BEST.GUESS == cluster.minaf$BEST.GUESS)
+
+all$mismatch <- mismatch
+min$mismatch <- mismatch
+
+all$filtered <- FALSE
+min$filtered <- TRUE
+
+data <- rbind(all, min) %>%
+  arrange(BARCODE)
+data.mismatch <- data %>%
+  filter(mismatch == T)
+```
+
+
+```{r}
+data.ggplot <- aes()
+```
+
+```{r}
+data <- data.frame(
+  all <- cluster$DIFF.LLK.BEST.NEXT,
+  min <- cluster.minaf$DIFF.LLK.BEST.NEXT
+)
+```
