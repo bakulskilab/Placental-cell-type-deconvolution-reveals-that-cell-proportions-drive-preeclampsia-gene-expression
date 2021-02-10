@@ -17,6 +17,7 @@ library(ggridges)
 library(ggpubr)
 library(grid)
 library(gridExtra)
+library(here)
 library(lmtest)
 #library(memisc)
 # Had to detach memisc due to shared function with dplyr that producing annoying warning
@@ -27,8 +28,8 @@ library(table1)
 library(tidymodels)
 
 knitr::opts_chunk$set(echo = TRUE)
-data_dir <- "C:/Users/k_cam/Google Drive/Placenta_Cell_Types/RNA/placenta_rna/data/"
-results_dir <- "C:/Users/k_cam/Google Drive/Placenta_Cell_Types/RNA/placenta_rna/results/GSE75010/"
+data_dir <- paste0(here("data"), "/")
+results_dir <- paste0(here("results", "GSE75010"), "/")
 ```
 
 Using 2000 max signature genes per class and no min expr 
@@ -142,13 +143,23 @@ rownames(active) <- merged$sample
 
 Run PCA
 ```{r}
-res.pca <- prcomp(active, scale = T)
+res.pca <- prcomp(active, scale = F)
 #saveRDS(res.pca, paste0(data_dir, "GSE75010_cell_type_proportions_pca_", Sys.Date(), ".rda"))
+pca.summary <- summary(res.pca)
+
+prop.var <- as.data.frame(pca.summary$importance)
+
+# The first 5 components provide almost 78% of the variance explained.
+sum(prop.var[2,1:5])
 ```
 
 Scree plot
 ```{r}
 fviz_eig(res.pca)
+```
+
+```{r}
+View(res.pca)
 ```
 
 Graph of individuals. Individuals with a similar profile are grouped together.
@@ -286,6 +297,7 @@ sdev <- res.pca$sdev
 var.coord <- t(apply(loadings, 1, var_coord_func, sdev)) 
 head(var.coord[, 1:4])
 ```
+
 ```{r}
 # Compute Cos2
 #::::::::::::::::::::::::::::::::::::::::
@@ -301,7 +313,7 @@ comp.cos2 <- apply(var.cos2, 2, sum)
 contrib <- function(var.cos2, comp.cos2){var.cos2*100/comp.cos2}
 var.contrib <- t(apply(var.cos2,1, contrib, comp.cos2))
 head(var.contrib[, 1:4])
-View(var.contrib)
+#View(var.contrib)
 ```
 
 Interesting way to visualize the relative abundance of each cell type
@@ -315,19 +327,6 @@ Corrplot to identify inversely correlated proportions. Maternal plasma and B cel
 ```{r}
 # Compute a correlation matrix
 corr <- round(cor(active), 1)
-
-# Compute a matrix of correlation p-values
-p.mat <- cor_pmat(active)
-
-# Visualize the lower triangle of the correlation matrix
-# Barring the no significant coefficient
-corr.plot <- ggcorrplot(
-  corr, hc.order = TRUE, type = "lower", outline.col = "white",
-  p.mat = p.mat
-  )
-corr.plot + theme(axis.text.x = element_text(angle=45, size = 8), axis.text.y = element_text(size = 8))
-
-#ggsave(paste0(results_dir, "cell_type_proportions_corrplot_", Sys.Date(), ".png"))
 ```
 
 ```{r}
@@ -336,6 +335,7 @@ corr.plot + theme(axis.text.x = element_text(angle=45, size = 8), axis.text.y = 
 corrplot(corr, method = "ellipse", order = "hclust", tl.cex = .7) #tl.cex control axis label size
 #dev.off()
 
+# Alternative options
 #corrplot(corr, method = "ellipse", order = "hclust")
 #corrplot(corr, method = "ellipse", order = "AOE")
 ```
