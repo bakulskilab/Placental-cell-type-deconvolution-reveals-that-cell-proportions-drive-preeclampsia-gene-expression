@@ -7,6 +7,8 @@ output: html_document
 ```{r setup, include=FALSE}
 # Update R all installed R Packages
 # update.packages(ask = FALSE)
+library(factoextra)
+library(here)
 library(grid)
 library(gridExtra)
 library(gprofiler2)   # For gene-set enrichment tests
@@ -28,8 +30,8 @@ library(topGO)
 
 knitr::opts_chunk$set(echo=TRUE)
 
-data_dir <- "C:/Users/k_cam/Google Drive/Placenta_Cell_Types/RNA/placenta_rna/data/"
-results_dir <- "C:/Users/k_cam/Google Drive/Placenta_Cell_Types/RNA/placenta_rna/results/GSE75010/"
+data_dir <- paste0(here("data"), "/")
+results_dir <- paste0(here("results", "GSE75010"), "/")
 ```
 Based on Bioconductor workflow http://www.bioconductor.org/packages/release/workflows/vignettes/maEndToEnd/inst/doc/MA-Workflow.html#14_a_pathway_enrichment_analysis_using_reactome and limma user guide https://bioconductor.org/packages/3.12/bioc/vignettes/limma/inst/doc/usersguide.pdf. https://hbctraining.github.io/Training-modules/Visualization_in_R/lessons/03_advanced_visualizations.html also used to guide Volcano plot construction.
 ## Load and format data
@@ -91,90 +93,116 @@ ggplot(pca.dataGG, aes(PC1, PC2)) +
 No apparent clustering by study source. Some separation in outcome by PC1.
 
 ## Defining and fitting the model
-Create the design matrix. Covariates will be case-control status, sex, gestational age in weeks, and batch.
+
+Custom function to run limma model, print results, and output Volcano plot and model results for further analysis.
 ```{r}
-#Set the covariates
-covariates <- c("phenotype", "sex", "ga", "batch")
-
-# Create the design formula and use to make the model matrix
-design.formula <- as.formula(paste0("~ ", paste(covariates, collapse = " + ")))
-design <- model.matrix(object = design.formula, data = d)
-
-#Fit the model.
-fit <- lmFit(d, design)
-fit <- eBayes(fit)
-
-#Extract model results.
-hits <- topTable(fit, coef = "phenotypePE", number = Inf)
-
-#Histogram of raw p-values
-hist(hits$P.Value, col = brewer.pal(3, name = "Set2")[1],
-     
-     main = "Pre-eclamptic patients vs. controls", xlab = "P-values")
-#Histogram of FDR-adjusted p-values.
-hist(hits$adj.P.Val, col = brewer.pal(3, name = "Set2")[1],
-     main = "Pre-eclamptic patients vs. controls", xlab = "FDR-adjusted p-values")
+run_limma_model <-
+  function(d,
+           covariates,
+           threshold,
+           genes.of.interest,
+           gg.title) {
+    # Create the design formula and use to make the model matrix
+    design.formula <-
+      as.formula(paste0("~ ", paste(covariates, collapse = " + ")))
+    design <- model.matrix(object = design.formula, data = d)
+    
+    #Fit the model.
+    fit <- lmFit(d, design)
+    fit <- eBayes(fit)
+    
+    #Extract model results.
+    hits <- topTable(fit, coef = "phenotypePE", number = Inf)
+    
+    #Histogram of raw p-values
+    hist(
+      hits$P.Value,
+      col = brewer.pal(3, name = "Set2")[1],
+      main = "Pre-eclamptic patients vs. controls",
+      xlab = "P-values"
+    )
+    #Histogram of FDR-adjusted p-values.
+    hist(
+      hits$adj.P.Val,
+      col = brewer.pal(3, name = "Set2")[1],
+      main = "Pre-eclamptic patients vs. controls",
+      xlab = "FDR-adjusted p-values"
+    )
+    # Print summary of hits
+    hits$sig <- hits$adj.P.Val < threshold
+    print(paste0(
+      length(which(hits$sig)),
+      " significant hits at FDR-adjusted cutoff of ",
+      threshold
+    ))
+    # Move gene symbols to column
+    res <- rownames_to_column(hits, "gene_symbol")
+    # Get the top downregulated hits
+    downreg <- res %>%
+      filter(adj.P.Val < .05) %>%
+      filter(logFC < 0) %>%
+      arrange(logFC)
+    #Get the top upregulated hits.
+    upreg <- res %>%
+      filter(adj.P.Val < .05) %>%
+      filter(logFC > 0) %>%
+      arrange(desc(logFC))
+    #Label genes of interest by name, the top 10 upregulated and downregulated hits and hand-chosen genes of interest.
+    num.to.plot <- 10
+    genes.of.interest <- NULL#c("HLA-G")
+    top.upreg <- upreg$gene_symbol[1:num.to.plot]
+    top.downreg <- downreg$gene_symbol[1:num.to.plot]
+    genes.to.plot <- c(top.upreg, top.downreg, genes.of.interest)
+    res$label[(res$gene_symbol %in% genes.to.plot)] <- T
+    # Volcano plot
+    plot <- ggplot(res) +
+      geom_point(aes(
+        x = logFC,
+        y = -log10(adj.P.Val),
+        colour = sig
+      )) +
+      geom_text_repel(aes(
+        x = logFC,
+        y = -log10(adj.P.Val),
+        label = ifelse(label, gene_symbol, "")
+      )) +
+      geom_hline(yintercept = -log10(threshold),
+                 linetype = "dotted") +
+      ggtitle(paste0("Pre-eclamptic cases vs controls - ", gg.title)) +
+      xlab("log2 fold change") +
+      ylab("-log10 adjusted p-value") +
+      theme(
+        legend.position = "none",
+        plot.title = element_text(size = rel(1.5), hjust = 0.5),
+        axis.title = element_text(size = rel(1.25))
+      )
+    # Print plot to output
+    print(plot)
+    # Create list of volcano plot and models result for export
+    return(list
+           (volcano = plot,
+             res = res))
+  }
 ```
 
-## Report results
-Add boolean significance vector to our results table.
+# Naive Model
 ```{r}
-# Set p-value threshold
-threshold <- .05
-hits$sig <- hits$adj.P.Val < threshold
-print(paste0(length(which(hits$sig)), " significant hits at FDR-adjusted cutoff of ", threshold)) 
+naive.model <- run_limma_model(d = d, covariates = "phenotype", threshold = .05, genes.of.interest = NULL, gg.title = "Naive")
 ```
-
-## Unadjusted Volcano Plot
-
+# Demographic-adjusted model
 ```{r}
-res <- rownames_to_column(hits, "gene_symbol")
-```
-Get the top hits.
-```{r}
-# Get the top downregulated hits
-downreg <- res %>%
-  filter(adj.P.Val < .05) %>%
-  filter(logFC < 0) %>%
-  arrange(logFC)
-#Get the top upregulated hits.
-upreg <- res %>%
-  filter(adj.P.Val < .05) %>%
-  filter(logFC > 0) %>%
-  arrange(desc(logFC))
-```
-Label genes of interest by name, the top 10 upregulated and downregulated hits and hand-chosen extravillous trophoblast marker gene HLA-G.
-```{r}
-num.to.plot <- 10
-genes.of.interest <- NULL#c("HLA-G")
-top.upreg <- upreg$gene_symbol[1:num.to.plot]
-top.downreg <- downreg$gene_symbol[1:num.to.plot]
-genes.to.plot <- c(top.upreg, top.downreg, genes.of.interest)
-res$label[(res$gene_symbol %in% genes.to.plot)] <- T
-```
-Volcano plot of results. The chunk above will determine which genes are labelled in the plot.
-```{r}
-# Volcano plot
-plot1 <- ggplot(res) +
-        geom_point(aes(x=logFC, y=-log10(adj.P.Val), colour=sig)) +
-        geom_text_repel(aes(x = logFC, y = -log10(adj.P.Val),
-                            label = ifelse(
-                              label, gene_symbol, ""
-                            ))) +
-        geom_hline(yintercept = -log10(threshold), linetype="dotted") +
-        ggtitle("Pre-eclamptic cases vs controls") +
-        xlab("log2 fold change") + 
-        ylab("-log10 adjusted p-value") +
-        theme(legend.position = "none",
-              plot.title = element_text(size = rel(1.5), hjust = 0.5),
-              axis.title = element_text(size = rel(1.25)))
-plot1
+base.model <- run_limma_model(d = d,
+                              covariates = c("phenotype", "sex", "ga", "batch"),
+                              threshold = .05, genes.of.interest = NULL,
+                              gg.title = "Base")
 ```
 
 ## Unadjusted Gene-set Enrichment
 
 Prepare a ranked gene list (q < .05 & descending absolute logFC) for gProfiler g:GOSt gene-set enrichment input
 ```{r}
+res <- base.model$res
+
 # Get ranked list
 ranked.list <- res %>%
   filter(adj.P.Val < .05) %>%
@@ -198,6 +226,11 @@ cell.types <- cell.types[!cell.types %in% c("Fetal.B.Cells", "Fetal.Naive.CD4..T
 
 # Set the cell type proportions to include based on significant results from the beta regression analysis.
 cell.types.sig <- c("Maternal.Plasma.Cells", "Maternal.Natural.Killer.Cells", "Maternal.B.Cells", "Fetal.Naive.CD8..T.Cells", "Fetal.Mesenchymal.Stem.Cells", "Fetal.Memory.CD4..T.Cells", "Fetal.Hofbauer.Cells", "Fetal.Fibroblasts", "Fetal.Extravillous.Trophoblasts", "Fetal.Cytotrophoblasts")
+
+type.model <- run_limma_model(d = d,
+                              covariates = c("phenotype", "sex", "ga", "batch", cell.types.sig),
+                              threshold = .05, genes.of.interest = NULL,
+                              gg.title = "Sig. Cell Types")
 ```
 
 Retrieve cell type proportion PCA results from beta regression .Rmd, merge with meta data, and reset the phenotype data in the ExpressionSet object.
@@ -208,15 +241,9 @@ pca.coordinates <- as.data.frame(pca.ind$coord)
 pca.coordinates$sample <- rownames(pca.coordinates)
 meta.total <- left_join(meta, pca.coordinates)
 
+# Reset the metadata of the ExpressionSet object, d.
 pData(d) <- meta.total
-```
 
-```{r}
-
-```
-
-
-```{r}
 # Set the covariates, including the outcome
 #covariates <- c("phenotype", "sex", "ga", "batch", cell.types.sig)
 
@@ -224,84 +251,10 @@ PCs <- c("Dim.1", "Dim.2" , "Dim.3", "Dim.4", "Dim.5")
 
 covariates <- c("phenotype", "sex", "ga", "batch", PCs)
 
-# Set the design formula and design matrix
-design.formula <- as.formula(paste0("~", paste(covariates, collapse = " + ")))
-design <- model.matrix(object = design.formula, data = d)
-
-# Fit the model
-fit <- lmFit(d, design)
-fit <- eBayes(fit)
-
-# Extract model results
-hits <- topTable(fit, coef = "phenotypePE", number = Inf)
-
-#Histogram of raw p-values.
-hist(hits$P.Value, col = brewer.pal(3, name = "Set2")[1],
-     main = "Cell type-adjusted pre-eclamptic patients vs. controls", xlab = "P-values")
-
-#Histogram of FDR-adjusted p-values.
-hist(hits$adj.P.Val, col = brewer.pal(3, name = "Set2")[1],
-     main = "Cell type-adjusted pre-eclamptic patients vs. controls", xlab = "FDR-adjusted p-values")
-```
-
-## Report results
-Add boolean significance vector to our results table. Zero FDR-adjusted results at .05 q-threshold, relax to 0.1.
-```{r}
-# Set p-value threshold
-threshold <- .4
-hits$sig <- hits$adj.P.Val < threshold
-print(paste0(length(which(hits$sig)), " significant hits at FDR-adjusted cutoff of ", threshold)) 
-```
-
-```{r}
-res <- rownames_to_column(hits, "gene_symbol")
-```
-Get the top hits.
-```{r}
-# Get the top downregulated hits
-downreg <- res %>%
-  filter(adj.P.Val < threshold) %>%
-  filter(logFC < 0) %>%
-  arrange(logFC)
-#Get the top upregulated hits.
-upreg <- res %>%
-  filter(adj.P.Val < threshold) %>%
-  filter(logFC > 0) %>%
-  arrange(desc(logFC))
-```
-Label genes of interest by name. Because there are limited hits, plot all hits at FDR-adjusted p-value threshold. Also included a label for the extreme outlier "LEP."
-```{r}
-num.to.plot <- 10
-genes.of.interest <- NULL#c("HLA-G")
-top.upreg <- upreg$gene_symbol[1:num.to.plot]
-top.downreg <- downreg$gene_symbol[1:num.to.plot]
-genes.to.plot <- c(top.upreg, top.downreg, genes.of.interest)
-#logFC.outlier <- res %>%
-#  filter(logFC > .41)
-#all.hits <- res %>%
-#  filter(adj.P.Val < threshold)
-#genes.to.plot <- c(all.hits$gene_symbol, logFC.outlier$gene_symbol)
-res$label[(res$gene_symbol %in% genes.to.plot)] <- T
-```
-
-
-Volcano plot of results. The chunk above will determine which genes are labelled in the plot.
-```{r}
-# Volcano plot
-plot2 <- ggplot(res) +
-        geom_point(aes(x=logFC, y=-log10(adj.P.Val), colour=sig)) +
-        geom_text_repel(aes(x = logFC, y = -log10(adj.P.Val),
-                            label = ifelse(
-                              label, gene_symbol, ""
-                            ))) +
-        geom_hline(yintercept = -log10(threshold), linetype="dotted") +
-        ggtitle("Cell type-adjusted pre-eclamptic cases vs controls") +
-        xlab("log2 fold change") + 
-        ylab("-log10 adjusted p-value") +
-        theme(legend.position = "none",
-              plot.title = element_text(size = rel(1.5), hjust = 0.5),
-              axis.title = element_text(size = rel(1.25)))
-plot2
+pc.model <- run_limma_model(d = d,
+                              covariates = covariates,
+                              threshold = .05, genes.of.interest = NULL,
+                              gg.title = "Sig. Cell Types")
 ```
 
 Manually set axis limits and drawing side-by-side.
