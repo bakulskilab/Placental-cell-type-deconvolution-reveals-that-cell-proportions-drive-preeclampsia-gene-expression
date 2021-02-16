@@ -63,11 +63,11 @@ Add metadata.
 # meta <- meta[,1:19]
 pData(d) <- meta
 # Clean-up
-rm(meta)
+#rm(meta)
 ```
 ## PCA projection
 PCA for low-dimensional representation.
-```{r}
+```{r, eval=FALSE}
 PCA <- prcomp(t(exprs(d)), scale = FALSE)
 percentVar <- round(100*PCA$sdev^2/sum(PCA$sdev^2),1)
 sd_ratio <- sqrt(percentVar[2] / percentVar[1])
@@ -78,14 +78,14 @@ pca.dataGG <- data.frame(PC1 = PCA$x[,1], PC2 = PCA$x[,2],
                     Phenotype = 
                      pData(d)$phenotype)
 ggplot(pca.dataGG, aes(PC1, PC2)) +
-      geom_point(aes(shape = Phenotype, colour = Study)) +
+      geom_point(aes(shape = Study, colour = Phenotype)) +
   ggtitle("PCA plot of the calibrated, summarized data") +
   xlab(paste0("PC1, VarExp: ", percentVar[1], "%")) +
   ylab(paste0("PC2, VarExp: ", percentVar[2], "%")) +
   theme(plot.title = element_text(hjust = 0.5)) +
   coord_fixed(ratio = sd_ratio) +
   scale_shape_manual(values = c(1:8))
-ggsave(paste0(results_dir, "GSE75010_gene_expr_PCA_", Sys.Date(), ".png"))
+#ggsave(paste0(results_dir, "GSE75010_gene_expr_PCA_", Sys.Date(), ".png"))
 ```
 
 No apparent clustering by study source. Some separation in outcome by PC1.
@@ -189,18 +189,40 @@ unadj.ranked.genes <- ranked.list$gene_symbol
 ```
 
 ## Defining and fitting the cell type proportion-adjusted model
-Create the design matrix. Covariates will be case-control status, sex, gestational age in weeks, batch, and cell type proportions significantly differntly abundant from the cell type proportion beta regression model.s (previously naive T cell, activated T cell, Hofbauer, fibroblast, CD14+ Monocytes without assigning maternal/fetal status)
+Create the design matrix. Covariates will be case-control status, sex, gestational age in weeks, batch, and cell type proportions significantly differntly abundant from the cell type proportion beta regression models (previously naive T cell, activated T cell, Hofbauer, fibroblast, CD14+ Monocytes without assigning maternal/fetal status)
 
 Using all cell types or even all cell types save Fetal B Cells and Fetal Naive CD4+ T cells leads to unstable model.
 ```{r}
-cell.types <- colnames(merged)[6:32]
+cell.types <- colnames(meta)[6:32]
 cell.types <- cell.types[!cell.types %in% c("Fetal.B.Cells", "Fetal.Naive.CD4..T.Cells")]
 
 # Set the cell type proportions to include based on significant results from the beta regression analysis.
 cell.types.sig <- c("Maternal.Plasma.Cells", "Maternal.Natural.Killer.Cells", "Maternal.B.Cells", "Fetal.Naive.CD8..T.Cells", "Fetal.Mesenchymal.Stem.Cells", "Fetal.Memory.CD4..T.Cells", "Fetal.Hofbauer.Cells", "Fetal.Fibroblasts", "Fetal.Extravillous.Trophoblasts", "Fetal.Cytotrophoblasts")
+```
 
+Retrieve cell type proportion PCA results from beta regression .Rmd, merge with meta data, and reset the phenotype data in the ExpressionSet object.
+```{r}
+pca <-readRDS(paste0(data_dir, "GSE75010_cell_type_proportions_pca_2021-02-15.rda"))
+pca.ind <- get_pca_ind(pca)
+pca.coordinates <- as.data.frame(pca.ind$coord)
+pca.coordinates$sample <- rownames(pca.coordinates)
+meta.total <- left_join(meta, pca.coordinates)
+
+pData(d) <- meta.total
+```
+
+```{r}
+
+```
+
+
+```{r}
 # Set the covariates, including the outcome
-covariates <- c("phenotype", "sex", "ga", "batch", cell.types.sig)
+#covariates <- c("phenotype", "sex", "ga", "batch", cell.types.sig)
+
+PCs <- c("Dim.1", "Dim.2" , "Dim.3", "Dim.4", "Dim.5")
+
+covariates <- c("phenotype", "sex", "ga", "batch", PCs)
 
 # Set the design formula and design matrix
 design.formula <- as.formula(paste0("~", paste(covariates, collapse = " + ")))
@@ -226,7 +248,7 @@ hist(hits$adj.P.Val, col = brewer.pal(3, name = "Set2")[1],
 Add boolean significance vector to our results table. Zero FDR-adjusted results at .05 q-threshold, relax to 0.1.
 ```{r}
 # Set p-value threshold
-threshold <- .1
+threshold <- .4
 hits$sig <- hits$adj.P.Val < threshold
 print(paste0(length(which(hits$sig)), " significant hits at FDR-adjusted cutoff of ", threshold)) 
 ```
