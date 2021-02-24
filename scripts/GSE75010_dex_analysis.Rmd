@@ -7,26 +7,33 @@ output: html_document
 ```{r setup, include=FALSE}
 # Update R all installed R Packages
 # update.packages(ask = FALSE)
+library(corrplot)
 library(factoextra)
 library(here)
+library(ggridges)
+library(ggrepel)
 library(grid)
 library(gridExtra)
 library(gprofiler2)   # For gene-set enrichment tests
 library(knitr)
 library(pheatmap)
 library(RColorBrewer)
+library(tidymodels)
 library(tidyverse)
 
 library(BiocManager)
-library(biomaRt)
-library(DESeq2)
-library(edgeR)
-library(EnhancedVolcano)
-library(GO.db)
-library(GEOquery)
-library(mygene)
-library(org.Hs.eg.db)
-library(topGO)
+library(Biobase)
+library(limma)
+
+# library(biomaRt)
+# library(DESeq2)
+# library(edgeR)
+# library(EnhancedVolcano)
+# library(GO.db)
+# library(GEOquery)
+# library(mygene)
+# library(org.Hs.eg.db)
+# library(topGO)
 
 knitr::opts_chunk$set(echo=TRUE)
 
@@ -149,7 +156,6 @@ run_limma_model <-
       arrange(desc(logFC))
     #Label genes of interest by name, the top 10 upregulated and downregulated hits and hand-chosen genes of interest.
     num.to.plot <- 10
-    genes.of.interest <- NULL#c("HLA-G")
     top.upreg <- upreg$gene_symbol[1:num.to.plot]
     top.downreg <- downreg$gene_symbol[1:num.to.plot]
     genes.to.plot <- c(top.upreg, top.downreg, genes.of.interest)
@@ -185,22 +191,35 @@ run_limma_model <-
   }
 ```
 
+# Prep Phenotype data names
+```{r}
+p.data <- pData(d)
+names(p.data) <- p.data %>% names %>%  make.names
+#head(p.data)
+pData(d) <- p.data
+```
+
 # Naive Model
 ```{r}
-naive.model <- run_limma_model(d = d, covariates = "phenotype", threshold = .05, genes.of.interest = NULL, gg.title = "Naive")
+naive.model <- run_limma_model(d = d,
+                               covariates = "phenotype",
+                               threshold = .05,
+                               genes.of.interest = NULL,
+                               gg.title = "Naive")
 ```
 # Demographic-adjusted model
 ```{r}
 base.model <- run_limma_model(d = d,
                               covariates = c("phenotype", "sex", "ga", "batch"),
-                              threshold = .05, genes.of.interest = NULL,
+                              threshold = .05,
+                              genes.of.interest = NULL,
                               gg.title = "Base")
 ```
 
 ## Unadjusted Gene-set Enrichment
 
 Prepare a ranked gene list (q < .05 & descending absolute logFC) for gProfiler g:GOSt gene-set enrichment input
-```{r}
+```{r, eval = FALSE}
 res <- base.model$res
 
 # Get ranked list
@@ -221,7 +240,10 @@ Create the design matrix. Covariates will be case-control status, sex, gestation
 
 Using all cell types or even all cell types save Fetal B Cells and Fetal Naive CD4+ T cells leads to unstable model.
 ```{r}
-cell.types <- colnames(meta)[6:32]
+# Get cell type names
+cell.types <- colnames(pData(d))[6:32]
+# Which cell types are all zero
+summary(colSums(pData(d)[,6:32]))
 cell.types <- cell.types[!cell.types %in% c("Fetal.B.Cells", "Fetal.Naive.CD4..T.Cells")]
 
 # Set the cell type proportions to include based on significant results from the beta regression analysis.
@@ -229,7 +251,8 @@ cell.types.sig <- c("Maternal.Plasma.Cells", "Maternal.Natural.Killer.Cells", "M
 
 type.model <- run_limma_model(d = d,
                               covariates = c("phenotype", "sex", "ga", "batch", cell.types.sig),
-                              threshold = .05, genes.of.interest = NULL,
+                              threshold = .05,
+                              genes.of.interest = "FLT1",
                               gg.title = "Sig. Cell Types")
 ```
 
@@ -245,20 +268,406 @@ meta.total <- left_join(meta, pca.coordinates)
 pData(d) <- meta.total
 
 # Set the covariates, including the outcome
-#covariates <- c("phenotype", "sex", "ga", "batch", cell.types.sig)
-
 PCs <- c("Dim.1", "Dim.2" , "Dim.3", "Dim.4", "Dim.5")
-
 covariates <- c("phenotype", "sex", "ga", "batch", PCs)
 
 pc.model <- run_limma_model(d = d,
                               covariates = covariates,
-                              threshold = .05, genes.of.interest = NULL,
-                              gg.title = "Sig. Cell Types")
+                              threshold = .05, genes.of.interest = "FLT1",
+                              gg.title = "5 PCs of Cell Types")
+
+View(pc.model$res)
+```
+
+```{r}
+covariates <- c("phenotype", "sex", "ga", "batch", "Dim.3")
+pc3.model <- run_limma_model(d = d,
+                              covariates = covariates,
+                              threshold = .05, genes.of.interest = "FLT1",
+                              gg.title = "Cell type PC3 + Base")
+```
+
+Amalgamate results from the four models.
+```{r}
+naive.res <- naive.model$res
+naive.res$model <- "naive"
+
+base.res <- base.model$res
+base.res$model <- "base"
+
+type.res <- type.model$res
+type.res$model <- "type"
+
+pc.res <- pc.model$res
+pc.res$model <- "pc"
+
+pc3.res <- pc3.model$res
+pc3.res$model <- "pc3"
+
+res <- rbind(naive.res, base.res, type.res, pc.res, pc3.res)
+```
+
+Plotting all the above models on one Volcano plot. No cell type adjustment results in a highly significant differential expression analysis. Principal components approach dampens significance more than adjusting for cell types individually with fewer covariates. PC 3 drives the vast majority of attenuation.
+
+```{r}
+ggplot(res) +
+  geom_point(aes(
+    x = logFC,
+    y = -log10(adj.P.Val),
+    colour = model
+  )) +
+  geom_text_repel(aes(
+    x = logFC,
+    y = -log10(adj.P.Val),
+    label = ifelse(label, gene_symbol, "")
+  )) +
+  geom_hline(yintercept = -log10(.05),
+             linetype = "dotted") +
+  ggtitle("Compare Limma Models") +
+  xlab("log2 fold change") +
+  ylab("-log10 adjusted p-value") +
+  theme(
+    legend.position = "right"
+  )
+
+#ggsave(paste0(results_dir, "compare_limma_models_", Sys.Date(), ".png"))
+```
+
+## Distribution of PC3
+Notes:
+https://www.researchgate.net/post/What-is-the-meaning-of-negative-values-in-components-from-PCA-analysis simple explanation of PC loadings
+
+Limma is linear.
+Potential nonlinear relation between cell type composition and gene expression? Interaction? Aaron Lun post below describes interaction and more flexible spline model.
+
+```{r}
+df <- pData(d)
+colnames(df) <- make.names(colnames(df))
+```
+
+PC3 has large difference in distribution between case-control status.
+```{r}
+# Unsure if rlang needed
+# library(rlang)
+
+predictor_by_outcome_smooth_hist <- function(data, predictor, outcome) {
+  plot <-
+    ggplot(data, aes(x = {{predictor}}, fill = {{outcome}})) + geom_density(alpha = 0.25) +
+    ggtitle(paste0("Distribution by Case-Control Status")) + ylab("Density") + labs(fill = "model")
+  print(plot)
+}
+predictor_by_outcome_smooth_hist(df, Dim.1, phenotype)
+predictor_by_outcome_smooth_hist(df, Dim.2, phenotype)
+predictor_by_outcome_smooth_hist(df, Dim.3, phenotype)
+predictor_by_outcome_smooth_hist(df, Dim.4, phenotype)
+predictor_by_outcome_smooth_hist(df, Dim.5, phenotype)
+```
+
+```{r}
+model1 <- run_limma_model(d = d,
+                              covariates = c("phenotype", "sex", "ga", "batch", "Fetal.Extravillous.Trophoblasts"),
+                              threshold = .05,
+                              genes.of.interest = "FLT1",
+                              gg.title = "Replicate PC3 - add EVT")
+```
+
+```{r}
+model2 <- run_limma_model(d = d,
+                              covariates = c("phenotype", "sex", "ga", "batch", "Fetal.Extravillous.Trophoblasts", "Fetal.Hofbauer.Cells"),
+                              threshold = .05,
+                              genes.of.interest = "FLT1",
+                              gg.title = "Replicate PC3 - add Hofbauer")
+```
+
+```{r}
+model3 <- run_limma_model(d = d,
+                              covariates = c("phenotype", "sex", "ga", "batch", "Fetal.Extravillous.Trophoblasts", "Fetal.Hofbauer.Cells", "Fetal.Mesenchymal.Stem.Cells"),
+                              threshold = .05,
+                              genes.of.interest = "FLT1",
+                              gg.title = "Replicate PC3 - add MSCs")
+```
+
+```{r}
+model4 <- run_limma_model(d = d,
+                              covariates = c("phenotype", "sex", "ga", "batch", "Fetal.Extravillous.Trophoblasts", "Fetal.Hofbauer.Cells", "Fetal.Mesenchymal.Stem.Cells", "Maternal.FCGR3A..Monocytes"),
+                              threshold = .05,
+                              genes.of.interest = "FLT1",
+                              gg.title = "Replicate PC3")
+```
+
+
+```{r}
+model5 <- run_limma_model(d = d,
+                              covariates = c("phenotype", "sex", "ga", "batch", "Fetal.Extravillous.Trophoblasts", "Fetal.Hofbauer.Cells", "Fetal.Mesenchymal.Stem.Cells", "Maternal.FCGR3A..Monocytes", "Fetal.Syncytiotrophoblast"),
+                              threshold = .05,
+                              genes.of.interest = "FLT1",
+                              gg.title = "Replicate PC3")
+```
+
+```{r}
+model6 <- run_limma_model(d = d,
+                              covariates = c("phenotype", "sex", "ga", "batch", "Fetal.Extravillous.Trophoblasts", "Fetal.Hofbauer.Cells", "Fetal.Mesenchymal.Stem.Cells", "Maternal.FCGR3A..Monocytes", "Fetal.Syncytiotrophoblast", "Fetal.Proliferative.Cytotrophoblasts"),
+                              threshold = .05,
+                              genes.of.interest = "FLT1",
+                              gg.title = "Replicate PC3")
+```
+
+```{r}
+model <- run_limma_model(d = d,
+                              covariates = c("phenotype", "sex", "ga", "batch", "Fetal.Extravillous.Trophoblasts", "Fetal.Hofbauer.Cells", "Fetal.Mesenchymal.Stem.Cells", "Maternal.FCGR3A..Monocytes", "Fetal.Syncytiotrophoblast", "Fetal.Proliferative.Cytotrophoblasts", "Maternal.Naive.CD8..T.Cells"),
+                              threshold = .05,
+                              genes.of.interest = "FLT1",
+                              gg.title = "Replicate PC3")
+```
+
+```{r}
+model <- run_limma_model(d = d,
+                              covariates = c("phenotype", "sex", "ga", "batch", "Fetal.Extravillous.Trophoblasts", "Fetal.Hofbauer.Cells", "Fetal.Mesenchymal.Stem.Cells", "Maternal.FCGR3A..Monocytes", "Fetal.Syncytiotrophoblast", "Fetal.Proliferative.Cytotrophoblasts", "Maternal.Naive.CD8..T.Cells", "Fetal.Endothelial.Cells"),
+                              threshold = .05,
+                              genes.of.interest = "FLT1",
+                              gg.title = "Replicate PC3")
+```
+
+```{r}
+model <- run_limma_model(d = d,
+                              covariates = c("phenotype", "sex", "ga", "batch", "Fetal.Extravillous.Trophoblasts", "Fetal.Hofbauer.Cells", "Fetal.Mesenchymal.Stem.Cells", "Maternal.FCGR3A..Monocytes", "Fetal.Syncytiotrophoblast", "Fetal.Proliferative.Cytotrophoblasts", "Maternal.Naive.CD8..T.Cells", "Fetal.Endothelial.Cells", "Fetal.Fibroblasts"),
+                              threshold = .05,
+                              genes.of.interest = "FLT1",
+                              gg.title = "Replicate PC3")
+```
+
+## Cell type-specific TCA
+
+Data prep for TCA
+```{r}
+library(matrixcalc)
+library(TCA)
+# X corresponds to the bulk data (genes x individuals)
+# Code to sort X and W samples the same way
+X <- as.data.frame(t(d@assayData$exprs))
+X <- rownames_to_column(X, var = "sample")
+X <- X %>%
+  arrange(sample)
+rownames(X) <- X$sample
+X <- X[,-1]
+X <- t(X)
+
+# W corresponds to cell type composition estimates for individuals
+W.prep <- meta[,c(1:32)]
+W.prep <- W.prep %>%
+  arrange(sample)
+rownames(W.prep) <- W.prep$sample
+W.prep <- W.prep[, -1]
+colnames(W.prep) <- make.names(colnames(W.prep))
+
+# Extract cell type proportions for W
+W <- W.prep[, 5:31]
+# Drop Fetal B Cells and Fetal Naive CD4 T Cells to fix non-definite error
+keep <- colnames(W) %in% c("Fetal.Naive.CD4..T.Cells", "Fetal.B.Cells")
+keep <- !keep
+W <- W[, keep]
+
+# Check that W and X sample orders are identical
+summary(colnames(X) == rownames(W))
+
+# Extract sex, phenotype, and ga as biological factors that may affect cell type-specific gene expression
+C1 <- W.prep [ , c(1, 3, 4)]
+C1 <- rownames_to_column(C1, var = "sample")
+
+# Convert factor variables to dummies
+C1 <- C1 %>% mutate(sex.male = ifelse(sex == "M", 1, 0))
+C1 <- C1 %>% mutate(phenotype.case = ifelse(phenotype == "PE", 1, 0))
+C1 <- C1 %>% select(sample, phenotype.case, sex.male, ga)
+rownames(C1) <- C1$sample
+C1 <- C1[,-1]
+
+# Extract batch as a technical covariate that should affect bulk gene expression only
+C2 <- W.prep [ , 2, drop = FALSE]
+C2 <- model.matrix(data = C2, object = ~ 0 + batch)
+```
+
+All rowsums of W are equal to 1?
+```{r}
+sums <- rowSums(W)
+summary(sums)
+```
+
+Model directionality: assume that outcome (Y) affects expression (X), X|Y or the opposite, Y|X. Here, phenotype (preeclampsia case-control) affects expression (X|Y). Gestational age or sex would be similar (predictors of expression). tca() function is used to statistically test X|Y.
+
+The marginal conditional model is similar to a T-test in linear, testing each cell type separately. The marginal model is similar to an F-test, looking at the combined statistical evidence coming from all the cell types. Generally advisable to start with the marginal model and do the marginal conditional post-hoc if signifance is detected in the marginal model, though this may not always be the most powerful approach.
+```{r, eval = FALSE}
+tca <- tca(X = X,
+           W = W,
+           C1 = C1,
+           C2 = C2)
+```
+
+## Explore correlation and interaction relationships
+
+```{r}
+expression_data <- as.data.frame(t(d@assayData$exprs))
+flt1 <- expression_data %>% select(FLT1)
+flt1 <- rownames_to_column(flt1, var = "sample")
+df <- left_join(df, flt1)
+df$FLT1 <- log2(df$FLT1)
+```
+
+
+```{r}
+numeric.data <- df[, c(4,6:32, 36:41, 61)]
+keep <- colSums(numeric.data)!=0
+numeric.data <- numeric.data[, keep]
+# Compute a correlation matrix
+corr <- round(cor(numeric.data), 1)
+
+#dev.new()
+#pdf(paste0(results_dir, "numeric_data_corrplot_", Sys.Date(), ".pdf"))
+#corrplot.mixed(corr, lower = "ellipse", tl.cex = .7, upper = "number") #tl.cex control axis label size
+corrplot(corr, method = "ellipse", tl.cex = .7) #tl.cex control axis label size
+#dev.off()
+
+# Alternative options
+#corrplot(corr, method = "ellipse", order = "hclust")
+#corrplot(corr, method = "ellipse", order = "AOE")
+```
+
+```{r}
+ggplot(df, aes(x = Dim.3, y = FLT1, color = phenotype)) + geom_point() + geom_smooth(method=lm)
+ggplot(df, aes(x = Fetal.Extravillous.Trophoblasts, y = FLT1, color = phenotype)) + geom_point() + geom_smooth(method=lm)
+ggplot(df, aes(x = Dim.3, y = Fetal.Extravillous.Trophoblasts, color = phenotype)) + geom_point() + geom_smooth(method=lm)
+ggplot(df, aes(x = ga, y = Fetal.Extravillous.Trophoblasts, color = phenotype)) + geom_point() + geom_smooth(method=lm)
+ggplot(df, aes(x = ga, y = FLT1, color = phenotype)) + geom_point() + geom_smooth(method=lm)
+```
+
+## Mediation
+Using the mediation package approach
+Add log2(FLT1) expression data to metadata frame
+```{r}
+library(mediation)
+```
+
+Mediator model (PC3 in this case)
+```{r}
+med.fit <- lm(Dim.3 ~ phenotype + sex + ga + batch, data = df)
+print(tidy(med.fit))
+```
+
+Outcome model
+```{r}
+out.fit <- lm(FLT1 ~ Dim.3 + phenotype + sex + ga + batch, data = df)
+print(tidy(out.fit))
+```
+
+```{r}
+med.out <- mediate(med.fit, out.fit, treat = "phenotype", mediator = "Dim.3", robustSE = TRUE, sims = 100)
+summary(med.out)
+```
+
+
+FLT1 attentuation after cell type proportion adjustment in Limma (before and after cell type adjustment, 5 PCs)
+```{r}
+base.model$res %>% filter(gene_symbol == "FLT1")
+pc.model$res %>% filter(gene_symbol == "FLT1")
+```
+
+## Interaction
+
+# Simple interaction model - PCs
+No evidence for interaction with PC3 of cell type proportions.
+```{r}
+interaction.flt1 <- lm(log2(FLT1) ~ sex + ga + batch + Dim.3*phenotype, data = df)
+print(tidy(interaction.flt1))
+
+interaction.flt1 <- lm(log2(FLT1) ~ sex + ga + batch + Dim.1 + Dim.2 + Dim.3*phenotype + Dim.4 + Dim.5, data = df)
+print(tidy(interaction.flt1))
+```
+# Limma interaction model - PCs
+```{r}
+design <- model.matrix(object = ~ sex + ga + batch + Dim.1 + Dim.2 + phenotype*Dim.3 + Dim.4 + Dim.5, data = d)
+# Check the design coefficients
+colnames(design)
+
+#Fit the model.
+fit <- lmFit(d, design)
+fit <- eBayes(fit)
+```
+
+Preeclampsia effect
+```{r}
+#Extract model results.
+interaction <- topTable(fit, coef = "phenotypePE", number = Inf)
+interaction <- rownames_to_column(interaction, var = "gene_symbol")
+res.flt1 <- interaction %>%
+  filter(gene_symbol == "FLT1")
+print(res.flt1)
+```
+
+PC3 continous effect
+```{r}
+interaction <- topTable(fit, coef = "Dim.3", number = Inf)
+interaction <- rownames_to_column(interaction, var = "gene_symbol")
+res.flt1 <- interaction %>%
+  filter(gene_symbol == "FLT1")
+print(res.flt1)
+```
+
+Preeclampsia/PC3 Interaction
+```{r}
+interaction <- topTable(fit, coef = "phenotypePE:Dim.3", number = Inf)
+interaction <- rownames_to_column(interaction, var = "gene_symbol")
+res.flt1 <- interaction %>%
+  filter(gene_symbol == "FLT1")
+print(res.flt1)
+```
+
+```{r}
+#coefficients <- c("phenotypePE", "Dim.3", "phenotypePE:Dim.3", "sexM", "ga")
+
+# Trying to map over coefficients without sucess
+#results <- map(.x = coefficients, .f = limma::topTable(), fit = fit, coef = coefficients, number = Inf)
+
+#covariates <- c("sex", "ga", "batch", "Dim.1", "Dim.2", "phenotype*Dim.3", "Dim.4", "Dim.5")
+#limma.interaction <- run_limma_interaction_model(d = d,
+#                              covariates = covariates,
+#                              threshold = .05,
+#                              genes.of.interest = "FLT1",
+#                              gg.title = "Sig. Cell Types")
+#
+#limma.interaction$res %>% filter(gene_symbol == "FLT1")
+```
+
+```{r}
+ggplot(res,aes(x=logFC, fill=model)) + geom_density(alpha=0.25) +
+  ggtitle("Distribution of Gestational Age by Case-Control Status") +
+  xlab("Gestational Age (wks)") + ylab("Density") + labs(fill = "model")
+```
+
+```{r}
+ggplot(res, aes(x = logFC, y = model)) +
+  geom_density_ridges(
+    jittered_points = TRUE, scale = .95, rel_min_height = .01,
+    point_shape = "|", point_size = 1, size = 0.25,
+    position = position_points_jitter(height = 0)
+  ) +
+  ggtitle("logFC distribution by model") +
+  theme_ridges(center = TRUE) +
+  theme(legend.title = element_blank(), legend.position = c(.65, .2), legend.text = element_text(size = 10), axis.title.x=element_blank(), plot.title = element_text(size = 12), axis.text.y = element_text(size = 10), axis.title.y = element_blank())
+```
+
+```{r}
+ggplot(res, aes(x = -log10(adj.P.Val), y = model)) +
+  geom_density_ridges(
+    jittered_points = TRUE, scale = .95, rel_min_height = .01,
+    point_shape = "|", point_size = 1, size = 0.25,
+    position = position_points_jitter(height = 0)
+  ) +
+  ggtitle("-log10(adj.P.Val) distribution by model") +
+  theme_ridges(center = TRUE) +
+  theme(legend.title = element_blank(), legend.position = c(.65, .2), legend.text = element_text(size = 10), axis.title.x=element_blank(), plot.title = element_text(size = 12), axis.text.y = element_text(size = 10), axis.title.y = element_blank())
 ```
 
 Manually set axis limits and drawing side-by-side.
-```{r}
+```{r, eval = FALSE}
 p1 <- plot1 + coord_cartesian(xlim = c(-.45, 1.2), ylim = c(0, 5)) + ggtitle("Unadjusted")
 #ggsave(paste0(data_dir, "GSE75010_dex_unadj_", Sys.Date(), ".png"), device = png())
 p2 <- plot2 + coord_cartesian(xlim = c(-.45, 1.2), ylim = c(0, 5)) + ggtitle("Cell type-adjusted") +
@@ -266,7 +675,7 @@ p2 <- plot2 + coord_cartesian(xlim = c(-.45, 1.2), ylim = c(0, 5)) + ggtitle("Ce
 #ggsave(paste0(data_dir, "GSE75010_dex_adj_", Sys.Date(), ".png"), device = png())
 ```
 Draw and save.
-```{r}
+```{r, eval = FALSE}
 png(paste0(results_dir, "GSE75010_dex_2_panel", Sys.Date(), ".png"))
 grid.newpage()
 grid.draw(cbind(ggplotGrob(p1), ggplotGrob(p2)))
@@ -276,7 +685,7 @@ dev.off()
 ## Adjusted Gene-set Enrichment
 
 Prepare a ranked gene list (q < .05 & descending absolute logFC) for gProfiler g:GOSt gene-set enrichment input
-```{r}
+```{r, eval = FALSE}
 # Get ranked list
 ranked.list <- res %>%
   filter(adj.P.Val < .05) %>%
@@ -293,7 +702,7 @@ adj.ranked.genes <- ranked.list$gene_symbol
 ## g:Profiler multiquery comparing unadjusted and cell type-adjusted model
 
 Perform the enrichment test using both ranked gene lists, excluding automatically generated terms, using only annotated genes as the gene universe background.
-```{r}
+```{r, eval = FALSE}
 gostres <- gost(query = list("Cell Type-adjusted" = adj.ranked.genes, "Unadjusted" = unadj.ranked.genes),
                 organism = "hsapiens", ordered_query = TRUE, 
                 multi_query = FALSE, significant = TRUE, exclude_iea = TRUE, 
@@ -304,13 +713,13 @@ gostres <- gost(query = list("Cell Type-adjusted" = adj.ranked.genes, "Unadjuste
 ```
 
 Plot all results as Manhattan Plot
-```{r}
+```{r, eval = FALSE}
 gostplot(gostres, capped = FALSE, interactive = FALSE)
 #ggsave(paste0(data_dir, "gProfiler/", "gost_plot_all_", Sys.Date(), ".png"), device = "png")
 ```
 
 Limit to gene sets less than 200 genes (term_size).
-```{r}
+```{r, eval = FALSE}
 # Limit the results
 gostres.small <- gostres
 gostres.small$result <- gostres$result %>%
@@ -318,7 +727,7 @@ gostres.small$result <- gostres$result %>%
 ```
 
 Plot all terms less than 200 genes
-```{r}
+```{r, eval = FALSE}
 p <- gostplot(gostres.small, capped = FALSE, interactive = FALSE)
 p
 #ggsave(paste0(data_dir, "gProfiler/", "gost_plot_term_size_limit_200_", Sys.Date(), ".png"), device = "png")
@@ -326,7 +735,7 @@ p
 ```
 
 Identify terms to highlight
-```{r}
+```{r, eval = FALSE}
 # Extract the results dataframe
 res <- gostres.small$result
 #write_csv(x = res, file = paste0(data_dir, "gProfiler/", "GSE75010_dex_gProfiler_200_term_size_results ", Sys.Date(), ".csv"))
@@ -356,13 +765,13 @@ publish_gosttable(gostres.small,
 ```
 
 Plot Manhattan with highlighted terms
-```{r}
+```{r, eval = FALSE}
 pp <- publish_gostplot(p, highlight_terms = terms.to.highlight, filename = NULL )
 pp
 #ggsave(paste0(data_dir, "gProfiler/", "gost_highlighted_terms_", Sys.Date(), ".png"), device = "png")
 ```
 
-```{r}
+```{r, eval = FALSE}
 gostres <- gost(query = list("Cell Type-adjusted" = adj.ranked.genes, "Unadjusted" = unadj.ranked.genes),
                 organism = "hsapiens", ordered_query = TRUE, 
                 multi_query = TRUE, significant = TRUE, exclude_iea = TRUE, 
@@ -380,7 +789,7 @@ gostres.link <- gost(query = list("Cell Type-adjusted" = adj.ranked.genes, "Unad
 ```
 
 Limit to gene sets less than 200 genes (term_size).
-```{r}
+```{r, eval = FALSE}
 # Limit the results
 gostres.small <- gostres
 gostres.small$result <- gostres$result %>%
@@ -388,12 +797,12 @@ gostres.small$result <- gostres$result %>%
 ```
 
 Plot all terms less than 200 genes
-```{r}
+```{r, eval = FALSE}
 p <- gostplot(gostres.small, capped = FALSE, interactive = FALSE)
 p
 ```
 
-```{r}
+```{r, eval = FALSE}
 result <- gostres.small$result
 idx <- result[result$term_id %in% terms.to.highlight, ]
 indices <- rownames(idx)
@@ -401,7 +810,7 @@ indices <- rownames(idx)
 
 
 Plot Manhattan with highlighted terms
-```{r}
+```{r, eval = FALSE}
 #publish_gostplot(p, highlight_terms = gostres$result[indices, ], width = NA, height = NA,
 #                 filename = paste0(data_dir, "gProfiler/", "gost_highlighted_terms_", Sys.Date(), ".png"))
 
@@ -411,12 +820,12 @@ publish_gostplot(p, highlight_terms = terms.to.highlight, width = NA, height = N
 ```
 
 
-```{r}
+```{r, eval = FALSE}
 ggsave(paste0(data_dir, "gProfiler/", "gost_highlighted_terms_", Sys.Date(), ".png"), device = "png")
 ```
 
 
-```{r}
+```{r, eval = FALSE}
 publish_gosttable(gostres.small, 
                          highlight_terms = terms.to.highlight,
                         use_colors = TRUE, 
