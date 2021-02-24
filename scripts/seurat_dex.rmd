@@ -6,14 +6,18 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
+library(here)
 library(gprofiler2)
 library(Seurat)
 library(tidyverse)
 
 knitr::opts_chunk$set(echo = TRUE)
 
-data_dir <- "C:/Users/k_cam/Google Drive/Placenta_Cell_Types/RNA/placenta_rna/data/"
-results_dir <- "C:/Users/k_cam/Google Drive/Placenta_Cell_Types/RNA/placenta_rna/results/seurat/"
+#data_dir <- "C:/Users/k_cam/Google Drive/Placenta_Cell_Types/RNA/placenta_rna/data/"
+#results_dir <- "C:/Users/k_cam/Google Drive/Placenta_Cell_Types/RNA/placenta_rna/results/seurat/"
+
+data_dir <- paste0(here("data"), "/")
+results_dir <- paste0(here("results", "seurat"), "/")
 ```
 
 ## Imporant References
