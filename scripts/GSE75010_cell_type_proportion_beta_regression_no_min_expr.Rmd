@@ -159,7 +159,7 @@ fviz_eig(res.pca)
 ```
 
 ```{r}
-View(res.pca)
+#View(res.pca)
 ```
 
 Graph of individuals. Individuals with a similar profile are grouped together.
@@ -180,6 +180,12 @@ fviz_pca_var(res.pca,
   theme(legend.position = "none")
 #ggsave(paste0(results_dir, "variables_pca_1_2_", Sys.Date(), ".png"))
 ```
+```{r}
+print(res.pca$rotation)
+
+loadings <-res.pca$rotation
+```
+
 
 ```{r}
 fviz_pca_var(res.pca,
@@ -260,12 +266,13 @@ res.ind <- get_pca_ind(res.pca)
 # 2. Coordinate of groups
 coord.groups <- res.ind$coord %>%
   as_data_frame() %>%
-  select(Dim.1, Dim.2) %>%
+  dplyr::select(Dim.1, Dim.2, Dim.3) %>%
   mutate(category = groups) %>%
   group_by(category) %>%
   summarise(
     Dim.1 = mean(Dim.1),
-    Dim.2 = mean(Dim.2)
+    Dim.2 = mean(Dim.2),
+    Dim.3 = mean(Dim.3)
     )
 coord.groups
 ```
