@@ -31,7 +31,8 @@ library(scater)
 # Set seed since this pipeline includes stochastic algorithms
 set.seed(1)
 # Set default working directory
-data_dir <- "C:/Users/k_cam/Google Drive/Placenta_Cell_Types/RNA/placenta_rna/data/"
+data_dir <- paste0(here("data", "tenx_outs`"), "/")
+data_dir_unfiltered <- paste0(here("data", "tenx_unfiltered_data"), "/")
 results_dir <- "C:/Users/k_cam/Google Drive/Placenta_Cell_Types/RNA/placenta_rna/results/single_cell_qc/"
 ```
 ### Important References
@@ -67,6 +68,8 @@ files <-
     raw_dir, 
     names
   )
+
+
 # Create list of Seurat objects
 counts <- map2(files, names, tenx_to_seu)
 # Name list
@@ -158,7 +161,7 @@ kc.seu <- subset(x = kc.seu,
               subset = freemuxlet.assignments == "doublet",
               invert = T)
 
-# Merge, adding cell id information becaue barcodes can and have been duplicated across experiments
+# Merge, adding cell id information because barcodes can and have been duplicated across experiments
 pr.seu <- merge(x = mapped[[5]],                # Seurat object
              y = mapped[(6:7)],             # List
              add.cell.ids = names(mapped)[5:7])   # Add cell IDs using names
