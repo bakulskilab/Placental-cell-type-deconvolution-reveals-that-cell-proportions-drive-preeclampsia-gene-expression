@@ -22,11 +22,6 @@ library(Matrix)
 library(DropletUtils)
 library(edgeR)
 library(scater)
-# Set seed since this pipeline includes stochastic algorithms
-set.seed(1)
-# Set working directories
-data_dir <- paste0(here("data"), "/")
-results_dir <- paste0(here("results"), "/")
 ```
 ### Important References
 Minimal QC recommended: Current best practices in single‐cell RNA‐seq analysis: a tutorial
@@ -46,7 +41,7 @@ tenx_to_seu <- function(tenx_directory, name) {
 ```
 ## Unfiltered 10x output stats
 Unfiltered 10x output data have been stored as dgCMatrix. Vector is all caps represent final columns for supplemental table. Chunk contains TOTAL.DROPLETS.RAW, TOTAL.RNA.RAW, TOTAL.GENES.RAW, FETAL.SEX.
-```{r}
+```{r, eval = F}
 # Get raw 10X data directory
 tenx.raw.out <- paste0(here("data", "tenx_unfiltered_data"), "/")
 # Get filenames
@@ -87,7 +82,7 @@ FETAL.SEX <- c("F", "F", "M", "M", "F", "M", "M")
 ## Get list of Seurat objects
 Contains TOTAL.CELLS
 ```{r}
-tenx_out <- paste0(data_dir, "tenx_outs/")
+tenx_out <- paste0(here("data", "tenx_outs"), "/")
 # Pull full file paths
 names <- 
   grep(
@@ -452,8 +447,7 @@ sce.combined <- cbind(sce, sce.pr)
 sce.combined$sample <- factor(sce.combined$ident, labels = LIBRARY.ID)
 ```
 
-```{r}
-library(table1)
+```{r, eval = F}
 sce.meta <- data.frame(
   LIBRARY.ID = sce.combined$sample,
   rna = sce.combined$sum,
@@ -484,16 +478,19 @@ qc.prefilter <- data.frame(LIBRARY.ID, FETAL.SEX, TOTAL.DROPLETS.RAW, TOTAL.RNA.
 QC <- left_join(qc.prefilter, qc.supp)
 colnames(QC) <- c("Sample", "Fetal Sex", "Droplets Sequenced", "Total Unique RNA Molecules", "Total Unique Genes Detected", "Total Cells", "Maternal/Fetal Doublets Removed", "Unique RNA Molecules, Median", "Unique RNA Molecules, IQR", "Unique Genes, Median", "Unique Genes, IQR", "Percent Mitochondrial Gene Expression, Median", "Percent Mitochondrial Gene Expression, IQR", "Cells in Final Analytic Sample")
 
-write.table(x = QC, file = here("results", "single_cell_qc", "scrna_qc_summary.csv"), row.names = F, sep = ",")
+#write.table(x = QC, file = here("results", "single_cell_qc", "scrna_qc_summary.csv"), row.names = F, sep = ",")
 ```
 
 ```{r}
 plotColData(sce.combined, x="sample", y="sum", colour_by="discard") + 
         scale_y_log10() + ggtitle("Total RNA molecules by replicate")
+#ggsave(here("results", "single_cell_qc", paste0(Sys.Date(), "rna_molecules_by_rep.png")))
 plotColData(sce.combined, x="sample", y="detected", colour_by="discard") + 
         scale_y_log10() + ggtitle("Detected genes by replicate")
+#ggsave(here("results", "single_cell_qc", paste0(Sys.Date(), "genes_detected_by_rep.png")))
 plotColData(sce.combined, x="sample", y="subsets_Mito_percent", 
         colour_by="discard") + ggtitle("Percentage of reads mapping to mitochondrial genes by replicate") + ylab("percentage")
+#ggsave(here("results", "single_cell_qc", paste0(Sys.Date(), "percent_mito_by_rep.png")))
 ```
 
 # TODO
