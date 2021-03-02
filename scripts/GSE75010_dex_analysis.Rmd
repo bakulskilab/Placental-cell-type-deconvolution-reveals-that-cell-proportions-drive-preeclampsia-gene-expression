@@ -337,7 +337,7 @@ colnames(df) <- make.names(colnames(df))
 
 PC3 has large difference in distribution between case-control status.
 ```{r}
-# Unsure if rlang needed
+# Unsure if rlang needed or just needed an update after installing r
 # library(rlang)
 
 predictor_by_outcome_smooth_hist <- function(data, predictor, outcome) {
@@ -353,7 +353,20 @@ predictor_by_outcome_smooth_hist(df, Dim.4, phenotype)
 predictor_by_outcome_smooth_hist(df, Dim.5, phenotype)
 ```
 
+PC3 is associated with case-control status using a t-test
 ```{r}
+case <- 
+  df %>%
+  filter(phenotype == "PE")
+
+control <- 
+  df %>%
+  filter(phenotype == "C")
+
+t.test(case$Dim.3, control$Dim.3)
+```
+
+```{r, eval = F}
 model1 <- run_limma_model(d = d,
                               covariates = c("phenotype", "sex", "ga", "batch", "Fetal.Extravillous.Trophoblasts"),
                               threshold = .05,
@@ -361,7 +374,7 @@ model1 <- run_limma_model(d = d,
                               gg.title = "Replicate PC3 - add EVT")
 ```
 
-```{r}
+```{r, eval = F}
 model2 <- run_limma_model(d = d,
                               covariates = c("phenotype", "sex", "ga", "batch", "Fetal.Extravillous.Trophoblasts", "Fetal.Hofbauer.Cells"),
                               threshold = .05,
@@ -369,7 +382,7 @@ model2 <- run_limma_model(d = d,
                               gg.title = "Replicate PC3 - add Hofbauer")
 ```
 
-```{r}
+```{r, eval = F}
 model3 <- run_limma_model(d = d,
                               covariates = c("phenotype", "sex", "ga", "batch", "Fetal.Extravillous.Trophoblasts", "Fetal.Hofbauer.Cells", "Fetal.Mesenchymal.Stem.Cells"),
                               threshold = .05,
@@ -377,7 +390,7 @@ model3 <- run_limma_model(d = d,
                               gg.title = "Replicate PC3 - add MSCs")
 ```
 
-```{r}
+```{r, eval = F}
 model4 <- run_limma_model(d = d,
                               covariates = c("phenotype", "sex", "ga", "batch", "Fetal.Extravillous.Trophoblasts", "Fetal.Hofbauer.Cells", "Fetal.Mesenchymal.Stem.Cells", "Maternal.FCGR3A..Monocytes"),
                               threshold = .05,
@@ -386,7 +399,7 @@ model4 <- run_limma_model(d = d,
 ```
 
 
-```{r}
+```{r, eval = F}
 model5 <- run_limma_model(d = d,
                               covariates = c("phenotype", "sex", "ga", "batch", "Fetal.Extravillous.Trophoblasts", "Fetal.Hofbauer.Cells", "Fetal.Mesenchymal.Stem.Cells", "Maternal.FCGR3A..Monocytes", "Fetal.Syncytiotrophoblast"),
                               threshold = .05,
@@ -394,12 +407,40 @@ model5 <- run_limma_model(d = d,
                               gg.title = "Replicate PC3")
 ```
 
-```{r}
+```{r, eval = F}
 model6 <- run_limma_model(d = d,
                               covariates = c("phenotype", "sex", "ga", "batch", "Fetal.Extravillous.Trophoblasts", "Fetal.Hofbauer.Cells", "Fetal.Mesenchymal.Stem.Cells", "Maternal.FCGR3A..Monocytes", "Fetal.Syncytiotrophoblast", "Fetal.Proliferative.Cytotrophoblasts"),
                               threshold = .05,
                               genes.of.interest = "FLT1",
                               gg.title = "Replicate PC3")
+```
+
+## LRPath for enrichment analysis
+Prepare data for LR Path input from the principal components of cell type proportions-adjusted model
+```{r}
+pc.res
+```
+LR Path requires a tab-delimited .txt with (1) gene name, official symbol in this case, (2), p-value, using adjusted here, and (3) directionality, if desired, any negative or any positive number (we'll use logFC)
+```{r}
+lr <- 
+  pc.res %>%
+  select(gene_symbol, adj.P.Val, logFC)
+
+#write_tsv(x = lr,
+          file = here("results", "GSE75010", paste0(Sys.Date(), "pc_model_dex_lr_path_input.txt")))
+```
+
+```{r}
+base.res
+```
+
+```{r}
+lr.base <-
+  base.res %>%
+  select(gene_symbol, adj.P.Val, logFC)
+
+#write_tsv(x = lr.base,
+          file = here("results", "GSE75010", paste0(Sys.Date(), "base_model_dex_lr_path_input.txt")))
 ```
 
 ## Explore correlation and interaction relationships
