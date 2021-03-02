@@ -5,8 +5,7 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
-# Update R all installed R Packages
-# update.packages(ask = FALSE)
+#update.packages(ask = FALSE) # Update R all installed R Packages
 library(corrplot)
 library(factoextra)
 library(here)
@@ -15,6 +14,7 @@ library(ggrepel)
 library(grid)
 library(gridExtra)
 library(gprofiler2)   # For gene-set enrichment tests
+library(installr)
 library(knitr)
 library(pheatmap)
 library(RColorBrewer)
@@ -24,16 +24,6 @@ library(tidyverse)
 library(BiocManager)
 library(Biobase)
 library(limma)
-
-# library(biomaRt)
-# library(DESeq2)
-# library(edgeR)
-# library(EnhancedVolcano)
-# library(GO.db)
-# library(GEOquery)
-# library(mygene)
-# library(org.Hs.eg.db)
-# library(topGO)
 
 knitr::opts_chunk$set(echo=TRUE)
 
@@ -410,96 +400,6 @@ model6 <- run_limma_model(d = d,
                               threshold = .05,
                               genes.of.interest = "FLT1",
                               gg.title = "Replicate PC3")
-```
-
-```{r}
-model <- run_limma_model(d = d,
-                              covariates = c("phenotype", "sex", "ga", "batch", "Fetal.Extravillous.Trophoblasts", "Fetal.Hofbauer.Cells", "Fetal.Mesenchymal.Stem.Cells", "Maternal.FCGR3A..Monocytes", "Fetal.Syncytiotrophoblast", "Fetal.Proliferative.Cytotrophoblasts", "Maternal.Naive.CD8..T.Cells"),
-                              threshold = .05,
-                              genes.of.interest = "FLT1",
-                              gg.title = "Replicate PC3")
-```
-
-```{r}
-model <- run_limma_model(d = d,
-                              covariates = c("phenotype", "sex", "ga", "batch", "Fetal.Extravillous.Trophoblasts", "Fetal.Hofbauer.Cells", "Fetal.Mesenchymal.Stem.Cells", "Maternal.FCGR3A..Monocytes", "Fetal.Syncytiotrophoblast", "Fetal.Proliferative.Cytotrophoblasts", "Maternal.Naive.CD8..T.Cells", "Fetal.Endothelial.Cells"),
-                              threshold = .05,
-                              genes.of.interest = "FLT1",
-                              gg.title = "Replicate PC3")
-```
-
-```{r}
-model <- run_limma_model(d = d,
-                              covariates = c("phenotype", "sex", "ga", "batch", "Fetal.Extravillous.Trophoblasts", "Fetal.Hofbauer.Cells", "Fetal.Mesenchymal.Stem.Cells", "Maternal.FCGR3A..Monocytes", "Fetal.Syncytiotrophoblast", "Fetal.Proliferative.Cytotrophoblasts", "Maternal.Naive.CD8..T.Cells", "Fetal.Endothelial.Cells", "Fetal.Fibroblasts"),
-                              threshold = .05,
-                              genes.of.interest = "FLT1",
-                              gg.title = "Replicate PC3")
-```
-
-## Cell type-specific TCA
-
-Data prep for TCA
-```{r}
-library(matrixcalc)
-library(TCA)
-# X corresponds to the bulk data (genes x individuals)
-# Code to sort X and W samples the same way
-X <- as.data.frame(t(d@assayData$exprs))
-X <- rownames_to_column(X, var = "sample")
-X <- X %>%
-  arrange(sample)
-rownames(X) <- X$sample
-X <- X[,-1]
-X <- t(X)
-
-# W corresponds to cell type composition estimates for individuals
-W.prep <- meta[,c(1:32)]
-W.prep <- W.prep %>%
-  arrange(sample)
-rownames(W.prep) <- W.prep$sample
-W.prep <- W.prep[, -1]
-colnames(W.prep) <- make.names(colnames(W.prep))
-
-# Extract cell type proportions for W
-W <- W.prep[, 5:31]
-# Drop Fetal B Cells and Fetal Naive CD4 T Cells to fix non-definite error
-keep <- colnames(W) %in% c("Fetal.Naive.CD4..T.Cells", "Fetal.B.Cells")
-keep <- !keep
-W <- W[, keep]
-
-# Check that W and X sample orders are identical
-summary(colnames(X) == rownames(W))
-
-# Extract sex, phenotype, and ga as biological factors that may affect cell type-specific gene expression
-C1 <- W.prep [ , c(1, 3, 4)]
-C1 <- rownames_to_column(C1, var = "sample")
-
-# Convert factor variables to dummies
-C1 <- C1 %>% mutate(sex.male = ifelse(sex == "M", 1, 0))
-C1 <- C1 %>% mutate(phenotype.case = ifelse(phenotype == "PE", 1, 0))
-C1 <- C1 %>% select(sample, phenotype.case, sex.male, ga)
-rownames(C1) <- C1$sample
-C1 <- C1[,-1]
-
-# Extract batch as a technical covariate that should affect bulk gene expression only
-C2 <- W.prep [ , 2, drop = FALSE]
-C2 <- model.matrix(data = C2, object = ~ 0 + batch)
-```
-
-All rowsums of W are equal to 1?
-```{r}
-sums <- rowSums(W)
-summary(sums)
-```
-
-Model directionality: assume that outcome (Y) affects expression (X), X|Y or the opposite, Y|X. Here, phenotype (preeclampsia case-control) affects expression (X|Y). Gestational age or sex would be similar (predictors of expression). tca() function is used to statistically test X|Y.
-
-The marginal conditional model is similar to a T-test in linear, testing each cell type separately. The marginal model is similar to an F-test, looking at the combined statistical evidence coming from all the cell types. Generally advisable to start with the marginal model and do the marginal conditional post-hoc if signifance is detected in the marginal model, though this may not always be the most powerful approach.
-```{r, eval = FALSE}
-tca <- tca(X = X,
-           W = W,
-           C1 = C1,
-           C2 = C2)
 ```
 
 ## Explore correlation and interaction relationships
