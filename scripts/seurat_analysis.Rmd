@@ -75,18 +75,14 @@ mf <- seu$fetal %>% as.factor() %>% summary()
 percent.fetal <- mf[1]/(mf[1]+mf[2])
 ```
 
-```{r}
-View(seu@meta.data)
-```
-
 Paint by fetal/maternal status
 ```{r}
-DimPlot(seu, group.by = 'fetal') + NoLegend()
+DimPlot(seu, group.by = 'fetal') + NoLegend() + ggtitle("")
 #ggsave(paste0(results_dir, "seu_group_by_fetal_status_", Sys.Date(), ".png"))
 ```
 
 ```{r}
-DimPlot(seu, group.by = 'fetal')
+DimPlot(seu, group.by = 'fetal') + ggtitle("")
 #ggsave(paste0(results_dir, "seu_group_by_fetal_status_legend_", Sys.Date(), ".png"))
 ```
 
@@ -105,6 +101,14 @@ DimPlot(seu, group.by = 'batch')
 #ggsave(paste0(results_dir, "seu_group_by_batch_legend_", Sys.Date(), ".png"))
 ```
 
+```{r}
+seu.graph <- seu
+seu.graph$biorep <- factor(seu.graph$biorep, labels = c("Sample 1" , "Sample 2" , "Sample 3", "Sample 4", "Sample 5"))
+DimPlot(seu.graph, group.by = 'biorep') + ggtitle("")
+#ggsave(here("results", "seurat", paste0(Sys.Date(), "seu_group_by_biorep.png")))
+rm(seu.graph)
+```
+
 Subset to and paint by technical replicates
 ```{r}
 kc.40 <- subset(seu, subset = biorep == "kc.40")
@@ -115,18 +119,23 @@ DimPlot(kc.40, group.by = "orig.ident")
 rm(kc.40)
 ```
 
-Average expression by cell type cluster and run corrtest.
+Average expression by cell type cluster and run corrtest. WIP
 ```{r}
+# Subset to the technical replicate
 kc.40.1 <- subset(seu, subset = orig.ident == "kc.40.1")
-cluster.expr.40.1 <- flatten(AverageExpression(kc.40.1))
+# Average expression by cell type
+expr.1a <- AverageExpression(kc.40.1, group.by = "cell.type")
+# Clean-up the returned object
+expr.1a <- expr.1a$RNA
 
 kc.40.2 <- subset(seu, subset = orig.ident == "kc.40.2")
-cluster.expr.40.2 <- flatten(AverageExpression(kc.40.2))
+#cluster.expr.40.2 <- flatten(AverageExpression(kc.40.2)) %>% as.numeric
+expr.1b <- AverageExpression(kc.40.2, group.by = "cell.type")
+expr.1b <- expr.1b$RNA
 
-
-corr.test.res <- map2(cluster.expr.40.1,
-     cluster.expr.40.2,
-     ~ cor.test(.x, .y))
+corr.test.res <- pmap(t(expr.1a),
+                      t(expr.1b),
+                      ~ cor.test(.x, .y))
 
 corr.test.pvals <- map(corr.test.res,
                    ~ .x['p.value'])
