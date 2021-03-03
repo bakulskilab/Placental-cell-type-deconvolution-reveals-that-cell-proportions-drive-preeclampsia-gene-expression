@@ -416,18 +416,48 @@ model6 <- run_limma_model(d = d,
 ```
 
 ## LRPath for enrichment analysis
-Prepare data for LR Path input from the principal components of cell type proportions-adjusted model
+Prepare data for LR Path input from the principal components of cell type proportions-adjusted model. Currently, looks like many gene_symbols can't be matched or there was some error in converting the annotation based on the error message "Warning is;Error: Error in library("org.Hs.eg.db") : there is no package called org.Hs.eg.db" output by the LR Path web profiler
 ```{r}
 pc.res
 ```
 LR Path requires a tab-delimited .txt with (1) gene name, official symbol in this case, (2), p-value, using adjusted here, and (3) directionality, if desired, any negative or any positive number (we'll use logFC)
 ```{r}
-lr <- 
-  pc.res %>%
-  select(gene_symbol, adj.P.Val, logFC)
+pc.res <- pc.res %>% select(-label)
 
-#write_tsv(x = lr,
+entrez.ids <- gconvert(pc.res$gene_symbol, organism = "hsapiens", target = "ENTREZGENE_ACC", mthreshold = Inf, filter_na = TRUE)
+entrez.ids %>% is.na %>% summary
+
+entrez.ids.filtered <- entrez.ids %>% filter(name != "nan") %>% mutate(gene_symbol = name)
+entrez.ids.filtered %>% is.na %>% summary
+
+pc.res.entrez <- left_join(entrez.ids.filtered, pc.res)
+
+pc.res.entrez <- pc.res.entrez %>% filter(!is.na(logFC))
+pc.res.entrez %>% is.na %>% summary
+
+pc.res.entrez <- pc.res.entrez %>% mutate(direction = ifelse(logFC > 0, 1, -1))
+entrez.ids %>% is.na %>% summary
+
+lr <- 
+  pc.res.entrez %>%
+  select(target, adj.P.Val, direction)
+lr %>% is.na %>% summary
+
+write_tsv(x = lr,
           file = here("results", "GSE75010", paste0(Sys.Date(), "pc_model_dex_lr_path_input.txt")))
+```
+
+```{r}
+unmatched.pc <- read_delim(here("results", "GSE75010", "2021-03-02pc_model_dex_lr_path_genes_not_matched.txt"), delim = "\n", col_names = F)
+
+unmatched.genes <- unmatched.pc$X1
+
+keep <- !(lr$target %in% unmatched.genes)
+
+lr.cleaned <- lr[keep, ]
+
+write_tsv(x = lr.cleaned,
+          file = here("results", "GSE75010", paste0(Sys.Date(), "cleaned_pc_model_dex_lr_path_input.txt")))
 ```
 
 ```{r}
