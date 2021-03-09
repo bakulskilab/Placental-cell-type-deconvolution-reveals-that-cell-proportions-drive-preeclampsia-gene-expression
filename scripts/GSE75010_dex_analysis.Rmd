@@ -321,6 +321,32 @@ ggplot(res) +
 #ggsave(paste0(here("results", "GSE75010", "/"), "compare_limma_models_", Sys.Date(), ".png"))
 ```
 
+Pull out the two models for the publication, the 5 PCs-adjusted model and the base model.
+```{r}
+plot1 <- base.model$volcano
+plot1
+
+plot2 <- pc.model$volcano
+plot2 + ggtitle("Cell type-adjusted")
+```
+
+Manually set axis limits and drawing side-by-side.
+```{r, eval = FALSE}
+p1 <- plot1 + coord_cartesian(xlim = c(-.45, 1.2), ylim = c(0, 5)) + ggtitle("Unadjusted")
+#ggsave(paste0(here("data", "/"), "GSE75010_dex_unadj_", Sys.Date(), ".png"), device = png())
+p2 <- plot2 + coord_cartesian(xlim = c(-.45, 1.2), ylim = c(0, 5)) + ggtitle("Cell type-adjusted") +
+  geom_hline(yintercept = -log10(.05), linetype="dotted")
+#ggsave(paste0(here("data", "/"), "GSE75010_dex_adj_", Sys.Date(), ".png"), device = png())
+```
+
+Draw and save.
+```{r, eval = FALSE}
+png(paste0(here("results", "GSE75010", "/"), "GSE75010_dex_2_panel_", Sys.Date(), ".png"))
+grid.newpage()
+grid.draw(cbind(ggplotGrob(p1), ggplotGrob(p2)))
+dev.off()
+```
+
 ## Distribution of PC3
 Notes:
 https://www.researchgate.net/post/What-is-the-meaning-of-negative-values-in-components-from-PCA-analysis simple explanation of PC loadings
@@ -602,22 +628,6 @@ ggplot(res, aes(x = -log10(adj.P.Val), y = model)) +
   ggtitle("-log10(adj.P.Val) distribution by model") +
   theme_ridges(center = TRUE) +
   theme(legend.title = element_blank(), legend.position = c(.65, .2), legend.text = element_text(size = 10), axis.title.x=element_blank(), plot.title = element_text(size = 12), axis.text.y = element_text(size = 10), axis.title.y = element_blank())
-```
-
-Manually set axis limits and drawing side-by-side.
-```{r, eval = FALSE}
-p1 <- plot1 + coord_cartesian(xlim = c(-.45, 1.2), ylim = c(0, 5)) + ggtitle("Unadjusted")
-#ggsave(paste0(here("data", "/"), "GSE75010_dex_unadj_", Sys.Date(), ".png"), device = png())
-p2 <- plot2 + coord_cartesian(xlim = c(-.45, 1.2), ylim = c(0, 5)) + ggtitle("Cell type-adjusted") +
-  geom_hline(yintercept = -log10(.05), linetype="dotted")
-#ggsave(paste0(here("data", "/"), "GSE75010_dex_adj_", Sys.Date(), ".png"), device = png())
-```
-Draw and save.
-```{r, eval = FALSE}
-png(paste0(here("results", "GSE75010", "/"), "GSE75010_dex_2_panel", Sys.Date(), ".png"))
-grid.newpage()
-grid.draw(cbind(ggplotGrob(p1), ggplotGrob(p2)))
-dev.off()
 ```
 
 ## Adjusted Gene-set Enrichment
