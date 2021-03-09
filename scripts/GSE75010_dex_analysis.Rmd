@@ -420,70 +420,24 @@ Prepare differential expression results for Preranked gene list analysis in GSEA
 pc.res
 ```
 
-GSEA Preranked uses HGNC official gene symbols are the preferred input and a ranking metric. Different ranking metrics are available, but recommended ranks take into account the magnitude of effect (mean of each treatment), direction of effect (upregulated or downregulated), and the variance of the estimation of the magnitude of effect. Signal2Noise is the default, which does not take into account sample size. T-test statistic is the second-listed ranking metric that is identical to S2N but also takes into account sample size. Will use Limma moderated t-statistic.
+GSEA Preranked uses HGNC official gene symbols are the preferred input and a ranking metric. Different ranking metrics are available, but recommended ranks take into account the magnitude of effect (mean of each treatment), direction of effect (upregulated or downregulated), and the variance of the estimation of the magnitude of effect. Signal2Noise is the default, which does not take into account sample size. T-test statistic is the second-listed ranking metric that is identical to S2N but also takes into account sample size. Will use Limma's moderated t-statistic.
 ```{r}
-gsea.input.pc <- pc.res %>% select(gene_symbol, t)
-
-
+# Extract model cell type-adjusted model results relevant to GSEA
+gsea.input.pc <- pc.res %>% select(gene_symbol, t) %>% arrange(desc(t))
+# Check for duplicated t-statistics, there are none
+summary(duplicated(gsea.input.pc$t))
+# Write  .rnk file
+write_tsv(gsea.input.pc, here("results", "GSE75010", "GSEA_pc_preranked_input.rnk"), col_names = FALSE)
 ```
 
-
-## LRPath for enrichment analysis
-Prepare data for LR Path input from the principal components of cell type proportions-adjusted model. Currently, looks like many gene_symbols can't be matched or there was some error in converting the annotation based on the error message "Warning is;Error: Error in library("org.Hs.eg.db") : there is no package called org.Hs.eg.db" output by the LR Path web profiler
+"The GSEA analysis report highlights enrichment gene sets with an FDR of less than 25% as those most likely to generate interesting hypotheses and drive further research, but provides analysis results for all analyzed gene sets. In general, given the lack of coherence in most expression datasets and the relatively small number of gene sets being analyzed, an FDR cutoff of 25% is appropriate. However, if you have a small number of samples and use gene_set permutation (rather than phenotype permutation) for your analysis, you are using a less stringent assessment of significance and would then want to use a more stringent FDR cutoff, such as 5%." The GSEA Preranked analysis, which we are using, uses gene_set permutation and we have a sample size of 330. Not sure where that puts the FDR threshold.
 ```{r}
-pc.res
-```
-LR Path requires a tab-delimited .txt with (1) gene name, official symbol in this case, (2), p-value, using adjusted here, and (3) directionality, if desired, any negative or any positive number (we'll use logFC)
-```{r}
-pc.res <- pc.res %>% select(-label)
-
-entrez.ids <- gconvert(pc.res$gene_symbol, organism = "hsapiens", target = "ENTREZGENE_ACC", mthreshold = Inf, filter_na = TRUE)
-entrez.ids %>% is.na %>% summary
-
-entrez.ids.filtered <- entrez.ids %>% filter(name != "nan") %>% mutate(gene_symbol = name)
-entrez.ids.filtered %>% is.na %>% summary
-
-pc.res.entrez <- left_join(entrez.ids.filtered, pc.res)
-
-pc.res.entrez <- pc.res.entrez %>% filter(!is.na(logFC))
-pc.res.entrez %>% is.na %>% summary
-
-pc.res.entrez <- pc.res.entrez %>% mutate(direction = ifelse(logFC > 0, 1, -1))
-entrez.ids %>% is.na %>% summary
-
-lr <- 
-  pc.res.entrez %>%
-  select(target, adj.P.Val, direction)
-lr %>% is.na %>% summary
-
-#write_tsv(x = lr,
-#          file = here("results", "GSE75010", paste0(Sys.Date(), "pc_model_dex_lr_path_input.txt")))
-```
-
-```{r}
-unmatched.pc <- read_delim(here("results", "GSE75010", "2021-03-02pc_model_dex_lr_path_genes_not_matched.txt"), delim = "\n", col_names = F)
-
-unmatched.genes <- unmatched.pc$X1
-
-keep <- !(lr$target %in% unmatched.genes)
-
-lr.cleaned <- lr[keep, ]
-
-write_tsv(x = lr.cleaned,
-          file = here("results", "GSE75010", paste0(Sys.Date(), "cleaned_pc_model_dex_lr_path_input.txt")))
-```
-
-```{r}
-base.res
-```
-
-```{r}
-lr.base <-
-  base.res %>%
-  select(gene_symbol, adj.P.Val, logFC)
-
-#write_tsv(x = lr.base,
-#          file = here("results", "GSE75010", paste0(Sys.Date(), "base_model_dex_lr_path_input.txt")))
+# Extract model cell type-adjusted model results relevant to GSEA
+gsea.input.base <- base.res %>% select(gene_symbol, t) %>% arrange(desc(t))
+# Check for duplicated t-statistics, there are none
+summary(duplicated(gsea.input.base$t))
+# Write  .rnk file
+write_tsv(gsea.input.base, here("results", "GSE75010", "GSEA_base_preranked_input.rnk"), col_names = FALSE)
 ```
 
 ## Explore correlation and interaction relationships
