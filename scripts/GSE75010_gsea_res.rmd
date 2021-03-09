@@ -1,0 +1,92 @@
+---
+title: "gsea_viz"
+author: "Kyle Campbell"
+date: "3/9/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(here)
+library(tidyverse)
+
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Read in GSEA results
+```{r}
+base.down <- read_tsv(here("results", "GSEA", "base_model_go_bp.GseaPreranked.1615236822173", "gsea_report_for_na_neg_1615236822173.tsv"))
+base.up <- read_tsv(here("results", "GSEA", "base_model_go_bp.GseaPreranked.1615236822173", "gsea_report_for_na_pos_1615236822173.tsv"))
+pc.down <- read_tsv(here("results", "GSEA", "pc_model_go_bp.GseaPreranked.1615234194720", "gsea_report_for_na_neg_1615234194720.tsv"))
+pc.up <- read_tsv(here("results", "GSEA", "pc_model_go_bp.GseaPreranked.1615234194720", "gsea_report_for_na_pos_1615234194720.tsv"))
+```
+
+Select only the relevant results from the dataframes
+```{r}
+clean_gsea <- function(data) {
+  x <- data %>%
+    dplyr::select(NAME, SIZE, NES, `FDR q-val`)
+  return (x)
+}
+
+base.neg <- clean_gsea(base.down)
+base.pos <- clean_gsea(base.up)
+
+base.res <- rbind(base.pos, base.neg)
+
+pc.neg <- clean_gsea(pc.down)
+pc.pos <- clean_gsea(pc.up)
+
+pc.res <- rbind(pc.pos, pc.neg)
+```
+
+```{r}
+base.pos.hits <- base.pos %>%
+  filter(`FDR q-val` < 0.05)
+base.pos.hits
+```
+```{r}
+base.neg.hits <- base.neg %>%
+  filter(`FDR q-val` < 0.05)
+base.neg.hits
+```
+
+```{r}
+pc.neg.hits <- pc.neg %>%
+  filter(`FDR q-val` < 0.05)
+pc.neg.hits
+```
+
+```{r}
+pc.pos.hits <- pc.pos %>%
+  filter(`FDR q-val` < 0.05)
+pc.pos.hits
+```
+
+
+Graph GSEA results
+```{r}
+res.graph <- base.res %>% arrange(desc(abs(NES))) %>% top_n(n = 25, wt = abs(NES))
+
+p1 <- ggplot(data = res.graph, mapping = aes(x = NES, y = NAME, size = SIZE, color = 'FDR q-val')) +
+  geom_point() +
+  ylab("") + xlab("Normalized Enrichment Score") + ggtitle("Unadjusted") + geom_vline(xintercept = 0)
+p1
+#ggsave(here("results", "GSEA", paste0(Sys.Date(), "_gsea_base_res.png")))
+```
+
+```{r}
+res.graph <- pc.res %>% arrange(desc(abs(NES))) %>% top_n(n = 25, wt = abs(NES))
+
+p2 <- ggplot(data = res.graph, mapping = aes(x = NES, y = NAME, size = SIZE, color = 'FDR q-val')) +
+  geom_point() +
+  ylab("") + xlab("Normalized Enrichment Score") + ggtitle("Cell type-adjusted") + geom_vline(xintercept = 0)
+p2
+#ggsave(here("results", "GSEA", paste0(Sys.Date(), "_gsea_pc_res.png")))
+```
+
+```{r, eval = F}
+png(here("results", "GSEA", paste0(Sys.Date(), "_gsea_res_combined.png")))
+grid.newpage()
+grid.draw(rbind(ggplotGrob(p1), ggplotGrob(p2)))
+dev.off()
+```
