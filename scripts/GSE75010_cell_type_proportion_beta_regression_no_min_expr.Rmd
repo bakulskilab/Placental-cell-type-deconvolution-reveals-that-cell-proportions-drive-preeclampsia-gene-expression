@@ -172,32 +172,33 @@ fviz_pca_ind(res.pca,
 ```
 Graph of variables. Positively correlated variables point to the same side of the plot. Negatively correlated variables point to opposite sides of the graph
 ```{r}
-fviz_pca_var(res.pca,
+pc.1.2 <- fviz_pca_var(res.pca,
              col.var = "contrib", # Color by contributions to the PC
              gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
              repel = TRUE,     # Avoid text overlapping 
              ) + 
   theme(legend.position = "none")
+pc.1.2
 #ggsave(paste0(results_dir, "variables_pca_1_2_", Sys.Date(), ".png"))
 ```
-```{r}
-print(res.pca$rotation)
 
+```{r}
+#print(res.pca$rotation)
 loadings <-res.pca$rotation
 ```
 
 
 ```{r}
-fviz_pca_var(res.pca,
+pc.1.3 <- fviz_pca_var(res.pca,
              axes = c(1,3),
              col.var = "contrib", # Color by contributions to the PC
              gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
              repel = TRUE,     # Avoid text overlapping 
              ) + 
   theme(legend.position = "none")
+pc.1.3
 #ggsave(paste0(results_dir, "variables_pca_1_3_", Sys.Date(), ".png"))
 ```
-
 
 ```{r}
 groups <- t1$phenotype
@@ -239,6 +240,11 @@ pc_inds <- lapply(dims, function(x) fviz_pca_ind(
 
 ggarrange(pc_inds$`12`, pc_inds$`13`,
           common.legend = TRUE, legend = "bottom")
+```
+Summary and graph of PCA results.
+```{r}
+ggarrange(pc.1.2, pc.1.3, pc_inds$`12`, pc_inds$`13`)
+ggsave(here("results", "GSE75010", paste0(Sys.Date(), "_PCA_dims1to3.png")))
 ```
 
 ```{r}
