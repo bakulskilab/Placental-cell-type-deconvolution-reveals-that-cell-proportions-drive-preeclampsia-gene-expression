@@ -443,37 +443,36 @@ model6 <- run_limma_model(d = d,
 Prepare differential expression results for Preranked gene list analysis in GSEA Desktop v4.1.0. Input file format should be .rnk tab-delimited text file, first column is gene symbol and second is ranking metric (does not need to be sorted, CANNOT have TIES).
 
 ```{r}
-pc.res
+#pc.res
 ```
 
 GSEA Preranked uses HGNC official gene symbols are the preferred input and a ranking metric. Different ranking metrics are available, but recommended ranks take into account the magnitude of effect (mean of each treatment), direction of effect (upregulated or downregulated), and the variance of the estimation of the magnitude of effect. Signal2Noise is the default, which does not take into account sample size. T-test statistic is the second-listed ranking metric that is identical to S2N but also takes into account sample size. Will use Limma's moderated t-statistic.
 ```{r}
 # Extract model cell type-adjusted model results relevant to GSEA
-gsea.input.pc <- pc.res %>% select(gene_symbol, t) %>% arrange(desc(t))
+gsea.input.pc <- pc.res %>% dplyr::select(gene_symbol, t) %>% arrange(desc(t))
 # Check for duplicated t-statistics, there are none
 summary(duplicated(gsea.input.pc$t))
 # Write  .rnk file
-write_tsv(gsea.input.pc, here("results", "GSE75010", "GSEA_pc_preranked_input.rnk"), col_names = FALSE)
+#write_tsv(gsea.input.pc, here("results", "GSE75010", "GSEA_pc_preranked_input.rnk"), col_names = FALSE)
 ```
 
 "The GSEA analysis report highlights enrichment gene sets with an FDR of less than 25% as those most likely to generate interesting hypotheses and drive further research, but provides analysis results for all analyzed gene sets. In general, given the lack of coherence in most expression datasets and the relatively small number of gene sets being analyzed, an FDR cutoff of 25% is appropriate. However, if you have a small number of samples and use gene_set permutation (rather than phenotype permutation) for your analysis, you are using a less stringent assessment of significance and would then want to use a more stringent FDR cutoff, such as 5%." The GSEA Preranked analysis, which we are using, uses gene_set permutation and we have a sample size of 330. Not sure where that puts the FDR threshold.
 ```{r}
 # Extract model cell type-adjusted model results relevant to GSEA
-gsea.input.base <- base.res %>% select(gene_symbol, t) %>% arrange(desc(t))
+gsea.input.base <- base.res %>% dplyr::select(gene_symbol, t) %>% arrange(desc(t))
 # Check for duplicated t-statistics, there are none
 summary(duplicated(gsea.input.base$t))
 # Write  .rnk file
-write_tsv(gsea.input.base, here("results", "GSE75010", "GSEA_base_preranked_input.rnk"), col_names = FALSE)
+#write_tsv(gsea.input.base, here("results", "GSE75010", "GSEA_base_preranked_input.rnk"), col_names = FALSE)
 ```
 
 ## Explore correlation and interaction relationships
 
 ```{r}
 expression_data <- as.data.frame(t(d@assayData$exprs))
-flt1 <- expression_data %>% select(FLT1)
+flt1 <- expression_data %>% dplyr::select(FLT1)
 flt1 <- rownames_to_column(flt1, var = "sample")
 df <- left_join(df, flt1)
-df$FLT1 <- log2(df$FLT1)
 ```
 
 
@@ -505,7 +504,6 @@ ggplot(df, aes(x = ga, y = FLT1, color = phenotype)) + geom_point() + geom_smoot
 
 ## Mediation
 Using the mediation package approach
-Add log2(FLT1) expression data to metadata frame
 ```{r}
 library(mediation)
 ```
@@ -526,7 +524,6 @@ print(tidy(out.fit))
 med.out <- mediate(med.fit, out.fit, treat = "phenotype", mediator = "Dim.3", robustSE = TRUE, sims = 100)
 summary(med.out)
 ```
-
 
 FLT1 attentuation after cell type proportion adjustment in Limma (before and after cell type adjustment, 5 PCs)
 ```{r}
@@ -769,7 +766,7 @@ publish_gostplot(p, highlight_terms = terms.to.highlight, width = NA, height = N
 
 
 ```{r, eval = FALSE}
-ggsave(paste0(here("data", "/"), "gProfiler/", "gost_highlighted_terms_", Sys.Date(), ".png"), device = "png")
+#ggsave(paste0(here("data", "/"), "gProfiler/", "gost_highlighted_terms_", Sys.Date(), ".png"), device = "png")
 ```
 
 
@@ -779,6 +776,5 @@ publish_gosttable(gostres.small,
                         use_colors = TRUE, 
                         show_columns = c("source", "term_name", "term_size"),
                         filename = NULL)
-ggsave(paste0(here("data", "/"), "gProfiler/", "gost_highlighted_terms_table_", Sys.Date(), ".png"), device = "png")
+#ggsave(paste0(here("data", "/"), "gProfiler/", "gost_highlighted_terms_table_", Sys.Date(), ".png"), device = "png")
 ```
-
