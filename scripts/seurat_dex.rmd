@@ -46,10 +46,10 @@ top.10.per <- markers %>%
   mutate(p_val = format(p_val, scientific = TRUE, digits = 3)) %>%
   mutate(p_val_adj = format(p_val_adj, scientific = TRUE, digits = 3)) %>%
   mutate(avg_logFC = format(avg_logFC, digits = 3)) %>%
-  mutate('p-value' = if_else(p_val == 2.23e-308, "< 2.23e-308", as.character(p_val))) %>%
-  mutate('adjusted p-value' = if_else(p_val_adj == 2.23e-308, "< 2.23e-308", as.character(p_val_adj))) %>%
+  mutate('p-value' = if_else(p_val == 2.23e-308, "< 2.23E-308", as.character(p_val))) %>%
+  mutate('adjusted p-value' = if_else(p_val_adj == 2.23e-308, "< 2.23E-308", as.character(p_val_adj))) %>%
   select(-c(p_val, p_val_adj))
-top10.colnames <- c("Cell type cluster", "Gene", "log2 Fold-change", "Cluster cells expressing gene", "Other cells expressing gene", "P-value", "Bonferroni-adjusted p-value")
+top10.colnames <- c("Cell type cluster", "Gene", "log2 Fold-change", "Percentage cluster cells expressing gene", "Percentage other cells expressing gene", "P-value", "Bonferroni-adjusted p-value")
 
 colnames(top.10.per) <- top10.colnames
 

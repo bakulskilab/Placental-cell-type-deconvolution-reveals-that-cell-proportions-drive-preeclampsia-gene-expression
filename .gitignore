@@ -4,3 +4,5 @@
 .Ruserdata
 desktop.ini
 data/*
+results/*
+*.html
