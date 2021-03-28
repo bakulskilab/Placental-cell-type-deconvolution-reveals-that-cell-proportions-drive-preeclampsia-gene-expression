@@ -8,6 +8,8 @@ output: html_document
 # Update R all installed R Packages
 # update.packages(ask = FALSE)
 
+library(gprofiler2)
+library(here)
 library(knitr)
 library(pheatmap)
 library(RColorBrewer)
@@ -25,26 +27,31 @@ library(topGO)
 knitr::opts_chunk$set(echo=TRUE)
 
 # May need to update root.dir Drive Letter
-local_data_path <- "C:/Users/k_cam/Google Drive/Placenta_Cell_Types_Kyle/code/R code/local/placenta_sort/dex/data/analysis_datasets/"
+#local_data_path <- "C:/Users/k_cam/Google Drive/Placenta_Cell_Types_Kyle/code/R code/local/placenta_sort/dex/data/analysis_datasets/"
 ```
 ## Entering Data, Preproccessing, and Model Fitting
 ```{r DESeq2_object}
-
+# Older file management system
 #counts <- readRDS(file =   "./data/analysis_datasets/edgeR_collapsed_counts.Rda")
 #meta <- readRDS(file =     "./data/analysis_datasets/edgeR_collapsed_metadata.Rda")
 #gene_annotation <- readRDS("./data/analysis_datasets/edgeR_gene_annotation_with_symbols.Rda")
 
+counts <- readRDS(file =  here("data", "bulk", "edgeR_collapsed_counts.Rda"))
+meta <- readRDS(file = here("data", "bulk", "edgeR_collapsed_metadata.Rda"))
+gene_annotation <- readRDS(here("data", "bulk", "edgeR_gene_annotation_with_symbols.Rda"))
+
 # Must make meta rownames identical to counts colnames
-#rownames(meta) <- substr(rownames(meta), 8, 14)
+rownames(meta) <- substr(rownames(meta), 8, 14)
 
 # Creating the DESeq2 experiment object from count data and meta info
-#dds <- DESeqDataSetFromMatrix(countData = counts,
-#                              colData = meta,
-#                              design = ~ 0 + sample.ID + cell.type)
+dds <- DESeqDataSetFromMatrix(countData = counts,
+                              colData = meta,
+                              design = ~ 0 + sample.ID + cell.type)
 
 # Adding comprehensive gene annotation to dds
-#mcols(dds) <- DataFrame(mcols(dds), gene_annotation)
+mcols(dds) <- DataFrame(mcols(dds), gene_annotation)
 
+# NOT using at this point
 # Minimal pre-processing to reduce computational load - does NOT represent meaningful filtering
 #keep <- rowSums(counts(dds)) >= 10
 #dds <- dds[keep,]
@@ -53,8 +60,10 @@ local_data_path <- "C:/Users/k_cam/Google Drive/Placenta_Cell_Types_Kyle/code/R 
 #dds <- DESeq(dds)
 ```
 
-```{r AddGeneAnnotation}
+Droppping .xx from ENSG IDs for symbol annotation: https://www.biostars.org/p/293965/
+Explanation of ENSG vs. ENST: https://www.biostars.org/p/199073/
 
+```{r AddGeneAnnotation}
 # Chop off the .xx from the ENSEMBL ID
 #row.names(dds) <- substr(x = row.names(dds), start = 1, stop = 15)
 
@@ -73,11 +82,15 @@ BiomaRt returns 58,069 of 58,381 gene features from DESeq2 results. Of the 58,06
 mart = useMart("ensembl",dataset="hsapiens_gene_ensembl")
 
 # Querying biomaRt using gene names to get back ENSEMBL IDs
-DESeq2GeneIDs <- getBM(attributes = c('ensembl_gene_id', 'external_gene_name'),
-             filters = c('ensembl_gene_id'),
-             values = rownames(dds),
-             mart = mart)
-genes.tbl <- as_tibble(DESeq2GeneIDs)
+#DESeq2GeneIDs <- getBM(attributes = c('ensembl_gene_id', 'external_gene_name'),
+#             filters = c('ensembl_gene_id'),
+#             values = rownames(dds),
+#             mart = mart)
+#genes.tbl <- as_tibble(DESeq2GeneIDs)
+
+#saveRDS(genes.tbl, here("data", "bulk", "deseq2_gene_symbols.rda"))
+# Load gene ids
+genes.tbl <- readRDS(here("data", "bulk", "deseq2_gene_symbols.rda"))
 ```
 
 Save/load 
@@ -94,7 +107,36 @@ Save/load
 # Load the finished DESeq2 object - note this object has trimmed ensembl IDs
 #dds <- readRDS("C:/Users/Kyle/Google Drive/Placenta_Cell_Types_Kyle/code/R code/local/placenta_sort/dex/data/analysis_datasets/DESeq2_dds_noint_celltype_sampleid_nofiltering.rda")
 
-dds <- readRDS(paste0(local_data_path, "/DESeq2_dds_noint_celltype_sampleid_nofiltering.rda"))
+#dds <- readRDS(paste0(local_data_path, "/DESeq2_dds_noint_celltype_sampleid_nofiltering.rda"))
+
+dds <- readRDS(here("data", "bulk", "DESeq2_dds_noint_celltype_sampleid_nofiltering.rda"))
+```
+
+```{r, eval = F}
+print(paste0(
+  length(rownames(dds)),
+  " total gene features assessed with featureCounts"
+))
+
+# Minimal pre-processing to reduce computational load - does NOT represent meaningful filtering
+#keep <- rowSums(counts(dds)) >= 10
+#dds <- dds[keep,]
+
+genes <- gconvert(query = rownames(dds), organism = "hsapiens",
+target="HGNC", mthreshold = Inf, filter_na = FALSE)
+```
+
+Ideas for how to deal with multiple Ensembl IDs mapping to a single gene symbol
+https://www.researchgate.net/post/How-to-deal-with-multiple-ensemble-IDs-mapping-to-one-gene-symbol-in-a-RNA-Seq-dataset
+
+Check for duplicate HGNC symbols
+```{r}
+genes %>% group_by(target) %>% tally() %>% filter(n > 1)
+```
+
+Check for duplicate Ensembl IDs
+```{r}
+genes %>% group_by(input) %>% tally() %>% filter(n>1)
 ```
 
 ```{r}
@@ -123,10 +165,10 @@ summarizeDESeq2Results <-
      # Add gene annotation and drop duplicate gene names
      res <- left_join(res, genes.tbl) %>%
        dplyr::select(external_gene_name, everything()) %>%
-       relocate(ensembl_gene_id, .after = last_col()) %>%
-       group_by(external_gene_name) %>%
-       filter(!(n() > 1))
-       as_tibble()
+       relocate(ensembl_gene_id, .after = last_col())# %>%
+       #group_by(external_gene_name) %>%
+       #filter(!(n() > 1)) %>%
+       #as_tibble()
      
      # Identify genes dropped from DESeq2 analysis due to independent filtering
      stats <- summary(res$padj)
@@ -139,6 +181,7 @@ summarizeDESeq2Results <-
          " features dropped due to independent filtering, all zero counts, or extreme outlier status in DESeq2"
        )
      )
+     
      # drop genes dropped for DESeq2 analysis
      res <-
        res %>%
@@ -151,6 +194,7 @@ summarizeDESeq2Results <-
        dim(res)[1],
        " genes assessed for significance"
      ))
+     
      # # Limit to only upregulated genes
      # res <-
      #   res %>%
@@ -162,6 +206,7 @@ summarizeDESeq2Results <-
      #   dim(res)[1],
      #   " upregulated genes assessed for significance"
      # ))
+     
      # Assess p-value cutoffs from DESeq2 analysis
      for (pvalcutoff in c(0.05, 0.01, 0.005, 0.001)) {
        res.cut <-
@@ -180,6 +225,7 @@ summarizeDESeq2Results <-
          )
        )
      }
+     
      # Generate table to be returned
      result <- 
        res %>%
@@ -190,11 +236,12 @@ summarizeDESeq2Results <-
      # Remind user which FDR-adjusted value they called for
      print(
        paste0(
-         "Returning upregulated results at FDR-adjusted ",
+         "Returning differentially expressed results at FDR-adjusted ",
          FDR_Threshold
        )
      )
      
+     # Create return object
      return <- list(result = result,
                     universe = res)
 
@@ -205,6 +252,51 @@ summarizeDESeq2Results <-
 
 Our first contrast of interest is how cell type-specific expression differs vs. the average expression across all other cell types. [This thread](https://support.bioconductor.org/p/118090/) recommends fitting a no-intercept model to answer this question. [Another thread](https://support.bioconductor.org/p/86347/) contains a brief discussion of how to code it. These contrasts will exclude the composite tissue group. I wonder if excluding the composite samples from normalization and filtering is appropriate for this particular set of comparisions. I think that also depends on whether we use the composite samples in any analyses.
 
+Modernized code (3/2021) and outstanding questions:
+1. Include composite samples in model for gene variance moderation or drop?
+  a. Emprically test running with and without
+2. Include endothelial in the cell type comparison group?
+  a. Empirically test
+3. Handling Ensembl ID/HGNC symbol multimapping
+  a. previously handled at annotating results stage (when DESeq2 vignette does it)
+```{r}
+dds$cell.type %>% levels
+```
+Rename levels to two character factor levels for easier coding, doesn't really help
+```{r, eval = F}
+dds$cell.type <- 
+  recode(
+    dds$cell.type,
+    "composite" = "cp",
+    "cytotrophoblast" = "ct",
+    "endothelial" = "en",
+    "extravilloustrophoblast" = "et",
+    "fibroblast" = "fb",
+    "hofbauer" = "hb",
+    "leukocyte" = "lk",
+    "syncytiotrophoblast" = "st"
+  )
+
+levels(dds$cell.type)
+
+#dds$cell.type <-
+#  factor(dds$cell.type,
+#    labels = c(
+#      "Composite",
+#      "Cytotrophoblast",
+#      "Endothelial",
+#      "Extravillous Trophoblast",
+#      "Fibroblast",
+#      "Hofbauer",
+#      "Leukocyte",
+#      "Syncytiotrophoblast"
+#    )
+#  )
+
+dds$cell.type
+```
+
+Note: in DESeq2 alpha is the FDR-adjusted significance cutoff
 ``` {r}
 # For the DESeq2 results() call in this chunk:
 # The first vector is our cell type of interest
@@ -213,30 +305,63 @@ Our first contrast of interest is how cell type-specific expression differs vs. 
 # listValues Specifies comparision against average expression across other groups
 
 # Set alpha
-alpha <- .01
+alpha <- .05
+
+# List coefficients
+c(
+  "cell.typecytotrophoblast",
+  "cell.typeendothelial",
+  "cell.typeextravilloustrophoblast",
+  "cell.typefibroblast",
+  "cell.typehofbauer",
+  "cell.typeleukocyte",
+  "cell.typesyncytiotrophoblast"
+)
+
 # Pull contrast of interest
-contrast <- results(
+results <- results(
   dds,
   contrast = list( c("cell.typecytotrophoblast"), 
-                   c("cell.typeextravilloustrophoblast",
+                   c("cell.typeendothelial",
+                     "cell.typeextravilloustrophoblast",
                      "cell.typefibroblast",
                      "cell.typehofbauer",
+                     "cell.typeleukocyte",
                      "cell.typesyncytiotrophoblast")),
-  listValues = c(1, -1/4),
+  listValues = c(1, -1/6),
   alpha = alpha
 )
 
-# Summarize and annotate contrast results
-return <- summarizeDESeq2Results(
-  DESeq2_Results = contrast,
-  Cell_Type_Identity = "Cytotrophoblasts",
-  FDR_Threshold = alpha,
-  Genes_Anno_Tbl = genes.tbl)
+summary <- summary(results)
+print(paste0(summary(is.na(results$padj))[3], " features dropped due to independent filtering, all zero counts, or extreme outlier status in DESeq2"))
 
-res <- return$result
-universe <- return$universe
+# Coerce DESeq2 Results to df
+res.df <- as.data.frame(results)
 
-universe$external_gene_name %in% res.tbl$external_gene_name
+# Move gene ensembl IDs from row to table column
+res <- rownames_to_column(res.df, "ensembl_gene_id")
+
+# Add gene annotation and drop duplicate gene names
+res <- left_join(res, genes.tbl) %>%
+  dplyr::select(external_gene_name, everything()) %>%
+  relocate(ensembl_gene_id, .after = last_col())
+
+# Print the small number of duplicated genes after DESeq2 auto filtering. Most are SNORNAs and many are vague Y_RNA, rRNA, metazoa RNA, etc.
+duplicated.genes <- 
+  res %>%
+  group_by(external_gene_name) %>%
+  tally() %>%
+  filter(n > 1)
+print(paste0(dim(duplicated.genes)[1], " duplicated gene symbols dropped"))
+
+# Drop duplicated genes after DESeq2 auto filtering
+res <- 
+  res %>%
+  group_by(external_gene_name) %>%
+       filter(!(n() > 1)) %>%
+       as_tibble()
+
+
 ```
 
 Label genes of interest by name, the top 10 upregulated and downregulated hits and hand-chosen extravillous trophoblast marker gene HLA-G.
@@ -376,7 +501,7 @@ hbvall_res <- results(dds,
                                   "cell.typecytotrophoblast",
                                   "cell.typesyncytiotrophoblast")),
                listValues = c(1, -1/5),
-               alpha = 0.005
+               alpha = 0.05
                )
 # Rename to res for easy replication of DESeq2 vignette code
 res <- hbvall_res
@@ -516,7 +641,7 @@ tes$reads <- col1a1[1,]
 a <- ggplot(col1a1, aes(x = col1a1[2,], y = col1a1[1,]))
 a + geom_col()
 
-write.csv(col1a1, )
+#write.csv(col1a1, )
 ```
 
 
@@ -550,20 +675,25 @@ write.csv(col1a1, )
         
         title = "Fibroblast Cells vs. Others")
 ```
+
+
+
 ## Data Quality Assessment by Clustering and Visualization
 
 We'll begin by transforming the data to the log-fold-2 scale using the same shrinkage transformation employed in the DEX pipeline.
 
 ```{r transformation}
-rld <- rlog(dds, blind = TRUE)
+#rld <- rlog(dds, blind = TRUE)
 #saveRDS(rld, file = paste0(local_data_path, "DESeq2_rld.rda"))
-rld <- readRDS(file = paste0(local_data_path, "DESeq2_rld.rda"))
+#saveRDS(rld, here("data", "bulk", paste0(Sys.Date(), "DESeq2_rld.rda")))
+#rld <- readRDS(file = paste0(local_data_path, "DESeq2_rld.rda"))
+rld <- readRDS(here("data", "bulk", "2021-03-26DESeq2_rld.rda"))
 ```
 103911 - leukocyte is an extreme outlier on blind PCA analysis, will remove and rerun. PCA looks similar with 103911 - leukocyte removed
 ```{r}
-dds_103911 <- dds[,colnames(dds) != "103911"]
-dds_103911 <- DESeq(dds_103911)
-rld <-rlog(dds_103911, blind = TRUE)
+#dds_103911 <- dds[,colnames(dds) != "103911"]
+#dds_103911 <- DESeq(dds_103911)
+#rld <-rlog(dds_103911, blind = TRUE)
 ```
 ### Hierarchical Clustering Heatmap
 ```{r hc_heatmap}
