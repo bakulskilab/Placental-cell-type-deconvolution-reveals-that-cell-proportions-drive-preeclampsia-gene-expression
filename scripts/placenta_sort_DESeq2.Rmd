@@ -36,20 +36,20 @@ knitr::opts_chunk$set(echo=TRUE)
 #meta <- readRDS(file =     "./data/analysis_datasets/edgeR_collapsed_metadata.Rda")
 #gene_annotation <- readRDS("./data/analysis_datasets/edgeR_gene_annotation_with_symbols.Rda")
 
-counts <- readRDS(file =  here("data", "bulk", "edgeR_collapsed_counts.Rda"))
-meta <- readRDS(file = here("data", "bulk", "edgeR_collapsed_metadata.Rda"))
-gene_annotation <- readRDS(here("data", "bulk", "edgeR_gene_annotation_with_symbols.Rda"))
+#counts <- readRDS(file =  here("data", "bulk", "edgeR_collapsed_counts.Rda"))
+#meta <- readRDS(file = here("data", "bulk", "edgeR_collapsed_metadata.Rda"))
+#gene_annotation <- readRDS(here("data", "bulk", "edgeR_gene_annotation_with_symbols.Rda"))
 
 # Must make meta rownames identical to counts colnames
-rownames(meta) <- substr(rownames(meta), 8, 14)
+#rownames(meta) <- substr(rownames(meta), 8, 14)
 
 # Creating the DESeq2 experiment object from count data and meta info
-dds <- DESeqDataSetFromMatrix(countData = counts,
-                              colData = meta,
-                              design = ~ 0 + sample.ID + cell.type)
+#dds <- DESeqDataSetFromMatrix(countData = counts,
+#                              colData = meta,
+#                              design = ~ 0 + sample.ID + cell.type)
 
 # Adding comprehensive gene annotation to dds
-mcols(dds) <- DataFrame(mcols(dds), gene_annotation)
+#mcols(dds) <- DataFrame(mcols(dds), gene_annotation)
 
 # NOT using at this point
 # Minimal pre-processing to reduce computational load - does NOT represent meaningful filtering
@@ -79,7 +79,7 @@ BiomaRt returns 58,069 of 58,381 gene features from DESeq2 results. Of the 58,06
 ```{r biomaRt_DESeq2_results}
 # Setting up biomaRt
 # Assigning Mart of interest, human ensembl here
-mart = useMart("ensembl",dataset="hsapiens_gene_ensembl")
+#mart = useMart("ensembl",dataset="hsapiens_gene_ensembl")
 
 # Querying biomaRt using gene names to get back ENSEMBL IDs
 #DESeq2GeneIDs <- getBM(attributes = c('ensembl_gene_id', 'external_gene_name'),
@@ -112,142 +112,9 @@ Save/load
 dds <- readRDS(here("data", "bulk", "DESeq2_dds_noint_celltype_sampleid_nofiltering.rda"))
 ```
 
-```{r, eval = F}
-print(paste0(
-  length(rownames(dds)),
-  " total gene features assessed with featureCounts"
-))
-
-# Minimal pre-processing to reduce computational load - does NOT represent meaningful filtering
-#keep <- rowSums(counts(dds)) >= 10
-#dds <- dds[keep,]
-
-genes <- gconvert(query = rownames(dds), organism = "hsapiens",
-target="HGNC", mthreshold = Inf, filter_na = FALSE)
-```
-
 Ideas for how to deal with multiple Ensembl IDs mapping to a single gene symbol
 https://www.researchgate.net/post/How-to-deal-with-multiple-ensemble-IDs-mapping-to-one-gene-symbol-in-a-RNA-Seq-dataset
 
-Check for duplicate HGNC symbols
-```{r}
-genes %>% group_by(target) %>% tally() %>% filter(n > 1)
-```
-
-Check for duplicate Ensembl IDs
-```{r}
-genes %>% group_by(input) %>% tally() %>% filter(n>1)
-```
-
-```{r}
-plotDispEsts( dds, ylim = c(1e-4, 1e2) )
-```
-
-Custom function to summarize DESeq2 significant results based on different p-value cutoffs. Note that the input DESeq2 results object will have been run at some alpha level for the purpose of independent filtering that may slightly change results.
-
-``` {r}
-## Arguments:
-## DESeq2_Results is a DESeq2 results (res) object.
-## Cell_Type_Identity is a string to describe the analysis that was done for the results. In this case, the cell type of interest that is being compared against other placental cell types.
-## FDR_Threshold is the desired DESeq2 p-adj cutoff you would like the function to return as a filtered, tibble-format DESeq2 results object.
-## Gene_Anno_Tbl is gene annotation information to append to results
-## Returns:
-## List of two results tibbles at FDR cutoff with genes dropped due to independent filitering, all zero counts, or extreme outliers (none of which are used for DESeq2 model) and the universe of genes tested (those not used in the model and duplicate gene annotations)
-summarizeDESeq2Results <-
-   function(DESeq2_Results, Cell_Type_Identity, FDR_Threshold, Genes_Anno_Tbl) {
-     
-     # Coerce DESeq2 Results to df
-     res.df <- as.data.frame(DESeq2_Results)
-     
-     # Move gene ensembl IDs from row to table column
-     res <- rownames_to_column(res.df, "ensembl_gene_id")
-     
-     # Add gene annotation and drop duplicate gene names
-     res <- left_join(res, genes.tbl) %>%
-       dplyr::select(external_gene_name, everything()) %>%
-       relocate(ensembl_gene_id, .after = last_col())# %>%
-       #group_by(external_gene_name) %>%
-       #filter(!(n() > 1)) %>%
-       #as_tibble()
-     
-     # Identify genes dropped from DESeq2 analysis due to independent filtering
-     stats <- summary(res$padj)
-     print(
-       paste0(
-         "For ",
-         Cell_Type_Identity,
-         ", ",
-         stats["NA's"],
-         " features dropped due to independent filtering, all zero counts, or extreme outlier status in DESeq2"
-       )
-     )
-     
-     # drop genes dropped for DESeq2 analysis
-     res <-
-       res %>%
-       filter(!is.na(padj))
-     
-     print(paste0(
-       "For ",
-       Cell_Type_Identity,
-       ", ",
-       dim(res)[1],
-       " genes assessed for significance"
-     ))
-     
-     # # Limit to only upregulated genes
-     # res <-
-     #   res %>%
-     #   filter(log2FoldChange > 0)
-     # print(paste0(
-     #   "For ",
-     #   Cell_Type_Identity,
-     #   ", ",
-     #   dim(res)[1],
-     #   " upregulated genes assessed for significance"
-     # ))
-     
-     # Assess p-value cutoffs from DESeq2 analysis
-     for (pvalcutoff in c(0.05, 0.01, 0.005, 0.001)) {
-       res.cut <-
-         res %>%
-         filter(!is.na(padj)) %>%
-         filter(padj < pvalcutoff)# %>%
-         #filter(log2FoldChange > 0)
-       print(
-         paste0(
-           "For ",
-           Cell_Type_Identity,
-           ", ",
-           dim(res.cut)[1],
-           " genes pass at FDR-adjusted ",
-           pvalcutoff
-         )
-       )
-     }
-     
-     # Generate table to be returned
-     result <- 
-       res %>%
-       filter(!is.na(padj)) %>%
-       filter(padj < FDR_Threshold)# %>%
-       #filter(log2FoldChange > 0)
-     
-     # Remind user which FDR-adjusted value they called for
-     print(
-       paste0(
-         "Returning differentially expressed results at FDR-adjusted ",
-         FDR_Threshold
-       )
-     )
-     
-     # Create return object
-     return <- list(result = result,
-                    universe = res)
-
-     return(return)
-   }
-```
 ## Comparing cell type-specific gene expression to the average expression level across other cell types
 
 Our first contrast of interest is how cell type-specific expression differs vs. the average expression across all other cell types. [This thread](https://support.bioconductor.org/p/118090/) recommends fitting a no-intercept model to answer this question. [Another thread](https://support.bioconductor.org/p/86347/) contains a brief discussion of how to code it. These contrasts will exclude the composite tissue group. I wonder if excluding the composite samples from normalization and filtering is appropriate for this particular set of comparisions. I think that also depends on whether we use the composite samples in any analyses.
@@ -260,61 +127,6 @@ Modernized code (3/2021) and outstanding questions:
     i. Stable model either way (fewer hits than CT)
 3. Handling Ensembl ID/HGNC symbol multimapping
   a. previously handled at annotating results stage (when DESeq2 vignette does it)
-```{r}
-dds$cell.type %>% levels
-```
-Rename levels to two character factor levels for easier coding, doesn't really help
-```{r, eval = F}
-dds$cell.type <- 
-  recode(
-    dds$cell.type,
-    "composite" = "cp",
-    "cytotrophoblast" = "ct",
-    "endothelial" = "en",
-    "extravilloustrophoblast" = "et",
-    "fibroblast" = "fb",
-    "hofbauer" = "hb",
-    "leukocyte" = "lk",
-    "syncytiotrophoblast" = "st"
-  )
-
-levels(dds$cell.type)
-
-#dds$cell.type <-
-#  factor(dds$cell.type,
-#    labels = c(
-#      "Composite",
-#      "Cytotrophoblast",
-#      "Endothelial",
-#      "Extravillous Trophoblast",
-#      "Fibroblast",
-#      "Hofbauer",
-#      "Leukocyte",
-#      "Syncytiotrophoblast"
-#    )
-#  )
-
-dds$cell.type
-```
-```{r}
-# For the DESeq2 results() call in this chunk:
-# The first vector is our cell type of interest
-# Create the contrast of interest
-# The following vector contains comparison group
-# listValues Specifies comparision against average expression across other groups
-results <- results(
-  dds,
-  contrast = list( "cell.typecytotrophoblast", 
-                   c("cell.typeendothelial",
-                     "cell.typeextravilloustrophoblast",
-                     "cell.typefibroblast",
-                     "cell.typehofbauer",
-                     "cell.typeleukocyte",
-                     "cell.typesyncytiotrophoblast")),
-  listValues = c(1, -1/6),
-  alpha = alpha
-)
-```
 
 Note: in DESeq2 alpha is the FDR-adjusted significance cutoff
 ``` {r}
@@ -342,6 +154,11 @@ run_deseq2 <- function(target) {
   coef <- cell.types[grepl(target, cell.types)]
   inv.coef <- cell.types[!grepl(target, cell.types)]
   
+  # For the DESeq2 results() call in this chunk:
+  # The first vector is our cell type of interest
+  # Create the contrast of interest
+  # The following vector contains comparison group
+  # listValues Specifies comparision against average expression across other groups
   # Pull contrast of interest
   results <- results(
     dds,
