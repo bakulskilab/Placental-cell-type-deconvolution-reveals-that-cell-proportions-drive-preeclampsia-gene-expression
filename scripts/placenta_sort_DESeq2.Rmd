@@ -130,7 +130,7 @@ Modernized code (3/2021) and outstanding questions:
 
 Note: in DESeq2 alpha is the FDR-adjusted significance cutoff
 ``` {r}
-run_deseq2 <- function(target) {
+run_deseq2 <- function(target, dds) {
   
   # Print current target
   print(target)
@@ -241,12 +241,16 @@ run_deseq2 <- function(target) {
   
   # Number of top downregulated and upregulated genes to label on Volcano plot
   num.to.plot <- 10
+  
   # Option to manually label a vector of genes
   genes.of.interest <- NULL
+  
+  # Create label dummy to decide if gene labelled on Volcano plot
   top.upreg <- upreg$gene_symbol[1:num.to.plot]
   top.downreg <- downreg$gene_symbol[1:num.to.plot]
   genes.to.plot <- c(top.upreg, top.downreg, genes.of.interest)
   res$label[(res$gene_symbol %in% genes.to.plot)] <- T
+  
   # Add significance indicator variable for plotting
   res <-
     res %>%
@@ -254,7 +258,7 @@ run_deseq2 <- function(target) {
                         T,
                         F))
   # Volcano plot
-  plot1 <- ggplot(res) +
+  plot <- ggplot(res) +
     geom_point(aes(
       x = log2FoldChange,
       y = -log10(padj),
@@ -264,7 +268,8 @@ run_deseq2 <- function(target) {
       x = log2FoldChange,
       y = -log10(padj),
       label = ifelse(label, gene_symbol, "")
-    )) +
+    ),
+    max.overlaps = Inf) +
     geom_hline(yintercept = -log10(alpha), linetype = "dotted") +
     ggtitle("Contrast of Interest") +
     xlab("log2 fold change") +
@@ -273,12 +278,37 @@ run_deseq2 <- function(target) {
       legend.position = "none",
       plot.title = element_text(size = rel(1.5), hjust = 0.5),
       axis.title = element_text(size = rel(1.25))
-    )
-  plot1
+    ) +
+    labs(caption = paste0(
+      dim(res)[1],
+      " total genes (",
+      summary(is.na(results$padj))[3],
+      " dropped from contrast)"
+    ))
   
-  # Return a list doesn't work with lapply/map
+  # Create a label dataframe for geom_label annotation
+  label.df <- data.frame(
+    label = paste0(dim(upreg)[1], " upregulated genes\n", paste0(dim(downreg)[1], " downregulated genes")),
+    x = Inf,
+    y = Inf,
+    hjustvar = 1,
+    vjustvar = 1
+  )
+  
+  # Add geom_label annotation
+  plot <-
+    plot + geom_label(data = label.df,
+                      aes(
+                        x = x,
+                        y = y,
+                        label = label,
+                        hjust = hjustvar,
+                        vjust = vjustvar
+                      ))
+  plot
+
   returnList <- list("res" = res,
-                     "volcano" = plot1,
+                     "volcano" = plot,
                      "duplicated.genes" = duplicated.genes)
   return(returnList)
 }
@@ -294,8 +324,72 @@ cell.types <-
       "syncytiotrophoblast"
     )
 
-mapped <- lapply(cell.types, run_deseq2)
+mapped <- lapply(cell.types, run_deseq2, dds = dds)
 names(mapped) <- cell.types
+```
+
+```{r}
+# Input ggplot to get x and y limits for graph
+get_coord_limits <- function(ggplot) {
+  
+  # Get build options
+  build <- ggplot_build(ggplot)
+  # Get x-limits
+  x <- build$layout$panel_scales_x[[1]]$range$range
+  # Get y-limits
+  y <- build$layout$panel_scales_y[[1]]$range$range
+  
+  # Return x and y limits as list
+  return(list(
+    "x" = x,
+    "y" = y
+  ))
+}
+
+# Pull limits from each graph
+limits <- map(mapped, ~ get_coord_limits(.x[["volcano"]]))
+
+# Pull x-limits and convert to list of vectors
+x_limits <- map(limits, ~ unlist(.x["x"]))
+# Convert x-limits to vector
+x_limits <- unlist(x_limits)
+# Get x-min
+x_min <- min(x_limits)
+# Get x-max
+x_max <- max(x_limits)
+
+# Pull y-limits and convert to list of vectors
+y_limits <- map(limits, ~ unlist(.x["y"]))
+# Convert y-limits to vector
+y_limits <- unlist(y_limits)
+# Get y-min
+y_min <- min(y_limits)
+# Get y-max
+# y-max for ST is 1e-60, going to use 2nd largest value instead for graph readibility
+y_sorted <- sort(y_limits)
+y_max <- y_sorted[length(y_sorted)-3] %>% as.numeric
+#y_max <- max(y_limits)
+
+names(mapped)
+contrast.labels <- c("Cytotrophoblast" , "Endothelial", "Extravillous Trophoblast", "Fibroblast", "Hofbauer Cell", "Leukocyte", "Syncytiotrophoblast")
+
+# Get presentable volcanos
+# Add contrast title and set x and y limits without removing data points
+volcanos <- map2(mapped, contrast.labels, ~ .x[["volcano"]] + ggtitle(.y) + coord_cartesian(xlim = c(x_min, x_max), ylim = c(y_min, y_max)))
+
+# Custom function to save ggplots
+save_plot <- function(plot, filename) {
+  print(plot)
+  ggsave(
+    here("results", "bulk", paste0(filename, "_volcano_", Sys.Date(), ".png"))
+  )
+}
+# Save volcanos
+#map2(volcanos, names(mapped), ~ save_plot(.x, .y))
+```
+
+```{r}
+volcanos$cytotrophoblast
 ```
 
 
