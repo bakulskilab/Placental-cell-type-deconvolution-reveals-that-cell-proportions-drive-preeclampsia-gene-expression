@@ -31,6 +31,9 @@ library(edgeR)
 library(scater)
 # Set seed since this pipeline includes stochastic algorithms
 set.seed(1)
+```
+
+```{r dir, include=FALSE}
 # Set default working directory
 data_dir <- "G:/My Drive/Placenta_Cell_Types/RNA/placenta_rna/data/"
 results_dir <- "G:/My Drive/Placenta_Cell_Types/RNA/placenta_rna/results/seurat/"
@@ -66,6 +69,7 @@ VEGFR Receptor expression by cluster
 ```{r}
 VlnPlot(seu, features = "KDR") + NoLegend()
 VlnPlot(seu, features = "FLT1") + NoLegend()
+VlnPlot(seu, features = "CD9") + NoLegend()
 #ggsave(paste0(results_dir, "FLT1_expr_by_cluster_", Sys.Date(), ".png"))
 ```
 
