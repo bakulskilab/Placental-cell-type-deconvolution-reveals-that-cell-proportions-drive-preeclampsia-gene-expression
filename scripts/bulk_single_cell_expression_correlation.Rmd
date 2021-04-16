@@ -4,6 +4,7 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
+library(here)
 library(tidyverse)
 library(ggplot2)
 library(ggridges)
@@ -69,14 +70,14 @@ scGeneIDs <- getBM(attributes = c('ensembl_gene_id', 'external_gene_name'),
              filters = c('external_gene_name'),
              values = rownames(seu@assays$RNA@data),
              mart = mart)
-symbols <- as_tibble(scGeneIDs)
+genes.sc <- as_tibble(scGeneIDs)
 
 #saveRDS(scGeneIDs_tbl, "biomaRt_SC_ensembl_ids.rda")
 #scGeneIDs.tbl <- as_tibble(readRDS("biomaRt_SC_ensembl_ids.rda"))
 # 36601 genes in single-cell data
 length(rownames(seu@assays$RNA@data))
 # biomaRt query returned 38886 gene IDs
-dim(scGeneIDs.tbl)
+dim(symbols)
 ```
 
 Check for duplicate gene names
@@ -89,20 +90,17 @@ symbols %>%
 idents
 ```
 
-
+Necessary?
 ```{r scGeneSort}
 # scGeneIDs.tbl <- scGeneIDs.tbl %>%
 #   arrange(external_gene_name)
 ```
 
 ```{r}
-DimPlot(seu) + NoLegend()
-```
-
-
-```{r}
+# Function arguments
 seuratObject <- seu
 clusterIdentity <- "Fetal Hofbauer Cells"
+biomaRtList <- scGeneIDs
 
 # Helper code to write out the long strings required for RenameIdents() input
 #base::paste(idents, collapse = " = Leukocytes, ")
@@ -141,45 +139,86 @@ seu <- RenameIdents(seu,
              "Maternal Plasma Cells" = "Leukocytes")
 
 # Stash collapse cell type groups under a variable called collpase 
-seu <- StashIdent(seu, "collapse").
+seu <- StashIdent(seu, "collapse")
 
 # Calculate AverageExpression by cell type group
 gex.sc.average <- AverageExpression(seu, group.by = "collapse") 
 
 gex.sc.average %>% as.data.frame %>% View
 
-# Subsetting Seurat object based on cluster identity
-cluster.ids <-
-  WhichCells(object = seuratObject, idents = clusterIdentity)
-cluster.sc <- subset(x = seuratObject, cells = cluster.ids)
-
-# Calculate Average Expression for cell type
-cluster.expr <- AverageExpression(cluster.sc) %>% as.data.frame()
-
 # Converting Seurat Normalized expression matrix to a dataframe for gene ID annotation
-cluster.df <- as.data.frame(cluster.sc@assays$RNA@data)
+cluster.df <- as.data.frame(gex.sc.average)
 cluster.df <- rownames_to_column(cluster.df)
+```
 
+Handle overlapping genes
+```{r}
+# Handle overlapping genes before any merging, etc.
+genes.sc
+# Convert bulk rownames to tibble
+genes.bulk <- tibble("ensembl_gene_id" = rownames(bulk.normalized))
+
+test <- left_join(genes.sc, genes.bulk)
+```
+```{r}
+genes.sc %>%
+  group_by(external_gene_name) %>%
+  tally %>%
+  filter(n > 1) %>%
+  View
+```
+
+```{r}
+View(test)
+```
+
+No duplicate ensembl gene IDs
+```{r}
+test %>%
+  group_by(ensembl_gene_id) %>%
+  tally %>%
+  filter(n > 1) %>%
+  print
+```
+Multiple IDs mapping to same gene symbol. Want to simply add expression together
+```{r}
+test %>%
+  group_by(external_gene_name) %>%
+  tally %>%
+  filter(n > 1) %>%
+  View
+```
+
+```{r}
+test %>%
+  group_by(external_gene_name) %>%
+  slice_head(n = 1) %>%
+  dim
+```
+
+```{r}
 # Rename and convert to tbl_df for sorting and joining, compatible with biomaRtList
 colnames(cluster.df)[1] <- 'external_gene_name'
 cluster.df <- as_tibble(cluster.df)
 
-# Sort
-cluster.df <- cluster.df %>%
-  arrange(external_gene_name)
+# Sort, necessary?
+#cluster.df <- cluster.df %>%
+#  arrange(external_gene_name)
 
-# Join
-cluster.sc.gex <-
+# Join sc expression matrix and gene IDs
+gex.sc <-
   as_tibble(left_join(x = cluster.df, y = biomaRtList))
-# Move ensembl_gene_id to front
-cluster.sc.gex <-
-  dplyr::select(cluster.sc.gex, ensembl_gene_id, everything())
 
-# Arrange SC by ensembl_gene_id
-cluster.sc.gex <-
-  cluster.sc.gex %>%
-  arrange(ensembl_gene_id)
+# Add expression values across multiple ensembl gene IDs mapping to the same external gene name
+gex.sc.unique <- 
+  gex.sc %>%
+  group_by(external_gene_name) %>%
+  summarise(across(contains("RNA"), ~ sum(.x))) # Operate colwise on all column names that contain "RNA" and sum non-unique external_gene_names
+dim(gex.sc.unique)
+```
 
+
+```{r}
 # Convert DESeq2 Data Matrix to
 bulk.gex <- as.data.frame(DESeq2Data)
 bulk.gex <- rownames_to_column(bulk.gex, "ensembl_gene_id")
