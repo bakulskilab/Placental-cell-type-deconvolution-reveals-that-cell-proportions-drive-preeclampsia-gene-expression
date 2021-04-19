@@ -103,14 +103,9 @@ Save/load
 ```{r SaveLoad}
 # Saved the fitted model object to avoid having to reestimate parameters
 #saveRDS(dds, file = "./data/analysis_datasets/DESeq2_dds_noint_celltype_sampleid_nofiltering.rda")
-#dds <- readRDS(file = "./data/analysis_datasets/DESeq2_dds_noint_celltype_sampleid_nofiltering.rda")
 
 # Load the finished DESeq2 object - note this object has trimmed ensembl IDs
-#dds <- readRDS("C:/Users/Kyle/Google Drive/Placenta_Cell_Types_Kyle/code/R code/local/placenta_sort/dex/data/analysis_datasets/DESeq2_dds_noint_celltype_sampleid_nofiltering.rda")
-
-#dds <- readRDS(paste0(local_data_path, "/DESeq2_dds_noint_celltype_sampleid_nofiltering.rda"))
-
-dds <- readRDS(here("data", "bulk", "DESeq2_dds_noint_celltype_sampleid_nofiltering.rda"))
+#dds <- readRDS(here("data", "bulk", "DESeq2_dds_noint_celltype_sampleid_nofiltering.rda"))
 ```
 
 Ideas for how to deal with multiple Ensembl IDs mapping to a single gene symbol
@@ -139,20 +134,30 @@ Bimodal histograms are a little weird down below. Several threads (https://suppo
 Pre-filtering: normalized counts greater than 10 per gene and detected in at least three samples, as recommended in the DESeq2 paper to address bimodal p-value distribution.
 
 ```{r}
-binary <- as.matrix((counts(dds) > 0) + 0)
-keep.three <- rowSums(binary) >= 3
-dds <- dds[keep.three]
+# binary <- as.matrix((counts(dds) > 0) + 0)
+# keep.three <- rowSums(binary) >= 3
+# dds <- dds[keep.three]
 ```
 
 ```{r}
-keep.min <- rowSums(counts(dds, normalized = TRUE)) >= 10
-dds <- dds[keep.min, ]
+# keep.min <- rowSums(counts(dds, normalized = TRUE)) >= 10
+# dds <- dds[keep.min, ]
+```
+
+```{r}
+# dds <- DESeq(dds)
 ```
 
 Save a prefiltered version of the dds for other analyses.
 ```{r}
 #saveRDS(dds, here("data", "bulk", paste0(Sys.Date(), "_dds_prefiltered.rda")))
 ```
+
+Load the prefiltered version.
+```{r}
+dds <- readRDS(here("data", "bulk", "2021-04-16_dds_prefiltered.rda"))
+```
+
 
 ``` {r}
 run_deseq2 <- function(target, dds) {
