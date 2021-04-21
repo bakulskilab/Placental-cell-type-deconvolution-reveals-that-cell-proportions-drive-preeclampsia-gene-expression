@@ -38,21 +38,24 @@ Normalized Seurat single-cell counts are stored in the "data" slot of the "RNA" 
 ```{r biomaRtGeneIDs}
 # Setting up biomaRt
 # Assigning Mart of interest, human ensembl here
-mart = useMart("ensembl",dataset="hsapiens_gene_ensembl")
+#mart <- useMart("ensembl",dataset="hsapiens_gene_ensembl")
 
-# Querying biomaRt using gene names to get back ENSEMBL IDs
-scGeneIDs <- getBM(attributes = c('ensembl_gene_id', 'external_gene_name'),
-             filters = c('external_gene_name'),
-             values = rownames(seu@assays$RNA@data),
-             mart = mart)
-genes.sc <- as_tibble(scGeneIDs)
+# # Alternative because biomaRt connection unavailable above
+# mart <- useEnsembl(biomart = "ensembl", dataset = 'hsapiens_gene_ensembl', host = "uswest.ensembl.org")
+# 
+# # Querying biomaRt using gene names to get back ENSEMBL IDs
+# scGeneIDs <- getBM(attributes = c('ensembl_gene_id', 'external_gene_name'),
+#              filters = c('external_gene_name'),
+#              values = rownames(seu@assays$RNA@data),
+#              mart = mart)
+# genes.sc <- as_tibble(scGeneIDs)
 
-#saveRDS(scGeneIDs_tbl, "biomaRt_SC_ensembl_ids.rda")
-#scGeneIDs.tbl <- as_tibble(readRDS("biomaRt_SC_ensembl_ids.rda"))
+#saveRDS(genes.sc, here("data", "bulk", "biomaRt_single-cell_2021-04-21.rda"))
+gene.sc <- readRDS(here("data", "bulk", "biomaRt_single-cell_2021-04-21.rda"))
 # 36601 genes in single-cell data
 length(rownames(seu@assays$RNA@data))
 # biomaRt query returned 38886 gene IDs
-dim(symbols)
+dim(genes.sc)
 ```
 
 No duplicate IDs
@@ -166,17 +169,16 @@ bulk.normalized <- bulk.norm.elog
 ```
 
 ```{r AnnotateBulkNormalized}
-bulk.normalized <- rownames_to_column(bulk.normalized, var = "ensembl_gene_id")
-#bulk.normalized <- left_join(bulk.normalized, scGeneIDs) %>%
-#  dplyr::select(!ensembl_gene_id)
-
 # Querying biomaRt using gene names to get back ENSEMBL IDs
-bulkGeneIDs <- getBM(attributes = c('ensembl_gene_id', 'external_gene_name'),
-             filters = c('ensembl_gene_id'),
-             values = rownames(bulk.normalized),
-             mart = mart)
-genes.bulk <- as_tibble(bulkGeneIDs)
-dim(genes.bulk)
+# bulkGeneIDs <- getBM(attributes = c('ensembl_gene_id', 'external_gene_name'),
+#              filters = c('ensembl_gene_id'),
+#              values = rownames(bulk.normalized),
+#              mart = mart)
+# genes.bulk <- as_tibble(bulkGeneIDs)
+# dim(genes.bulk)
+
+#saveRDS(genes.bulk, here("data", "bulk", "biomaRt_bulk_2021-04-21.rda"))
+genes.bulk <- readRDS(here("data", "bulk", "biomaRt_bulk_2021-04-21.rda"))
 
 bulk.gex <- rownames_to_column(bulk.normalized, var = "ensembl_gene_id")
 bulk <- left_join(bulk.gex, genes.bulk, by = "ensembl_gene_id")
