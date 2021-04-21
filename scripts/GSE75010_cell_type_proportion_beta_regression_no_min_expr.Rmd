@@ -339,7 +339,7 @@ pheatmap(active, cutree_rows = 2, annotation_row = annotation.row)
 Corrplot to identify inversely correlated proportions. Maternal plasma and B cells are inversely correlated as well as Maternal NK/Fetal CD8+ cytotoxic
 ```{r}
 # Compute a correlation matrix
-corr <- round(cor(active), 1)
+corr <- round(cor(active), 3)
 ```
 
 ```{r}

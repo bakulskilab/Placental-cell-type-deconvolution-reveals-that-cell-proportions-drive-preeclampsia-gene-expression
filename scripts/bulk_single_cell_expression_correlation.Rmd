@@ -6,6 +6,7 @@ output: html_document
 ```{r setup, include=FALSE}
 library(here)
 library(tidyverse)
+library(corrplot)
 library(ggplot2)
 library(ggridges)
 library(ggrepel)
@@ -26,36 +27,10 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r ImportData}
 seu <- readRDS(here("data", "cleaned_combined_seurat_2020-12-22.rda"))
-dds <- readRDS(here("data", "bulk", "2021-04-15_dds_prefiltered.rda"))
+dds <- readRDS(here("data", "bulk", "2021-04-16_dds_prefiltered.rda"))
 
 # Import bulk data gene list already retrieved during the DESeq2 differential expression analysis; don't need
 #dds.genes <- readRDS(here("data", "bulk", "deseq2_gene_symbols.rda"))
-```
-
-Calculating normalized DESeq2 counts from the sorted data and subsetting to relevant cell type populations (https://support.bioconductor.org/p/66067/ for reference).
-
-```{r BulkNormalizedCounts}
-# Calculate normalized counts from bulk RNA-seq DESeq2 object (code from thread above)
-bulk.normalized <- as.data.frame(counts(dds, normalized = T))
-#bulk.normalized <- rownames_to_column(bulk.normalized, "ensembl_gene_id")
-# Want to emulate normalization used in Seurat. Seurat performs library size normalization and then log1p transforms the result using the natural log.
-bulk.norm.elog <- 
-  bulk.normalized %>%
-  mutate_all(log1p)
-rownames(bulk.norm.elog) <- rownames(bulk.normalized)
-bulk.normalized <- bulk.norm.elog
-```
-
-```{r BulkSubset}
-ct.bulk        <- bulk.normalized[,c("103905", "105816")]
-composite.bulk <- bulk.normalized[,c("103900", "103908", "103916", "105819", "105820")]
-# Need to add drop = FALSE to prevent conversion to vector
-en.bulk        <- bulk.normalized[,c("103915"), drop = FALSE]
-et.bulk        <- bulk.normalized[,c("103904", "103912", "105815")]
-fb.bulk        <- bulk.normalized[,c("103906", "103914", "105817")]
-hb.bulk        <- bulk.normalized[,c("103894", "103902", "103910", "105813")]
-lk.bulk        <- bulk.normalized[,c("103903", "103911", "105814")]
-st.bulk        <- bulk.normalized[,c("103893", "105812")]
 ```
 
 Normalized Seurat single-cell counts are stored in the "data" slot of the "RNA" field of the "assay" slot. Here we use biomaRt to collect ENSEMBL gene IDs using gene names stored in the Seurat object.
@@ -80,20 +55,18 @@ length(rownames(seu@assays$RNA@data))
 dim(symbols)
 ```
 
-Check for duplicate gene names
+No duplicate IDs
 ```{r}
-symbols %>%
-  group_by(external_gene_name) %>%
+genes.sc %>%
+  group_by(ensembl_gene_id) %>%
   filter(n() > 1)
 ```
-```{r}
-idents
-```
 
-Necessary?
-```{r scGeneSort}
-# scGeneIDs.tbl <- scGeneIDs.tbl %>%
-#   arrange(external_gene_name)
+Check for duplicate gene names
+```{r}
+genes.sc %>%
+  group_by(external_gene_name) %>%
+  filter(n() > 1)
 ```
 
 ```{r}
@@ -144,221 +117,212 @@ seu <- StashIdent(seu, "collapse")
 # Calculate AverageExpression by cell type group
 gex.sc.average <- AverageExpression(seu, group.by = "collapse") 
 
-gex.sc.average %>% as.data.frame %>% View
-
 # Converting Seurat Normalized expression matrix to a dataframe for gene ID annotation
 cluster.df <- as.data.frame(gex.sc.average)
-cluster.df <- rownames_to_column(cluster.df)
+cluster.df <- rownames_to_column(cluster.df, var = "external_gene_name")
 ```
 
-Handle overlapping genes
+Double-check how featureCounts or DESeq2 handles gene IDs mapping to multiple haplotypes (could also just choose the standard haplotype but don't know of a way of doing without manually looking up IDs, perhaps someone has a list, going to ignore for now), noticing a lot of the same expression values with each multimapping gene symbol. Discussion of disambiguation https://www.researchgate.net/post/How-to-deal-with-multiple-ensemble-IDs-mapping-to-one-gene-symbol-in-a-RNA-Seq-dataset - taking the highest expression value seems the easiest. Another practical thread: https://www.biostars.org/p/389804/. Genes in haplotypic regions are the most likely reason for duplicate IDs mapping to one symbol https://www.biostars.org/p/119540/. 
 ```{r}
-# Handle overlapping genes before any merging, etc.
-genes.sc
-# Convert bulk rownames to tibble
-genes.bulk <- tibble("ensembl_gene_id" = rownames(bulk.normalized))
-
-test <- left_join(genes.sc, genes.bulk)
-```
-```{r}
-genes.sc %>%
-  group_by(external_gene_name) %>%
-  tally %>%
-  filter(n > 1) %>%
-  View
-```
-
-```{r}
-View(test)
-```
-
-No duplicate ensembl gene IDs
-```{r}
-test %>%
-  group_by(ensembl_gene_id) %>%
-  tally %>%
-  filter(n > 1) %>%
-  print
-```
-Multiple IDs mapping to same gene symbol. Want to simply add expression together
-```{r}
-test %>%
-  group_by(external_gene_name) %>%
-  tally %>%
-  filter(n > 1) %>%
-  View
-```
-
-```{r}
-test %>%
-  group_by(external_gene_name) %>%
-  slice_head(n = 1) %>%
-  dim
-```
-
-```{r}
-# Rename and convert to tbl_df for sorting and joining, compatible with biomaRtList
-colnames(cluster.df)[1] <- 'external_gene_name'
-cluster.df <- as_tibble(cluster.df)
-
-# Sort, necessary?
-#cluster.df <- cluster.df %>%
-#  arrange(external_gene_name)
-
 # Join sc expression matrix and gene IDs
 gex.sc <-
   as_tibble(left_join(x = cluster.df, y = biomaRtList))
 
-# Add expression values across multiple ensembl gene IDs mapping to the same external gene name
+gex.sc %>%
+  group_by(external_gene_name) %>%
+  tally %>%
+  filter (n > 1) %>%
+  View
+
+gex.sc %>%
+  filter(is.na(external_gene_name))
+
+dim(gex.sc)
+
+# Take max expression value of the multiple ensembl gene IDs mapping to the same external gene name
 gex.sc.unique <- 
   gex.sc %>%
   group_by(external_gene_name) %>%
-  summarise(across(contains("RNA"), ~ sum(.x))) # Operate colwise on all column names that contain "RNA" and sum non-unique external_gene_names
+  summarise(across(contains("RNA"), ~ max(.x))) # Operate colwise on all column names that contain "RNA" and take max of non-unique external_gene_names
 dim(gex.sc.unique)
+
+# Drop the Fetal Nucleated Red blood cells since we're not using that
+gex.sc.unique <- gex.sc.unique %>%
+  dplyr::select(!RNA.Fetal.Nucleated.Red.Blood.Cells)
+```
+
+Calculating normalized DESeq2 counts from the sorted data and subsetting to relevant cell type populations (https://support.bioconductor.org/p/66067/ for reference).
+
+```{r BulkNormalizedCounts}
+# Calculate normalized counts from bulk RNA-seq DESeq2 object (code from thread above)
+bulk.normalized <- as.data.frame(counts(dds, normalized = T))
+#bulk.normalized <- rownames_to_column(bulk.normalized, "ensembl_gene_id")
+# Want to emulate normalization used in Seurat. Seurat performs library size normalization and then log1p transforms the result using the natural log.
+bulk.norm.elog <- 
+  bulk.normalized %>%
+  mutate_all(log1p)
+rownames(bulk.norm.elog) <- rownames(bulk.normalized)
+bulk.normalized <- bulk.norm.elog
+```
+
+```{r AnnotateBulkNormalized}
+bulk.normalized <- rownames_to_column(bulk.normalized, var = "ensembl_gene_id")
+#bulk.normalized <- left_join(bulk.normalized, scGeneIDs) %>%
+#  dplyr::select(!ensembl_gene_id)
+
+# Querying biomaRt using gene names to get back ENSEMBL IDs
+bulkGeneIDs <- getBM(attributes = c('ensembl_gene_id', 'external_gene_name'),
+             filters = c('ensembl_gene_id'),
+             values = rownames(bulk.normalized),
+             mart = mart)
+genes.bulk <- as_tibble(bulkGeneIDs)
+dim(genes.bulk)
+
+bulk.gex <- rownames_to_column(bulk.normalized, var = "ensembl_gene_id")
+bulk <- left_join(bulk.gex, genes.bulk, by = "ensembl_gene_id")
+dim(bulk)
+
+missing <- bulk %>%
+  filter(is.na(external_gene_name)) %>%
+  tally
+print(paste0(missing$n, " missing external gene name annotations in bulk data dropped"))
+
+bulk <- bulk %>%
+  filter(!is.na(external_gene_name))
+dim(bulk)
+```
+
+```{r}
+# Take max expression value of the multiple ensembl gene IDs mapping to the same external gene name
+bulk.unique <- 
+  bulk %>%
+  group_by(external_gene_name) %>%
+  summarise(across(where(is.numeric), ~ max(.x))) # Operate colwise on all numeric cols and take max of non-unique
+dim(bulk.unique)
+
+# Return external_gene_name to rownames slot
+bulk.unique <- column_to_rownames(bulk.unique, var = "external_gene_name")
+```
+
+```{r BulkSubset}
+ct.bulk        <- bulk.unique[,c( "103905", "105816")]
+composite.bulk <- bulk.unique[,c( "103900", "103908", "103916", "105819", "105820")]
+# Need to add drop = FALSE to prevent conversion to vector
+en.bulk        <- bulk.unique[,c( "103915"), drop = FALSE]
+et.bulk        <- bulk.unique[,c( "103904", "103912", "105815")]
+fb.bulk        <- bulk.unique[,c( "103906", "103914", "105817")]
+hb.bulk        <- bulk.unique[,c( "103894", "103902", "103910", "105813")]
+lk.bulk        <- bulk.unique[,c( "103903", "103911", "105814")]
+st.bulk        <- bulk.unique[,c( "103893", "105812")]
+```
+
+```{r BulkSubset}
+# ct.bulk        <- bulk.unique[,c("external_gene_name", "103905", "105816")]
+# composite.bulk <- bulk.unique[,c("external_gene_name", "103900", "103908", "103916", "105819", "105820")]
+# # Need to add drop = FALSE to prevent conversion to vector
+# en.bulk        <- bulk.unique[,c("external_gene_name", "103915"), drop = FALSE]
+# et.bulk        <- bulk.unique[,c("external_gene_name", "103904", "103912", "105815")]
+# fb.bulk        <- bulk.unique[,c("external_gene_name", "103906", "103914", "105817")]
+# hb.bulk        <- bulk.unique[,c("external_gene_name", "103894", "103902", "103910", "105813")]
+# lk.bulk        <- bulk.unique[,c("external_gene_name", "103903", "103911", "105814")]
+# st.bulk        <- bulk.unique[,c("external_gene_name", "103893", "105812")]
+```
+
+```{r}
+bulk <- 
+  tibble(
+  external_gene_name = rownames(bulk.unique),
+  ct.bulk %>%
+    rowwise() %>%
+    summarize(bulk.cytotrophoblast = mean(c_across(where(
+      is.numeric
+    )))),
+  composite.bulk %>%
+    rowwise() %>%
+    summarize(bulk.composite = mean(c_across(where(
+      is.numeric
+    )))),
+  bulk.endothelial = en.bulk$`103915`,
+  et.bulk %>%
+    rowwise() %>%
+    summarize(bulk.extravilloustrophoblast = mean(c_across(where(
+      is.numeric
+    )))),
+  fb.bulk %>%
+    rowwise() %>%
+    summarize(bulk.fibroblast = mean(c_across(where(
+      is.numeric
+    )))),
+  hb.bulk %>%
+    rowwise() %>%
+    summarize(bulk.hofbauer = mean(c_across(where(
+      is.numeric
+    )))),
+  lk.bulk %>%
+    rowwise() %>%
+    summarize(bulk.leukocyte = mean(c_across(where(
+      is.numeric
+    )))),
+  st.bulk %>%
+    rowwise() %>%
+    summarize(bulk.syncytiotrophoblast = mean(c_across(where(
+      is.numeric
+    ))))
+)
+```
+
+```{r}
+gex.sc.unique %>% dim
+bulk %>% dim
+```
+
+```{r}
+joint <- inner_join(gex.sc.unique, bulk, by = "external_gene_name")
 ```
 
 
 ```{r}
-# Convert DESeq2 Data Matrix to
-bulk.gex <- as.data.frame(DESeq2Data)
-bulk.gex <- rownames_to_column(bulk.gex, "ensembl_gene_id")
-bulk.gex <-
-  bulk.gex %>%
-  arrange(ensembl_gene_id)
-
-# Combine DESeq2 normalized matrix and single-cell data
-gex.combined <- as_tibble(inner_join(cluster.sc.gex, bulk.gex))
-
-# Remove duplicate ensembl_ids, but not multiple IDs mapping to the same gene
-gex.combined.filtered <- gex.combined %>%
-  distinct(ensembl_gene_id, .keep_all = T)
-
-# Calculate single-cell gene expression average by searching for begins with KC
-gex.average <-
-  mutate(gex.combined.filtered,
-         SC_mean = rowMeans(dplyr::select(
-           gex.combined.filtered, starts_with("KC")
-         )))
-
-# Calculate bulk gene expression average by searching for begins with 10
-gex.average <-
-  mutate(gex.average,
-         Bulk_mean = rowMeans(dplyr::select(gex.average, starts_with("10"))))
-
-print(paste0(clusterIdentity, " correlation of ",
-             round(
-               cor(gex.average$SC_mean, gex.average$Bulk_mean), 2
-             )))
-print(paste0(clusterIdentity, " Spearman correlation of ",
-             round(
-               cor(gex.average$SC_mean, gex.average$Bulk_mean, method = "spearman"),
-               2
-             )))
+data.cor <- (column_to_rownames(joint, var = "external_gene_name"))
+# Compute a correlation matrix
+corr <- round(cor(data.cor), 3)
+corr.spearman <- round(cor(data.cor, method = "spearman"), 3)
 ```
 
-
-```{r customFunctions}
-# User-defined function that subsets input placenta single-cell Seruat object (seuratObject) to a cell type identity (clusterIdentity), and queries MyGene for ENSEMBL IDs using gene names and aliases. Cluster identity should be a character or numeric vector or list that identifies Seurat cluster identities. Then, annotates using a biomaRt table including gene names and ENSEMBL IDs, sorting in ascending order by gene name. Normalized bulk samples of interest formatted as a normalized DESeq2 counts matrix are input for correlation comparison.
-getCellTypeAverageAndCombine <- function(seuratObject, clusterIdentity, biomaRtList, DESeq2Data) {
-
-  # Subsetting Seurat object based on cluster identity
-  cluster.ids <- WhichCells(object = seuratObject, idents = clusterIdentity)
-  cluster.sc <- subset(x = seuratObject, cells = cluster.ids)
-
-  # Converting Seurat Normalized expression matrix to a dataframe for gene ID annotation
-  cluster.df <- as.data.frame(cluster.sc@assays$RNA@data)
-  cluster.df <- rownames_to_column(cluster.df)
-
-  # Rename and convert to tbl_df for sorting and joining, compatible with biomaRtList
-  colnames(cluster.df)[1] <- 'external_gene_name'
-  cluster.df <- as_tibble(cluster.df)
-
-  # Sort
-  cluster.df <- cluster.df %>%
-    arrange(external_gene_name)
-
-  # Join
-  cluster.sc.gex <- as_tibble(left_join(x = cluster.df, y = biomaRtList))
-  # Move ensembl_gene_id to front
-  cluster.sc.gex <- dplyr::select(cluster.sc.gex, ensembl_gene_id, everything())
-  
-  # Arrange SC by ensembl_gene_id
-  cluster.sc.gex <- 
-    cluster.sc.gex %>%
-    arrange(ensembl_gene_id)
-  
-  # Convert DESeq2 Data Matrix to 
-  bulk.gex <- as.data.frame(DESeq2Data)
-  bulk.gex <- rownames_to_column(bulk.gex, "ensembl_gene_id")
-  bulk.gex <- 
-    bulk.gex %>%
-    arrange(ensembl_gene_id)
-  
-  # Combine DESeq2 normalized matrix and single-cell data
-  gex.combined <- as_tibble(inner_join(cluster.sc.gex, bulk.gex))
-  
-  # Remove duplicate ensembl_ids, but not multiple IDs mapping to the same gene
-  gex.combined.filtered <- gex.combined %>%
-    distinct(ensembl_gene_id, .keep_all = T)
-  
-  # Calculate single-cell gene expression average by searching for begins with KC
-  gex.average <-
-    mutate(gex.combined.filtered,
-           SC_mean = rowMeans(dplyr::select(gex.combined.filtered, starts_with("KC"))))
-  
-  # Calculate bulk gene expression average by searching for begins with 10
-  gex.average <-
-    mutate(gex.average,
-           Bulk_mean = rowMeans(dplyr::select(gex.average, starts_with("10"))))
-  
-  print(paste0(clusterIdentity, " correlation of ",
-               round(cor(gex.average$SC_mean, gex.average$Bulk_mean), 2)))
-  print(paste0(clusterIdentity, " Spearman correlation of ",
-               round(cor(gex.average$SC_mean, gex.average$Bulk_mean, method = "spearman"), 2)))
-  return(gex.average)
-}
-
-getSeuratClusterNormExpressionMatrix <- function(seuratObject, clusterIdentity, biomaRtList) {
-
-  # Subsetting Seurat object based on cluster identity
-  cluster.ids <- WhichCells(object = seuratObject, idents = clusterIdentity)
-  cluster.sc <- subset(x = seuratObject, cells = cluster.ids)
-
-  # Converting Seurat Normalized expression matrix to a dataframe for gene ID annotation
-  cluster.df <- as.data.frame(cluster.sc@assays$RNA@data)
-  cluster.df <- rownames_to_column(cluster.df)
-
-  # Rename and convert to tbl_df for sorting and joining, compatible with biomaRtList
-  colnames(cluster.df)[1] <- 'external_gene_name'
-  cluster.df <- as_tibble(cluster.df)
-
-  # Sort
-  cluster.df <- cluster.df %>%
-    arrange(external_gene_name)
-
-  # Join
-  cluster.sc.gex <- as_tibble(left_join(x = cluster.df, y = biomaRtList))
-  # Move ensembl_gene_id to front
-  cluster.sc.gex <- dplyr::select(cluster.sc.gex, ensembl_gene_id, everything())
-  
-  # Arrange SC by ensembl_gene_id
-  cluster.sc.gex <- 
-    cluster.sc.gex %>%
-    arrange(ensembl_gene_id)
-  
-  return (cluster.sc.gex)
-}
-```
-
-Check Idents of Seurat object
 ```{r}
-idents <- Idents(seu) %>% levels
+#dev.new()
+#pdf(paste0(results_dir, "cell_type_props_corrplot_", Sys.Date(), ".pdf"))
+corrplot(corr, method = "ellipse", order = "hclust", tl.cex = .7) #tl.cex control axis label size
+corrplot(corr.spearman, method = "ellipse", order = "hclust", tl.cex = .7) #tl.cex control axis label size
+#dev.off()
+
+# Alternative options
+#corrplot(corr, method = "ellipse", order = "hclust")
+#corrplot(corr, method = "ellipse", order = "AOE")
+```
+
+```{r}
+# Quick function to summarize cell type expression results
+correlations <- function(data, string) {
+  
+  pair <- data %>% dplyr::select(contains(string))
+  pearson <- cor(pair[,1], pair[,2], method = c("pearson")) %>% as.numeric %>% round(digits = 2)
+  spearman <- cor(pair[,1], pair[,2], method = c("spearman")) %>% as.numeric %>% round(digits = 2)
+  
+  print(paste0(pearson, " pearson correlation"))
+  print(paste0(spearman, " spearman correlation"))
+}
+
+str.keep <- str_detect(colnames(data.cor), "bulk")
+cell.types <- substr(colnames(data.cor)[str.keep], start = 6, stop = 10000)
+
+str.drop <- str_detect(cell.types, "composite")
+cell.types <- cell.types[!str.drop]
+
+#map(cell.types, ~ correlations(data = joint, string = .x))
 ```
 
 ```{r Cytotrophoblast}
-gex.average <- getCellTypeAverageAndCombine(seuratObject = seu, clusterIdentity = c("Fetal Cytotrophoblasts", "Fetal Proliferative Cytotrophoblasts"), biomaRtList = scGeneIDs.tbl, DESeq2Data = ct.bulk)
-
-ggplot(gex.average) + aes(x = SC_mean, y = Bulk_mean, label = external_gene_name) +
+plot <- ggplot(joint) + aes(x = RNA.Cytotrophoblast, y = bulk.cytotrophoblast, label = external_gene_name) +
   stat_density2d(geom = "tile",
                  aes(fill = ..density.. ^ 0.25, alpha = 1),
                  contour = FALSE) +
@@ -370,11 +334,11 @@ ggplot(gex.average) + aes(x = SC_mean, y = Bulk_mean, label = external_gene_name
                  ),
                  contour = FALSE) +
   scale_fill_gradientn(colours = colorRampPalette(c("white", blues9))(256)) +
-  geom_text(data = subset(gex.average, external_gene_name == "KRT7")) +
-  geom_text(data = subset(gex.average, SC_mean > 4))
+  geom_text(data = subset(joint, external_gene_name == "KRT7"))
+```
 
-# Plot with overlapping hits
-ggplot(gex.average) + aes(x = SC_mean, y = Bulk_mean, label = external_gene_name) +
+```{r Cytotrophoblast}
+ggplot(joint) + aes(x = RNA.Hofbauer.Cell, y = bulk.hofbauer, label = external_gene_name) +
   stat_density2d(geom = "tile",
                  aes(fill = ..density.. ^ 0.25, alpha = 1),
                  contour = FALSE) +
@@ -386,18 +350,7 @@ ggplot(gex.average) + aes(x = SC_mean, y = Bulk_mean, label = external_gene_name
                  ),
                  contour = FALSE) +
   scale_fill_gradientn(colours = colorRampPalette(c("white", blues9))(256)) +
-  geom_label_repel(data = gex.average[gex.average$external_gene_name %in% ct.overlap$external_gene_name,]) +
-  geom_text(data = subset(gex.average, external_gene_name == "KRT7"))
-  
-
-ct.combined <- gex.average
-
-ct.combined.test <-
-  ct.combined %>%
-  filter(SC_mean > 0)
-dim(ct.combined.test)
-cor(ct.combined.test$SC_mean, ct.combined.test$Bulk_mean, method = 'spearman')
-cor(ct.combined.test$SC_mean, ct.combined.test$Bulk_mean, method = 'pearson')
+  geom_text(data = subset(joint, external_gene_name == "CD163"))
 ```
 
 ```{r Hofbauer_correlation}
