@@ -25,6 +25,8 @@ library(mygene)
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+Not really feasible to compare the two at all, https://www.biostars.org/p/399869/. Batch effect would be larger than biological effect and no way to control for that.
+
 ```{r ImportData}
 seu <- readRDS(here("data", "cleaned_combined_seurat_2020-12-22.rda"))
 dds <- readRDS(here("data", "bulk", "2021-04-16_dds_prefiltered.rda"))
@@ -118,7 +120,7 @@ seu <- RenameIdents(seu,
 seu <- StashIdent(seu, "collapse")
 
 # Calculate AverageExpression by cell type group
-gex.sc.average <- AverageExpression(seu, group.by = "collapse") 
+gex.sc.average <- AverageExpression(seu, group.by = "collapse")
 
 # Converting Seurat Normalized expression matrix to a dataframe for gene ID annotation
 cluster.df <- as.data.frame(gex.sc.average)
@@ -278,10 +280,11 @@ gex.sc.unique %>% dim
 bulk %>% dim
 ```
 
+Join gene symbols that are in both datasets
 ```{r}
 joint <- inner_join(gex.sc.unique, bulk, by = "external_gene_name")
+dim(joint)
 ```
-
 
 ```{r}
 data.cor <- (column_to_rownames(joint, var = "external_gene_name"))
@@ -307,10 +310,10 @@ corrplot(corr.spearman, method = "ellipse", order = "hclust", tl.cex = .7) #tl.c
 correlations <- function(data, string) {
   
   pair <- data %>% dplyr::select(contains(string))
-  pearson <- cor(pair[,1], pair[,2], method = c("pearson")) %>% as.numeric %>% round(digits = 2)
+  #pearson <- cor(pair[,1], pair[,2], method = c("pearson")) %>% as.numeric %>% round(digits = 2)
   spearman <- cor(pair[,1], pair[,2], method = c("spearman")) %>% as.numeric %>% round(digits = 2)
   
-  print(paste0(pearson, " pearson correlation"))
+  #print(paste0(pearson, " pearson correlation"))
   print(paste0(spearman, " spearman correlation"))
 }
 
@@ -320,8 +323,24 @@ cell.types <- substr(colnames(data.cor)[str.keep], start = 6, stop = 10000)
 str.drop <- str_detect(cell.types, "composite")
 cell.types <- cell.types[!str.drop]
 
-#map(cell.types, ~ correlations(data = joint, string = .x))
+cell.types[3] <- "extravillous"
+
+map(cell.types, ~ correlations(data = joint, string = .x))
 ```
+
+```{r}
+string <- "Cytotrophoblast"
+pair <- joint %>% dplyr::select(contains(string))
+
+names(pair[,1])
+
+ggplot(joint) + aes(x = RNA.Cytotrophoblast, y = bulk.cytotrophoblast, label = external_gene_name) + geom_point(alpha = .3) + xlab("Single-cell Expression") + ylab("Bulk Expression") + ggtitle(string)
+
+
+ggplot(joint) + aes(x = RNA.Cytotrophoblast, y = bulk.cytotrophoblast, label = external_gene_name) + geom_point() +
+  coord_cartesian(xlim = c(0, 50), ylim = c(0, 15))
+```
+
 
 ```{r Cytotrophoblast}
 plot <- ggplot(joint) + aes(x = RNA.Cytotrophoblast, y = bulk.cytotrophoblast, label = external_gene_name) +
