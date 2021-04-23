@@ -425,8 +425,11 @@ contrast.labels <- c("Cytotrophoblast" , "Endothelial", "Extravillous Trophoblas
 
 # Get presentable volcanos
 # Add contrast title and set x and y limits without removing data points
-volcanos <- map2(mapped, contrast.labels,
+volcanos.ind <- map2(mapped, contrast.labels,
                  ~ .x[["volcano"]] + ggtitle(.y) + coord_cartesian(xlim = c(x_min, x_max), ylim = c(y_min, y_max)))
+
+volcanos <- map2(mapped, contrast.labels,
+                 ~ .x[["volcano"]] + ggtitle(.y) + coord_cartesian(xlim = c(x_min, x_max), ylim = c(y_min, y_max)) + theme_bw(base_size = 20) + theme(legend.position = "none") + ylab("-log10 q-value"))
 
 # Custom function to save ggplots
 save_volcano_plot <- function(plot, filename) {
@@ -436,13 +439,19 @@ save_volcano_plot <- function(plot, filename) {
   )
 }
 # Save volcanos
-map2(volcanos, names(mapped), ~ save_volcano_plot(.x, .y))
+#map2(volcanos.ind, names(mapped), ~ save_volcano_plot(.x, .y))
 ```
 
 ```{r}
-map(volcanos, print)
+map(volcanos.ind, print)
 ```
 
+```{r}
+panel <- ggarrange(volcanos[[1]], volcanos[[2]], volcanos[[3]], volcanos[[4]], volcanos[[5]], volcanos[[6]], volcanos[[7]], ncol = 4, nrow = 2, labels = "AUTO", font.label = list(size = 24, face = "bold", color = "black"))
+#print(panel)
+# Works okay with theme_bw(base_size = 20) and font.label size = 24 in ggarrange
+#ggexport(panel, filename = here("results", "bulk", "volcanos", paste0(Sys.Date(), "_volcano_multipanel.png")), width = 1920, height = 1080)
+```
 
 ```{r}
 # Pull dex results
@@ -494,7 +503,7 @@ make_gsea_input <- function(res, title) {
   # )
   
   # Write  .rnk file for GSEA input
-  write_tsv(return, here("results", "GSEA", "sorted", paste0(title, "_all_cell_types_prefilter_gsea_input_stats_", Sys.Date(), ".rnk")), col_names = FALSE)
+  #write_tsv(return, here("results", "GSEA", "sorted", paste0(title, "_all_cell_types_prefilter_gsea_input_stats_", Sys.Date(), ".rnk")), col_names = FALSE)
   
   return(return)
 }
