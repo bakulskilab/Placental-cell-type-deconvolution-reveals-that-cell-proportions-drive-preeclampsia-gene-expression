@@ -458,6 +458,25 @@ panel <- ggarrange(volcanos[[1]], volcanos[[2]], volcanos[[3]], volcanos[[4]], v
 results <- map(mapped, ~ .x[["res"]])
 ```
 
+```{r}
+View(results)
+```
+
+Create a top10 table for brief supplemental table.
+```{r}
+all <- plyr::ldply(results, rbind) %>%
+  group_by(.id) %>%
+  arrange(desc(stat)) %>% # Sort by value of test statistic, fine since we want to see the overexpressed hits
+  slice_head(n = 10) %>%
+  dplyr::select(.id, gene_symbol, log2FoldChange, baseMean, pvalue, padj)         # Pick which columns to keep and in which order
+all$.id <- factor(all$.id)
+levels(all$.id) <- contrast.labels
+colnames(all) <- c("Cell Type", "Gene", "log2 Fold-change", "Base Mean", "P-value", "False-discovery rate-adjusted Q-value")
+
+# Save
+#write_csv(all, here("results", "bulk", paste0(Sys.Date(), "_deseq2_dex_top10.csv")))
+```
+
 PrerankGSEA does not resolve ties. Code to make GSEA input and diagnostic plots to ensure that there are not excessive ties. GSEA results seem hard to interpret so far. GSEA should always include all genes tested in differential expression. Perhaps subsetting to the most enriched pathways will be easier to interpret. In RNA-seq, GSEA may suffer from very lowly expressed genes that may be artifactual and expressed in any samples.
 ```{r}
 make_gsea_input <- function(res, title) {
