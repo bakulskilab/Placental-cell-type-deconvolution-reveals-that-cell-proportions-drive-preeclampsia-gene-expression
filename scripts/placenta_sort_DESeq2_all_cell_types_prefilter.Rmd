@@ -436,7 +436,7 @@ save_volcano_plot <- function(plot, filename) {
   )
 }
 # Save volcanos
-#map2(volcanos, names(mapped), ~ save_volcano_plot(.x, .y))
+map2(volcanos, names(mapped), ~ save_volcano_plot(.x, .y))
 ```
 
 ```{r}
@@ -669,10 +669,21 @@ pheatmap(sampleDistMatrix,
 # Customized PCA ggplot
 pcaData <- plotPCA(rld, intgroup=c("cell.type", "sample.ID"), returnData=TRUE)
 percentVar <- round(100 * attr(pcaData, "percentVar"))
+
+# Modify labels for prettier graphing
+cell.type.labels <- c("Composite", "Cytotrophoblast" , "Endothelial", "Extravillous Trophoblast", "Fibroblast", "Hofbauer Cell", "Leukocyte", "Syncytiotrophoblast")
+levels(pcaData$cell.type) <- cell.type.labels
+
+# 6 corresponds to KC36, 7 to KC39, 1 to KC40 (the single-cell matched sample), and 8 to KC48
+sample.labels <- c(6, 7, 1, 8)
+levels(pcaData$sample.ID) <- sample.labels
+
 ggplot(pcaData, aes(PC1, PC2, color=cell.type, shape=sample.ID)) +
   geom_point(size=3.5) +
   xlab(paste0("PC1: ",percentVar[1],"% variance")) +
   ylab(paste0("PC2: ",percentVar[2],"% variance")) + 
+  labs(color = "Cell Type", shape = "Sample")
   coord_fixed()
 #ggsave(sprintf("%sSorted_PCA.png", local_output_path), device = "png")
+#ggsave(here("results", "bulk", paste0(Sys.Date(), "_sorted_PCA.png")))
 ```
