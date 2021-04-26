@@ -467,14 +467,21 @@ Create a top10 table for brief supplemental table.
 all <- plyr::ldply(results, rbind) %>%
   group_by(.id) %>%
   arrange(desc(stat)) %>% # Sort by value of test statistic, fine since we want to see the overexpressed hits
-  slice_head(n = 10) %>%
-  dplyr::select(.id, gene_symbol, log2FoldChange, baseMean, pvalue, padj)         # Pick which columns to keep and in which order
+  dplyr::select(.id, gene_symbol, log2FoldChange, baseMean, pvalue, padj) %>% # Pick which columns to keep and in which order
+  mutate(log2FoldChange = round(log2FoldChange, digits = 2)) %>%
+  mutate(baseMean = round(baseMean, digits = 2)) %>%
+  mutate(pvalue = signif(pvalue, digits = 2)) %>%
+  mutate(padj = signif(padj, digits = 2))
 all$.id <- factor(all$.id)
 levels(all$.id) <- contrast.labels
 colnames(all) <- c("Cell Type", "Gene", "log2 Fold-change", "Base Mean", "P-value", "False-discovery rate-adjusted Q-value")
 
+all.top10 <- all %>%
+  slice_head(n = 10)
+
 # Save
-#write_csv(all, here("results", "bulk", paste0(Sys.Date(), "_deseq2_dex_top10.csv")))
+#write_csv(all, here("results", "bulk", paste0(Sys.Date(), "_deseq2_dex.csv")))
+#write_csv(all.top10, here("results", "bulk", paste0(Sys.Date(), "_deseq2_dex_top10.csv")))
 ```
 
 PrerankGSEA does not resolve ties. Code to make GSEA input and diagnostic plots to ensure that there are not excessive ties. GSEA results seem hard to interpret so far. GSEA should always include all genes tested in differential expression. Perhaps subsetting to the most enriched pathways will be easier to interpret. In RNA-seq, GSEA may suffer from very lowly expressed genes that may be artifactual and expressed in any samples.
@@ -567,6 +574,64 @@ gost_deseq2 <- function(res, alpha) {
 
 gost.mapped <- map(results, ~ gost_deseq2(.x, alpha = .05))
 ```
+
+Processing GSEA results
+```{r}
+# Find indices for the folders to keep
+keep <- grep(pattern = "GseaPreranked", x = list.files(here("results", "GSEA", "sorted")))
+folders <- list.files(here("results", "GSEA", "sorted"))[keep]
+
+# Get path for folders that contain GSEA results
+paths <- paste0(here("results", "GSEA", "sorted"), "/", folders)
+
+# Custom function that takes a folder path and retrieves the postive .tsv GSEA results 
+retrieve_gsea_tsv <- function(path) {
+  
+  name <- str_replace(path, pattern = "G:/My Drive/Placenta_Cell_Types/RNA/placenta_cell_types_rna/results/GSEA/sorted/", "")
+  
+  # List all files in the path
+  files <- list.files(path)
+  # Find indices of file list that correspond to the grep
+  files.keep <- grep(pattern = "gsea_report_for_na_pos.*tsv", x = files)
+  
+  # Return the indexed files that are being searched for
+  return <- paste0(path, "/", files[files.keep])
+  #return <- files[files.keep]
+  return(return)
+}
+
+res.gsea.files <- unlist(map(paths, ~ retrieve_gsea_tsv(.x)))
+
+gsea <- map(res.gsea.files, ~ read_tsv(.x), col_names = TRUE)
+names(gsea) <- contrast.labels
+
+gsea.all <- plyr::ldply(gsea, rbind)
+```
+
+Formatting for publication table
+```{r}
+gsea.table <- gsea.all %>%
+  dplyr::select(.id, NAME, SIZE, NES, 'NOM p-val', 'FDR q-val')
+
+colnames(gsea.table) <- c("Cell Type", "Name", "Size", "nes", "pval", "qval")
+
+gsea.table <- gsea.table %>%
+  mutate(nes =  round(nes, digits = 3)) %>%
+  mutate(pval = round(pval, digits = 3)) %>%
+  mutate(qval = round(qval, digits = 3)) %>%
+  mutate(pval = ifelse(pval == 0, "<.001", pval)) %>%
+  mutate(qval = ifelse(qval == 0, "<.001", pval))
+
+colnames(gsea.table) <- c("Cell Type", "Name", "Size", "Normalized Enrichment Score", "P-value", "False Discovery Rate-Controlled q-value")
+
+gsea.table.top10 <- gsea.table %>%
+  group_by(`Cell Type`) %>%
+  slice_head(n = 10)
+
+#write_csv(gsea.table, here("results", "GSEA", "sorted", paste0(Sys.Date(), "_gsea_hits.csv")))
+#write_csv(gsea.table.top10, here("results", "GSEA", "sorted", paste0(Sys.Date(), "_gsea_hits_top10.csv")))
+```
+
 
 ``` {r cyto_vs_all, eval = F}
 # Get Cytotrophoblast results
