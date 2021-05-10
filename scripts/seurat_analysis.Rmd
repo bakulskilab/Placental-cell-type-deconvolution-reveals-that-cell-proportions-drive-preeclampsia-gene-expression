@@ -11,6 +11,7 @@ knitr::knit_engines$set(python = reticulate::eng_python)
 
 #install.packages("package_name",  repos="http://cran.us.r-project.org") # Only this mirror worked for multiple packages
 library(devtools)
+library(here)
 library(ggrepel)
 library(knitr)
 library(tidyverse)
@@ -130,15 +131,15 @@ kc.40.1 <- subset(seu, subset = orig.ident == "kc.40.1")
 # Average expression by cell type
 expr.1a <- AverageExpression(kc.40.1, group.by = "cell.type")
 # Clean-up the returned object
-expr.1a <- expr.1a$RNA
+a1 <- expr.1a$RNA %>% t()
 
 kc.40.2 <- subset(seu, subset = orig.ident == "kc.40.2")
 #cluster.expr.40.2 <- flatten(AverageExpression(kc.40.2)) %>% as.numeric
 expr.1b <- AverageExpression(kc.40.2, group.by = "cell.type")
-expr.1b <- expr.1b$RNA
+b1 <- expr.1b$RNA %>% t()
 
-corr.test.res <- pmap(t(expr.1a),
-                      t(expr.1b),
+corr.test.res <- pmap(expr.1a,
+                      expr.1b,
                       ~ cor.test(.x, .y))
 
 corr.test.pvals <- map(corr.test.res,
@@ -168,7 +169,6 @@ ggplot(cor.df, aes(x = correlation)) +
 ```{r}
 #ggsave(paste0(results_dir, "kc_40_technical_cluster_cor_", Sys.Date(), ".png"))
 ```
-
 
 ```{r}
 kc.42 <- subset(seu, subset = biorep == "kc.42")
@@ -219,5 +219,147 @@ ggplot(cor.df, aes(x = correlation)) +
 
 ```{r}
 #ggsave(paste0(results_dir, "kc_42_technical_cluster_cor_", Sys.Date(), ".png"))
+```
+
+```{r}
+seu$cell.type %>% factor %>% levels
+```
+
+```{r}
+table <- table(Idents(seu), seu$ident)
+samples <- c("1A", "1B", "2A", "2B", "3", "4", "5")
+colnames(table) <- samples
+table.df <- as.data.frame(table)
+write.csv(table, file = here("results", "seurat", paste0(Sys.Date(), "_cell_counts.csv")))
+```
+
+
+Compare proliferative and cytotrophoblasts.
+```{r}
+prolif.genes <- FindMarkers(seu, ident.1 = "Fetal Proliferative Cytotrophoblasts", "Fetal Cytotrophoblasts")
+```
+
+```{r}
+# Function to select the gene column in each sublist
+marker_Volcano <- function(res, names, num.to.plot, genes.of.interest, threshold, output_dir) {
+  
+  # Indicator variable as to whether significant
+  res$sig <- (res$p_val_adj < threshold)
+  
+  res <- rownames_to_column(res, var = "gene")
+  
+  # Get the top downregulated hits
+  downreg <- res %>%
+    filter(p_val_adj < threshold) %>%
+    filter(avg_log2FC < 0) %>%
+    arrange(avg_log2FC)
+  #Get the top upregulated hits.
+  upreg <- res %>%
+    filter(p_val_adj < threshold) %>%
+    filter(avg_log2FC > 0) %>%
+    arrange(desc(avg_log2FC))
+  
+  top.upreg <- upreg$gene[1:num.to.plot]
+  print(top.upreg)
+  top.downreg <- downreg$gene[1:num.to.plot]
+  genes.to.plot <- c(top.upreg, top.downreg, genes.of.interest)
+  print(top.downreg)
+  res$label <- F
+  res$label[(res$gene %in% genes.to.plot)] <- T
+  
+  p <- ggplot(res) +
+    geom_point(aes(
+      x = avg_log2FC,
+      y = -log10(p_val_adj),
+      colour = sig
+    )) +
+    geom_text_repel(aes(
+      x = avg_log2FC,
+      y = -log10(p_val_adj),
+      label = ifelse(label, gene, "")
+    )) +
+    geom_hline(yintercept = -log10(threshold),
+               linetype = "dotted") +
+    ggtitle(names) +
+    xlab("log2 fold change") +
+    ylab("-log10 adjusted p-value") +
+    theme(
+      legend.position = "none",
+      plot.title = element_text(size = rel(1.5), hjust = 0.5),
+      axis.title = element_text(size = rel(1.25))
+    )
+  print(p)
+  ggsave(plot = p, filename = paste0(output_dir, names, "_", Sys.Date(), ".png"), device = "png")
+}
+```
+
+```{r}
+marker_Volcano(prolif.genes, "Proliferative vs. Non-Proliferative Cytotrophoblasts", num.to.plot = 10, genes.of.interest = NULL, threshold = 0.05, output_dir = here("results", "seurat"))
+```
+
+```{r}
+list.gProfiler <- prolif.genes %>% rownames_to_column(var = "gene") %>% arrange(desc(avg_log2FC)) %>% dplyr::select(gene) 
+list.gProfiler <- list.gProfiler$gene
+gostres <- gost(query = list.gProfiler,
+               organism = "hsapiens", ordered_query = TRUE,
+               multi_query = FALSE, significant = TRUE, exclude_iea = TRUE,
+               measure_underrepresentation = FALSE, evcodes = FALSE,
+               user_threshold = 0.05, correction_method = "g_SCS",
+               domain_scope = "annotated", custom_bg = NULL,
+               numeric_ns = "", sources = NULL, as_short_link = FALSE)
+```
+
+```{r}
+p <- gostplot(gostres, capped = FALSE, interactive = FALSE) + ggtitle("Proliferative vs. Non-Proliferative Cytotrophoblasts")
+p
+```
+
+```{r}
+terms.to.plot <- gostres$result %>% arrange(p_value)
+terms.to.plot <- terms.to.plot$term_id[1:10]
+```
+
+```{r}
+pp <- publish_gostplot(p, highlight_terms = terms.to.plot, filename = here("results", "seurat", paste0(Sys.Date(), "_prolif_ct_enriched_gost_plot.png")))
+```
+
+Compare proliferative and cytotrophoblasts.
+```{r}
+prolif.genes <- FindMarkers(seu, ident.1 = "Fetal Mesenchymal Stem Cells", ident.2 = "Fetal Fibroblasts")
+```
+
+```{r}
+View(prolif.genes %>% rownames_to_column(var = "gene"))
+```
+
+
+```{r}
+marker_Volcano(prolif.genes, "Mesenchymal Stem Cells vs. Fibroblasts", num.to.plot = 10, genes.of.interest = NULL, threshold = 0.05, output_dir = here("results", "seurat"))
+```
+
+```{r}
+list.gProfiler <- prolif.genes %>% rownames_to_column(var = "gene") %>% arrange(desc(avg_log2FC)) %>% dplyr::select(gene) 
+list.gProfiler <- list.gProfiler$gene
+gostres <- gost(query = list.gProfiler,
+               organism = "hsapiens", ordered_query = TRUE,
+               multi_query = FALSE, significant = TRUE, exclude_iea = TRUE,
+               measure_underrepresentation = FALSE, evcodes = FALSE,
+               user_threshold = 0.05, correction_method = "g_SCS",
+               domain_scope = "annotated", custom_bg = NULL,
+               numeric_ns = "", sources = NULL, as_short_link = FALSE)
+```
+
+```{r}
+p <- gostplot(gostres, capped = FALSE, interactive = TRUE) #+ ggtitle("Mesenchymal Stem Cells vs. Fibroblasts")
+p
+```
+
+```{r}
+terms.to.plot <- gostres$result %>% arrange(p_value)
+terms.to.plot <- terms.to.plot$term_id[1:10]
+```
+
+```{r}
+pp <- publish_gostplot(p, highlight_terms = terms.to.plot, filename = here("results", "seurat", paste0(Sys.Date(), "_mesenchymal_stem_vs_fibroblast_enriched_gost_plot.png")))
 ```
 
