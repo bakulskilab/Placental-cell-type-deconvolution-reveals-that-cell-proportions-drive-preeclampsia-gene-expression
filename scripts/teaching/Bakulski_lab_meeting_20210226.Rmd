@@ -1,0 +1,216 @@
+---
+title: "lab_meeting_bakulski_20210226"
+author: "Kyle Campbell"
+date: "2/26/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(here)
+library(tidyverse)
+
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Relative paths
+Calling here() provides your project directory. Calling here("sub_dir") returns project_dir/sub_dir. Calling here("sub_dir", "filename.ext") "just works", returns project_dir/sub_dir/filename.ext
+```{r}
+here()
+here("results")
+here("results", "filename.ext")
+```
+
+## mtcars
+The 'mtcars' dataset is available natively. The dataset contains 11 variables about 32 different cars.
+
+```{r}
+print(mtcars)
+dim(mtcars)
+```
+
+## Anatomy of a grammer of graphics plot
+Say we want to observe the relationship between continuous variables weight (wt) and fuel efficiency (mpg). Data -> Channel -> Marks
+```{r}
+ggplot(data = mtcars,  # Pick the dataset
+       aes(x = wt,     # Map variable wt to the x-position channel
+           y = mpg)) + # Map variable mpg to the y-position channel; use + to add a layer
+  geom_point()         # Pick the mark with which to represent our channels
+```
+
+ggplots are objects. ggsave() saves the last plot displayed. Remember to add the appropriate file extension for the proper format you want to save.
+```{r}
+scatter <-
+  ggplot(data = mtcars,# Pick the dataset
+       aes(x = wt,     # Map variable wt to the x-position channel
+           y = mpg)) + # Map variable mpg to the y-position channel; use + to add a layer
+  geom_point()         # Pick the mark with which to represent our channels
+scatter
+print(scatter)
+#ggsave(here("results", "scatter.png"))
+```
+
+Once you have your mappings and dataset set, you can easily add layers
+```{r}
+scatter +
+  geom_smooth()
+```
+```{r}
+scatter +
+  geom_smooth(method = "lm")
+```
+
+Let's encode more data on additional channels. How about color to depict whether the engine is 4, 6, or 8-cylinder?
+```{r}
+ggplot(data = mtcars,  # Pick the dataset
+       aes(x = wt,     # Map variable wt to the x-position channel
+           y = mpg,    # Map variable mpg to the y-position channel
+           color = cyl)) +  # Map # of cylinders to the color channel
+  geom_point()
+```
+
+cyl was inteprted as a continuous variable, though it is more appropriate as an ordinal or nominal variable. Let's factorize it.
+```{r}
+ggplot(data = mtcars,  # Pick the dataset
+       aes(x = wt,     # Map variable wt to the x-position channel
+           y = mpg,    # Map variable mpg to the y-position channel
+           color = factor(cyl))) +  # Map # of cylinders to the color channel
+  geom_point()
+```
+
+How about shape?
+```{r}
+ggplot(data = mtcars,  # Pick the dataset
+       aes(x = wt,     # Map variable wt to the x-position channel
+           y = mpg,    # Map variable mpg to the y-position channel
+           shape = factor(cyl))) +  # Map # of cylinders to the color channel
+  geom_point()
+```
+
+How about shape and color?
+```{r}
+ggplot(data = mtcars,  # Pick the dataset
+       aes(x = wt,     # Map variable wt to the x-position channel
+           y = mpg,    # Map variable mpg to the y-position channel
+           shape = factor(cyl),
+           color = factor(cyl))) +  # Map # of cylinders to the color channel
+  geom_point()
+```
+
+## Scatter plot with multiple groups
+```{r}
+ggplot(data = mtcars,  # Pick the dataset
+       aes(x = wt,     # Map variable wt to the x-position channel
+           y = mpg,    # Map variable mpg to the y-position channel
+           color = factor(cyl))) +  # Map # of cylinders to the color channel
+  geom_point() +
+  geom_smooth(method = "lm")
+```
+```{r}
+ggplot(data = mtcars,  # Pick the dataset
+       aes(x = wt,     # Map variable wt to the x-position channel
+           y = mpg,    # Map variable mpg to the y-position channel
+           color = factor(cyl))) +  # Map # of cylinders to the color channel
+  geom_point() +
+  geom_smooth(method = "lm", aes(fill = factor(cyl)))
+```
+
+## Facets
+
+```{r}
+ggplot(data = mtcars,  # Pick the dataset
+       aes(x = wt,     # Map variable wt to the x-position channel
+           y = mpg,    # Map variable mpg to the y-position channel
+           color = factor(cyl))) +  # Map # of cylinders to the color channel
+  geom_point() +
+  geom_smooth(method = "lm", aes(fill = factor(cyl))) +
+  facet_grid(cols = vars(cyl))
+```
+
+```{r}
+ggplot(data = mtcars,  # Pick the dataset
+       aes(x = wt,     # Map variable wt to the x-position channel
+           y = mpg,    # Map variable mpg to the y-position channel
+           color = factor(cyl))) +  # Map # of cylinders to the color channel
+  geom_point() +
+  geom_smooth(method = "lm", aes(fill = factor(cyl))) +
+  facet_grid(rows = vars(cyl))
+```
+
+last_plot() returns the last plotted plot. Store our 3-panel plot.
+```{r}
+three.panel <- last_plot()
+three.panel
+```
+
+## Theme customization
+
+Easily add axis labels and theme() contains myriad formatting options
+```{r}
+three.panel +
+  ggtitle("Fuel efficiency and weight across cylinder classes") +   # Add plot title
+  xlab("Weight, lbs. (thousands)") +                                # Add x-axis label
+  ylab("Fuel Efficiency (mpg)") +                                   # Add y-axis label
+  theme(legend.position = "none",                                   # Remove legend
+        plot.title = element_text(hjust = 0.5,                      # Center plot title
+                                  color = "blue",                   # Change color
+                                  size = "20"),                     # Change title font size
+        axis.title.x = element_text(color = "red"))                 # Change x-axis label color
+```
+
+## Data types and plots
+
+mtcars is not a "tidy" data format
+```{r}
+mtcars.tidy <- rownames_to_column(mtcars,
+                                  var = "model")
+mtcars.tidy
+```
+
+Returning to two continuous variables
+```{r}
+continuous <- ggplot(mtcars.tidy,
+                     aes(x = wt,
+                         y = mpg)) +
+  geom_point()
+```
+
+Label each point.
+```{r}
+continuous + geom_label(aes(label = model))
+```
+
+```{r}
+continuous + geom_text(aes(label = model))
+```
+
+
+ggrepel is a helper library that works a lot better than geom_label() or geom_text() alone.
+```{r}
+library(ggrepel)
+continuous + geom_text_repel(aes(label = model))
+```
+
+## Discrete x and continuous y
+
+```{r}
+mtcars.tidy$cyl <- as.factor(mtcars.tidy$cyl)
+```
+
+```{r}
+cat.quant <- ggplot(data = mtcars.tidy,
+                    aes(x = cyl,
+                        y = mpg,
+                        fill = cyl))
+```
+
+```{r}
+cat.quant + geom_col()
+```
+
+```{r}
+cat.quant + geom_boxplot()
+```
+
+```{r}
+cat.quant + geom_violin()
+```
