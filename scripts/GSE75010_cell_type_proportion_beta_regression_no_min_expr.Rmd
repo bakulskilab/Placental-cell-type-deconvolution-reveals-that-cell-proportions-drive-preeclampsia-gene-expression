@@ -577,6 +577,15 @@ fetal
 #ggsave(paste0(results_dir, "fetal_bivariate_cell_type_proportion_distribution_", Sys.Date(), ".png"))
 ```
 
+```{r}
+colnames(long.fetal)
+```
+
+
+```{r}
+long.fetal %>% group_by(phenotype, Cell.Type) %>% summarise(describe(Proportion))
+```
+
 
 ```{r}
 maternal <-  ggplot(long.maternal, aes(x = Proportion, y = Cell.Type, color = phenotype, point_color = phenotype, fill = phenotype)) +
