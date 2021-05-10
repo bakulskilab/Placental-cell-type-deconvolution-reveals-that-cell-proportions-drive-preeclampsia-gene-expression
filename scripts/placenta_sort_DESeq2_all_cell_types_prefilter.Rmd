@@ -158,7 +158,6 @@ Load the prefiltered version.
 dds <- readRDS(here("data", "bulk", "2021-04-16_dds_prefiltered.rda"))
 ```
 
-
 ``` {r}
 run_deseq2 <- function(target, dds) {
   
@@ -266,7 +265,7 @@ run_deseq2 <- function(target, dds) {
     filter(log2FoldChange > 0) %>%
     arrange(desc(log2FoldChange))
   
-  # Get and arragne downreg
+  # Get and arrange downreg
   downreg <-
     res %>%
     filter(padj < alpha) %>%
@@ -291,6 +290,12 @@ run_deseq2 <- function(target, dds) {
     mutate(sig = ifelse(padj < alpha,
                         T,
                         F))
+  # Label factor levels for legend purposes
+  res$sig <- factor(res$sig,
+                    levels = c(FALSE, TRUE),
+                    labels = c("FDR-adjusted p-value > 0.05", "FDR-adjusted p-value < 0.05"))
+
+  
   # Volcano plot
   plot <- ggplot(res) +
     geom_point(aes(
@@ -303,13 +308,15 @@ run_deseq2 <- function(target, dds) {
       y = -log10(padj),
       label = ifelse(label, gene_symbol, "")
     ),
-    max.overlaps = Inf) +
+    max.overlaps = Inf,
+    size = 6) +
     geom_hline(yintercept = -log10(alpha), linetype = "dotted") +
     ggtitle("Contrast of Interest") +
     xlab("log2 fold change") +
     ylab("-log10 adjusted p-value") +
     theme(
-      legend.position = "none",
+      legend.position = "bottom",
+      legend.title = element_blank(),
       plot.title = element_text(size = rel(1.5), hjust = 0.5),
       axis.title = element_text(size = rel(1.25))
     ) +
@@ -338,7 +345,10 @@ run_deseq2 <- function(target, dds) {
                         label = label,
                         hjust = hjustvar,
                         vjust = vjustvar
-                      ))
+                      ),
+                      size = 6,
+                      label.padding = unit(0.5, "lines")
+                      )
   plot
 
   returnList <- list("res" = res,
@@ -359,7 +369,9 @@ cell.types <-
       "leukocyte",
       "syncytiotrophoblast"
     )
+```
 
+``` {r}
 mapped <- lapply(cell.types, run_deseq2, dds = dds)
 names(mapped) <- cell.types
 ```
@@ -378,6 +390,9 @@ mas <- map(mapped, ~ DESeq2::plotMA((.x[["shrunk"]])))
 
 Making presentable Volcanos plots
 ```{r}
+# Define a base_size variable for the font size for the publication multipanel
+base.size <- 24
+
 # Input ggplot to get x and y limits for graph
 get_coord_limits <- function(ggplot) {
   
@@ -428,8 +443,16 @@ contrast.labels <- c("Cytotrophoblast" , "Endothelial", "Extravillous Trophoblas
 volcanos.ind <- map2(mapped, contrast.labels,
                  ~ .x[["volcano"]] + ggtitle(.y) + coord_cartesian(xlim = c(x_min, x_max), ylim = c(y_min, y_max)))
 
+
+# Update geom_points, which are in 5/14 ratio to text font size
+#geom.size <- 5
+#update_geom_defaults("text_repel", list(size = geom.size))
+#update_geom_defaults("label", list(size = geom.size))
+
 volcanos <- map2(mapped, contrast.labels,
-                 ~ .x[["volcano"]] + ggtitle(.y) + coord_cartesian(xlim = c(x_min, x_max), ylim = c(y_min, y_max)) + theme_bw(base_size = 20) + theme(legend.position = "none") + ylab("-log10 q-value"))
+                 ~ .x[["volcano"]] + ggtitle(.y) + coord_cartesian(xlim = c(x_min, x_max), ylim = c(y_min, y_max)) + theme_bw(base_size = base.size) + theme(legend.position = "none") + ylab("-log10 q-value"))
+
+big.volcano.ct <- volcanos$cytotrophoblast + theme(legend.position = "right")
 
 # Custom function to save ggplots
 save_volcano_plot <- function(plot, filename) {
@@ -447,10 +470,18 @@ map(volcanos.ind, print)
 ```
 
 ```{r}
-panel <- ggarrange(volcanos[[1]], volcanos[[2]], volcanos[[3]], volcanos[[4]], volcanos[[5]], volcanos[[6]], volcanos[[7]], ncol = 4, nrow = 2, labels = "AUTO", font.label = list(size = 24, face = "bold", color = "black"))
+# Pull legend from a Volcano and make sure the title is removed
+volcano.legend <- get_legend(big.volcano.ct + theme(legend.title = element_blank()) + guides(colour = guide_legend(override.aes = list(size=15))))
+
+#volcano.legend <- get_legend(big.volcano.ct + theme(legend.title = element_blank(), legend.key.width = unit(4, "cm"), legend.key.height = unit(4, "cm")), position = "right")
+```
+
+
+```{r}
+panel <- ggarrange(volcanos[[1]], volcanos[[2]], volcanos[[3]], volcanos[[4]], volcanos[[5]], volcanos[[6]], volcanos[[7]], volcano.legend, ncol = 4, nrow = 2, labels = "AUTO", font.label = list(size = 36, face = "bold", color = "black"))
 #print(panel)
 # Works okay with theme_bw(base_size = 20) and font.label size = 24 in ggarrange
-#ggexport(panel, filename = here("results", "bulk", "volcanos", paste0(Sys.Date(), "_volcano_multipanel.png")), width = 1920, height = 1080)
+ggexport(panel, filename = here("results", "bulk", "volcanos", paste0(Sys.Date(), "_volcano_multipanel.png")), width = 1920, height = 1080)
 ```
 
 ```{r}
