@@ -125,3 +125,23 @@ dim(merged)
 #saveRDS(merged, paste0(data_dir, "GSE75010_with_abundances2021-01-01.rda"))
 #merged <- readRDS(paste0(data_dir, "GSE75010_merged_abundances2020-10-16.rda"))
 ```
+
+Summary stats
+```{r}
+describe(merged$`P-value`)
+describe(merged$Correlation)
+describe(merged$RMSE)
+```
+
+```{r}
+describe(merged$`Fetal Cytotrophoblasts`)
+describe(merged$`Fetal Syncytiotrophoblast`)
+describe(merged$`Fetal Naive CD8+ T Cells`)
+```
+
+```{r}
+describe(merged$`Maternal Naive CD8+ T Cells`)
+describe(merged$`Maternal Natural Killer Cells`)
+describe(merged$`Maternal Plasma Cells`)
+```
+
