@@ -26,9 +26,6 @@ Select only the relevant results from the dataframes
 clean_gsea <- function(data) {
   x <- data %>%
     dplyr::select(NAME, SIZE, NES, `NOM p-val`, `FDR q-val`)
-  
-  
-  
   return (x)
 }
 
@@ -68,14 +65,13 @@ pc.pos.hits <- pc.pos %>%
 pc.pos.hits
 ```
 
-
 Graph GSEA results
 ```{r}
 res.graph <- base.res %>% arrange(desc(abs(NES))) %>% top_n(n = 25, wt = abs(NES))
 
 p1 <- ggplot(data = res.graph, mapping = aes(x = NES, y = NAME, size = SIZE, color = `FDR q-val`)) +
   geom_point() +
-  ylab("") + xlab("Normalized Enrichment Score") + ggtitle("Unadjusted") + geom_vline(xintercept = 0)
+  ylab("") + xlab("Normalized Enrichment Score") + ggtitle("Base model") + geom_vline(xintercept = 0)
 p1
 #ggsave(here("results", "GSEA", paste0(Sys.Date(), "_gsea_base_res.png")))
 ```
@@ -86,8 +82,8 @@ base.graph <- base.res %>% arrange(desc(abs(NES))) %>% slice_head(n = 25)
 p1 <- ggplot(data = base.graph, mapping = aes(x = NES, y = fct_rev(fct_reorder(NAME, NES)), fill = `FDR q-val`)) +
   geom_col() +
   scale_fill_gradient2(midpoint = 0.05) +
-  ylab("") + xlab("Normalized Enrichment Score") + ggtitle("Unadjusted") +
-  theme_minimal(base_size = 20) + theme(legend.position = "bottom", legend.text = element_text(angle = 45), axis.text.y = element_text(color = "black"))
+  ylab("") + xlab("Normalized Enrichment Score") + ggtitle("Base model") +
+  theme_minimal(base_size = 20) + theme(legend.position = "bottom", legend.text = element_text(angle = 45), axis.text.y = element_text(color = "black")) + labs(fill = "False discovery rate-adjusted p-value")
 
 #theme_minimal(base_size = 20)
 
@@ -136,10 +132,3 @@ legend <- get_legend(p1)
 panel <- ggarrange(p1, p2, ncol = 2, nrow = 1, labels = "AUTO", font.label = list(size = 24, face = "bold", color = "black"), common.legend = TRUE, legend = "bottom", legend.grob = legend)
 ggexport(panel, filename = here("results", "GSE75010", paste0(Sys.Date(), "_limma_gsea.png")), width = 1980, height = 1080)
 ```   
-
-```{r, eval = F}
-png(here("results", "GSEA", paste0(Sys.Date(), "_gsea_res_combined.png")))
-grid.newpage()
-grid.draw(rbind(ggplotGrob(p1), ggplotGrob(p2)))
-dev.off()
-```
