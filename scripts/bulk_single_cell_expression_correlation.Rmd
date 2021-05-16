@@ -127,7 +127,7 @@ gex.sc.average <- AverageExpression(seu, group.by = "collapse", slot = "data")
 cluster.df <- as.data.frame(gex.sc.average)
 
 cluster.df <- cluster.df %>%
-  mutate_all(l)
+  mutate_all(log1p)
 
 cluster.df <- rownames_to_column(cluster.df, var = "external_gene_name")
 ```
@@ -359,12 +359,6 @@ panel <- ggarrange(plots[[1]], plots[[2]], plots[[3]], plots[[4]], plots[[5]], p
 # Works okay with theme_bw(base_size = 20) and font.label size = 24 in ggarrange
 ggexport(panel, filename = here("results", "bulk", "correlation", paste0(Sys.Date(), "_correlation_multipanel.png")), width = 1920, height = 1080)
 ```
-
-```{r}
-cow <- plot_grid(plotlist = plots, labels = "AUTO", nrow = 4, ncol = 2, align = "hv")
-print(cow)
-```
-
 
 ```{r}
 smoothScatter(joint$RNA.Cytotrophoblast, joint$bulk.cytotrophoblast)
