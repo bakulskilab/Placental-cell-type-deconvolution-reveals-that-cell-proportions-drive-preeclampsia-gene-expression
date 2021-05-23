@@ -124,7 +124,7 @@ DimPlot(kc.40, group.by = "orig.ident")
 rm(kc.40)
 ```
 
-Average expression by cell type cluster and run corrtest. WIP
+Average expression by cell type cluster and run corrtest.
 ```{r}
 # Subset to the technical replicate
 kc.40.1 <- subset(seu, subset = orig.ident == "kc.40.1")
