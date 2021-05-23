@@ -131,24 +131,24 @@ kc.40.1 <- subset(seu, subset = orig.ident == "kc.40.1")
 # Average expression by cell type
 expr.1a <- AverageExpression(kc.40.1, group.by = "cell.type")
 # Clean-up the returned object
-a1 <- expr.1a$RNA %>% t()
+a1 <- expr.1a$RNA %>% as.data.frame()
 
 kc.40.2 <- subset(seu, subset = orig.ident == "kc.40.2")
 #cluster.expr.40.2 <- flatten(AverageExpression(kc.40.2)) %>% as.numeric
 expr.1b <- AverageExpression(kc.40.2, group.by = "cell.type")
-b1 <- expr.1b$RNA %>% t()
+b1 <- expr.1b$RNA %>% as.data.frame()
 
-corr.test.res <- pmap(expr.1a,
-                      expr.1b,
-                      ~ cor.test(.x, .y))
+corr.test.res <- map2(a1,
+                      b1,
+                      ~ cor.test(.x, .y, method = "pearson"))
 
 corr.test.pvals <- map(corr.test.res,
                    ~ .x['p.value'])
 
 pvals <- flatten(corr.test.pvals) %>% flatten
 
-corr.res <- map2(cluster.expr.40.1,
-     cluster.expr.40.2,
+corr.res <- map2(a1,
+     b1,
      ~ cor(.x, .y))
 
 cor.df <- corr.res %>% data.frame %>% t
@@ -156,6 +156,12 @@ colnames(cor.df) <- "correlation"
 cor.df <- as.data.frame(cor.df)
 
 cor.df$cell.type <- rownames(cor.df)
+```
+
+```{r}
+sample1.avg.cor <- cor.df$correlation %>% mean()
+sample1.avg.cor.sd <- cor.df$correlation %>% sd()
+print(paste0("Sample 1 Average Correlation : ", sample1.avg.cor, " +- ", sample1.avg.cor.sd))
 ```
 
 ```{r}
@@ -177,29 +183,30 @@ DimPlot(kc.42, group.by = "orig.ident")
 #ggsave(paste0(results_dir, "seu_group_by_kc42_technical_legend_", Sys.Date(), ".png"))
 rm(kc.42)
 ```
-
-Average expression by cell type cluster and run corrtest. 
 ```{r}
+# Subset to the technical replicate
 kc.42.1 <- subset(seu, subset = orig.ident == "kc.42.1")
-cluster.expr.42.1 <- flatten(AverageExpression(kc.42.1))
-cluster.expr.42.1$`Fetal Cytotrophoblasts` <- NULL
+# Average expression by cell type
+expr.1a <- AverageExpression(kc.42.1, group.by = "cell.type")
+# Clean-up the returned object
+a2 <- expr.1a$RNA %>% as.data.frame()
+a2$`Fetal Cytotrophoblasts` <- NULL
 
-# KC42.2 contains no cytotrophoblasts, drop from 42.1 to do correlation test
 kc.42.2 <- subset(seu, subset = orig.ident == "kc.42.2")
-cluster.expr.42.2 <- flatten(AverageExpression(kc.42.2))
+expr.1b <- AverageExpression(kc.42.2, group.by = "cell.type")
+b2 <- expr.1b$RNA %>% as.data.frame()
 
-
-corr.test.res <- map2(cluster.expr.42.1,
-     cluster.expr.42.2,
-     ~ cor.test(.x, .y))
+corr.test.res <- map2(a2,
+                      b2,
+                      ~ cor.test(.x, .y, method = "pearson"))
 
 corr.test.pvals <- map(corr.test.res,
                    ~ .x['p.value'])
 
 pvals <- flatten(corr.test.pvals) %>% flatten
 
-corr.res <- map2(cluster.expr.42.1,
-     cluster.expr.42.2,
+corr.res <- map2(a2,
+     b2,
      ~ cor(.x, .y))
 
 cor.df <- corr.res %>% data.frame %>% t
@@ -207,6 +214,12 @@ colnames(cor.df) <- "correlation"
 cor.df <- as.data.frame(cor.df)
 
 cor.df$cell.type <- rownames(cor.df)
+```
+
+```{r}
+sample2.avg.cor <- cor.df$correlation %>% mean()
+sample2.avg.cor.sd <- cor.df$correlation %>% sd()
+print(paste0("Sample 2 Average Correlation : ", sample2.avg.cor, " +- ", sample2.avg.cor.sd))
 ```
 
 ```{r}
