@@ -310,7 +310,7 @@ corrplot(corr.spearman, method = "ellipse", order = "hclust", tl.cex = .7) #tl.c
 ```
 
 ```{r}
-exprCorrelation <- function(df, string) {
+exprCorrelationPlot <- function(df, string) {
   
   # Store the string for a ggplot title
   title <- string
@@ -345,7 +345,7 @@ exprCorrelation <- function(df, string) {
 
 contrast.labels <- c("Cytotrophoblast" , "Endothelial", "Extravillous Trophoblast", "Fibroblast", "Hofbauer Cell", "Leukocyte", "Syncytiotrophoblast")
 
-plots <- map(contrast.labels, ~ exprCorrelation(joint, .x))
+plots <- map(contrast.labels, ~ exprCorrelationPlot(joint, .x))
 ```
 
 ```{r}
@@ -360,129 +360,65 @@ panel <- ggarrange(plots[[1]], plots[[2]], plots[[3]], plots[[4]], plots[[5]], p
 ggexport(panel, filename = here("results", "bulk", "correlation", paste0(Sys.Date(), "_correlation_multipanel.png")), width = 1920, height = 1080)
 ```
 
+
 ```{r}
-smoothScatter(joint$RNA.Cytotrophoblast, joint$bulk.cytotrophoblast)
+exprCorrelation <- function(df, string) {
+  
+  # Store the string for a ggplot title
+  title <- string
+  
+  # Take only the first word for matching purposes
+  string <- word(string)
+  
+  # Subset the dataset to the two relevant columns
+  pair <- df %>% dplyr::select(contains(string)) %>% as.matrix()
+  
+  # Calculate Pearson and Spearman correlation coefficients
+  pearson <- cor(pair[,1], pair[,2], method = c("pearson")) %>% as.numeric %>% round(digits = 2)
+  spearman <- cor(pair[,1], pair[,2], method = c("spearman")) %>% as.numeric %>% round(digits = 2)
+  
+  pearson.test <- cor.test(pair[,1], pair[,2], method = "pearson")
+  p.pearson <- pearson.test$p.value %>% as.numeric %>% round(digits = 2)
+  spearman.test <- cor.test(pair[,1], pair[,2], method = "pearson")
+  p.spearman <- spearman.test$p.value %>% as.numeric %>% round(digits = 2)
+  
+  # Find the colnames that match the input
+  match.indices <- grep(pattern = string, x = names(joint), ignore.case = TRUE)
+  var <- names(joint)[match.indices]
+  
+  res <- data.frame(
+    r = pearson,
+    r.pvalue = p.pearson,
+    rho = spearman,
+    rho.pvalue = p.spearman
+  )
+  
+  return(res)
+}
+
+contrast.labels <- c("Cytotrophoblast" , "Endothelial", "Extravillous Trophoblast", "Fibroblast", "Hofbauer Cell", "Leukocyte", "Syncytiotrophoblast")
+
+correlations <- map(contrast.labels, ~ exprCorrelation(joint, .x))
+names(correlations) <- contrast.labels
+
+# All correlation tests return p = 0 (report as p < .001 )
 ```
 
+```{r}
+s1 <- rnbinom(n = 150, size = 1, prob = .5)
+s1.d <- density(s1)
+plot(s1.d)
 
-``` {r ManualImplementation}
-ct.sc.gex <- getSeuratClusterNormExpressionMatrix(seuratObject = sc.placenta,
-                                                  clusterIdentity = "Cytotrophoblast",
-                                                  biomaRtList = scGeneIDs.tbl)
-
-ct.ids <- WhichCells(object = sc.placenta, idents = "Cytotrophoblast")
-ct.sc <- subset(x = sc.placenta, cells = ct.ids)
-ct.sc.df <- as.data.frame(ct.sc@assays$RNA@data)
-ct.sc.df <- rownames_to_column(ct.sc.df)
-colnames(ct.sc.df)[1] <- 'external_gene_name'
-ct.sc.df <- as_tibble(ct.sc.df)
-
-# Sort
-ct.sc.df <- ct.sc.df %>%
-  arrange(external_gene_name)
-
-# Checking for duplicate gene name in single-cell matrix
-test <-  ct.sc.df %>%
-    group_by(external_gene_name) %>%
-    tally()
-# No duplicate gene names in SC data
-
-# Checking for duplicate gene names in biomaRt
-mart.gene.dups <-  scGeneIDs.tbl %>%
-  group_by(external_gene_name) %>%
-  tally() %>%
-  arrange(desc(n)) %>%
-  filter(n > 1)
-
-print(paste("There are ", dim(mart.gene.dups)[1], "duplicate gene names in biomaRt."))
-
-ggplot(mart.gene.dups, aes(x=n)) + 
-  geom_histogram(binwidth = 10) +
-  labs(title="Gene Name Duplicates", x ="Number Duplicates", y = "Count")
-
-# Only 1 duplicate ensembl id: ENSG00000273045 - C2orf15 in biomaRt
-test <-  scGeneIDs.tbl %>%
-    group_by(ensembl_gene_id) %>%
-    tally()
-
-# Join
-ct.sc.gex <- as_tibble(left_join(x = ct.sc.df, y = scGeneIDs.tbl))
-ct.sc.gex <- dplyr::select(ct.sc.gex, ensembl_gene_id, everything())
-
-# Of the 19723 single-cell genes, including duplicates from mart, 3275 were missing (16.60 %) using biomaRt annotation
-summary(is.na(ct.sc.gex$ensembl_gene_id))
-
-# Sort SC matrix by ensembl id
-ct.sc.gex <- 
-  ct.sc.gex %>%
-  arrange(ensembl_gene_id)
-
-############
-# Rename columns in bulk matrix to retain metadata and sort by ensembl_id
-ct.bulk.tbl <- tibble(ensembl_gene_id = rownames(bulk.normalized),
-                       KC40.ct.103905 = ct.bulk[,1],
-                       KC48.ct.105816 = ct.bulk[,2])
-ct.bulk.tbl <- ct.bulk.tbl %>% 
-  arrange(ensembl_gene_id)
-
-# Perform an inner join between the ensembl_id list from the single-cell data and the bulk data
-dim(ct.sc.gex)
-dim(ct.bulk.tbl)
-gex.combined <- as_tibble(inner_join(ct.sc.gex, ct.bulk.tbl))
-dim(gex.combined)
-
-# No missing Gene IDs
-summary(is.na(gex.combined$ensembl_gene_id))
-
-# 39 gene name duplicates
-test <- gex.combined %>%
-  group_by(external_gene_name) %>%
-  tally(sort = T)
-
-test <- gex.combined %>%
-  group_by(external_gene_name) %>%
-  filter(n()>1)
-
-# 22 ensembl_id duplicates
-test <- gex.combined %>%
-  group_by(ensembl_gene_id) %>%
-  tally(sort = T)
-
-test <- gex.combined %>%
-  group_by(ensembl_gene_id) %>%
-  filter(n()>1)
-
-# Remove duplicate ensembl_ids, but not multiple IDs mapping to the same gene
-gex.combined.filtered <- gex.combined %>%
-  distinct(ensembl_gene_id, .keep_all = T)
-
-# Successfully removed 22 duplicate IDs 14640 -> 14618
-dim(gex.combined.filtered)
-
-# Calculate single-cell mean
-gex.average <- mutate(gex.combined.filtered, SC_mean = rowMeans(dplyr::select(gex.combined.filtered, matches("KC40_|KC42_"))))
-
-test <- dplyr::select(gex.combined.filtered, matches("KC40_|KC42_"))
-
-test <- dplyr::select(gex.combined.filtered, matches("103905|105816"))
-
-# Calculate sorted mean
-gex.average <- mutate(gex.average, Bulk_mean = rowMeans(dplyr::select(gex.average, matches("103905|105816"))))
-
-# High expression outliers are all MT reads
-High_bulk_expression <- filter(gex.average, Bulk_mean > 10000)
-High_bulk_expression
-
-
-smoothScatter(x = gex.average$SC_mean, y = gex.average$Bulk_mean)
-
-ct.cor <- cor(gex.average$SC_mean, gex.average$Bulk_mean)
-ct.cor
-
-ggplot(gex.average) + aes(x=SC_mean, y=Bulk_mean, label = external_gene_name) +
-  stat_density2d(geom="tile", aes(fill=..density..^0.25, alpha=1), contour=FALSE) + 
-  geom_point(size=0.5) +
-  stat_density2d(geom="tile", aes(fill=..density..^0.25, alpha=ifelse(..density..^0.25<0.4,0,1)), contour=FALSE) + 
-  scale_fill_gradientn(colours = colorRampPalette(c("white", blues9))(256)) +
-  geom_text(data=subset(gex.average, external_gene_name == "KRT7"))
+s2 <- rnbinom(n = 150, size = 1, prob = .5)
+s2.d <- density(s2)
+plot(s2.d)
 ```
+
+```{r}
+cor.test.pearson <-  cor.test(s1, s2, method = "pearson")
+cor.test.pearson$p.value
+
+cor.test.spearman <- cor.test(s1, s2, method = "spearman")
+cor.test.spearman
+```
+
