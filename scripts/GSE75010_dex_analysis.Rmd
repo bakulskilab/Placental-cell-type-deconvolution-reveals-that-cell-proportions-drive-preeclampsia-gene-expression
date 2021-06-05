@@ -11,6 +11,7 @@ library(factoextra)
 library(here)
 library(ggridges)
 library(ggrepel)
+library(ggpubr)
 library(grid)
 library(gridExtra)
 library(gprofiler2)   # For gene-set enrichment tests
@@ -89,6 +90,14 @@ ggplot(pca.dataGG, aes(PC1, PC2)) +
 
 No apparent clustering by study source. Some separation in outcome by PC1.
 
+```{r}
+meta <- pData(d)
+meta$phenotype <- factor(meta$phenotype, levels = c("C", "PE"), labels = c("Control", "Preeclampsia"))
+annotation_col <- data.frame(Phenotype = meta$phenotype)
+rownames(annotation_col) <- meta$sample
+#pheatmap(exprs(d), annotation_col = annotation_col, show_rownames = FALSE, show_colnames = FALSE, filename = paste0(here("results", "GSE75010"), "/", Sys.Date(), "_expr_heatmap.png"))
+```
+
 ## Defining and fitting the model
 
 Custom function to run limma model, print results, and output Volcano plot and model results for further analysis.
@@ -108,9 +117,11 @@ run_limma_model <-
     #Fit the model.
     fit <- lmFit(d, design)
     fit <- eBayes(fit)
+
     
     #Extract model results.
-    hits <- topTable(fit, coef = "phenotypePE", number = Inf)
+    #hits <- topTable(fit, coef = "phenotypePE", number = Inf)
+    hits <- topTable(fit, coef = "phenotypePreeclampsia", number = Inf)
     
     #Histogram of raw p-values
     hist(
@@ -226,6 +237,18 @@ names(p.data) <- p.data %>% names %>%  make.names
 pData(d) <- p.data
 ```
 
+Retrieve cell type proportion PCA results from beta regression .Rmd, merge with meta data, and reset the phenotype data in the ExpressionSet object.
+```{r}
+pca <-readRDS(paste0(here("data", "/"), "GSE75010_cell_type_proportions_pca_2021-02-15.rda"))
+pca.ind <- get_pca_ind(pca)
+pca.coordinates <- as.data.frame(pca.ind$coord)
+pca.coordinates$sample <- rownames(pca.coordinates)
+meta.total <- left_join(meta, pca.coordinates)
+
+# Reset the metadata of the ExpressionSet object, d.
+pData(d) <- meta.total
+```
+
 # Naive Model
 ```{r}
 naive.model <- run_limma_model(d = d,
@@ -283,17 +306,7 @@ type.model <- run_limma_model(d = d,
                               gg.title = "Sig. Cell Types")
 ```
 
-Retrieve cell type proportion PCA results from beta regression .Rmd, merge with meta data, and reset the phenotype data in the ExpressionSet object.
 ```{r}
-pca <-readRDS(paste0(here("data", "/"), "GSE75010_cell_type_proportions_pca_2021-02-15.rda"))
-pca.ind <- get_pca_ind(pca)
-pca.coordinates <- as.data.frame(pca.ind$coord)
-pca.coordinates$sample <- rownames(pca.coordinates)
-meta.total <- left_join(meta, pca.coordinates)
-
-# Reset the metadata of the ExpressionSet object, d.
-pData(d) <- meta.total
-
 # Set the covariates, including the outcome
 PCs <- c("Dim.1", "Dim.2" , "Dim.3", "Dim.4", "Dim.5")
 covariates <- c("phenotype", "sex", "ga", "batch", PCs)
@@ -301,13 +314,14 @@ covariates <- c("phenotype", "sex", "ga", "batch", PCs)
 pc.model <- run_limma_model(
   d = d,
   covariates = covariates,
-  threshold = .05,
+  threshold = 0.05,
   genes.of.interest = c("FLT1", "LEP"),
   gg.title = "5 PCs of Cell Types",
   nudge_y = 50
 )
 ```
 
+Reducing the cell composition to just PC3 still completely attenuates DEX results.
 ```{r}
 covariates <- c("phenotype", "sex", "ga", "batch", "Dim.3")
 pc3.model <- run_limma_model(d = d,
@@ -364,7 +378,7 @@ ggplot(res) +
 
 Pull out the two models for the publication, the 5 PCs-adjusted model and the base model.
 ```{r}
-plot1 <- base.model$volcano + theme_bw(base_size = base.size)
+plot1 <- base.model$volcano #+ theme_bw(base_size = base.size)
 plot1 
 
 plot2 <- pc.model$volcano
@@ -526,11 +540,11 @@ PC3 is associated with case-control status using a t-test
 ```{r}
 case <- 
   df %>%
-  filter(phenotype == "PE")
+  filter(phenotype == "Preeclampsia")
 
 control <- 
   df %>%
-  filter(phenotype == "C")
+  filter(phenotype == "Control")
 
 t.test(case$Dim.3, control$Dim.3)
 ```
@@ -658,6 +672,12 @@ Mediator model (PC3 in this case)
 med.fit <- lm(Dim.3 ~ phenotype + sex + ga + batch, data = df)
 print(tidy(med.fit))
 ```
+Interestingly, GA is only marginally associated with FLT1 status without cell composition in the model
+```{r}
+out.fit <- lm(FLT1 ~ phenotype + sex + ga + batch, data = df)
+print(tidy(out.fit))
+```
+
 
 Outcome model
 ```{r}
@@ -685,7 +705,7 @@ print(tidy(out.fit))
 med.out.boot <- mediate(model.m, model.y, treat = "phenotype", mediator = "Dim.3", boot = TRUE, boot.ci.type = "bca", sims = 2000)
 summary(med.out.boot)
 
-# Interaction is not statistically sijgnificant
+# Interaction is not statistically significant
 test.TMint(med.out.boot, conf.level = 0.95)
 ```
 
