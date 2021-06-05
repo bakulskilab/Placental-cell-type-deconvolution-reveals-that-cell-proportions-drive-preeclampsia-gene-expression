@@ -122,7 +122,8 @@ Our first contrast of interest is how cell type-specific expression differs vs. 
 
 Modernized code (3/2021) and outstanding questions:
 1. Include composite samples in model for gene variance moderation or drop?
-  a. Emprically test running with and without
+  a. "If I have multiple groups, should I run all together or split into pairs of groups?" DESeq2 vignette recommends to do so unless within-group variability varies differently than other groups, the high variance can disrupt the genewise dispersion estimates in the other groups.
+  b. Emprically test running with and without
 2. Include endothelial in the cell type comparison group?
   a. Empirically test
     i. Stable model either way (fewer hits than CT)
@@ -132,6 +133,22 @@ Modernized code (3/2021) and outstanding questions:
     ii. Less than 100 multimapping genes per contrast remain even after independent filtering and are dropped
 
 Note: in DESeq2 alpha is the FDR-adjusted significance cutoff
+
+Bimodal histograms are a little weird down below. Several threads (https://support.bioconductor.org/p/102313/, https://www.biostars.org/p/331711/, https://www.biostars.org/p/312792/), including Michael Love suggest pre-filtering as low counts may be causing the peaks on the p-value histogram (recall that a well-calibrated statistical test has a uniform p-value distribution with a spike at low p-values if there's a significant difference). 
+
+Pre-filtering: normalized counts greater than 10 per gene and detected in at least three samples, as recommended in the DESeq2 paper to address bimodal p-value distribution.
+
+```{r}
+binary <- as.matrix((counts(dds) > 0) + 0)
+keep.three <- rowSums(binary) >= 3
+dds <- dds[keep.three]
+```
+
+```{r}
+keep.min <- rowSums(counts(dds, normalized = TRUE)) >= 10
+dds <- dds[keep.min, ]
+```
+
 ``` {r}
 run_deseq2 <- function(target, dds) {
   
@@ -142,16 +159,27 @@ run_deseq2 <- function(target, dds) {
   alpha <- .05
   
   # List coefficients
+    # cell.types <-
+    # c(
+    #   "cell.typecytotrophoblast",
+    #   "cell.typeendothelial",
+    #   "cell.typeextravilloustrophoblast",
+    #   "cell.typefibroblast",
+    #   "cell.typehofbauer",
+    #   "cell.typeleukocyte",
+    #   "cell.typesyncytiotrophoblast"
+    # )
+  
   cell.types <-
     c(
       "cell.typecytotrophoblast",
-      "cell.typeendothelial",
       "cell.typeextravilloustrophoblast",
       "cell.typefibroblast",
       "cell.typehofbauer",
       "cell.typeleukocyte",
       "cell.typesyncytiotrophoblast"
     )
+  
   
   # Select contrast coefficients based on cell type input
   coef <- cell.types[grepl(target, cell.types)]
@@ -167,7 +195,7 @@ run_deseq2 <- function(target, dds) {
     dds,
     contrast = list(coef,
                     inv.coef),
-    listValues = c(1,-1 / 6),
+    listValues = c(1,-1 / 5),
     alpha = alpha
   )
   
@@ -322,10 +350,20 @@ run_deseq2 <- function(target, dds) {
   return(returnList)
 }
 
+# cell.types <-
+#     list(
+#       "cytotrophoblast",
+#       "endothelial",
+#       "extravilloustrophoblast",
+#       "fibroblast",
+#       "hofbauer",
+#       "leukocyte",
+#       "syncytiotrophoblast"
+#     )
+
 cell.types <-
     list(
       "cytotrophoblast",
-      "endothelial",
       "extravilloustrophoblast",
       "fibroblast",
       "hofbauer",
@@ -393,7 +431,9 @@ y_max <- y_sorted[length(y_sorted)-3] %>% as.numeric
 #y_max <- max(y_limits)
 
 names(mapped)
-contrast.labels <- c("Cytotrophoblast" , "Endothelial", "Extravillous Trophoblast", "Fibroblast", "Hofbauer Cell", "Leukocyte", "Syncytiotrophoblast")
+contrast.labels <- c("Cytotrophoblast" , "Extravillous Trophoblast", "Fibroblast", "Hofbauer Cell", "Leukocyte", "Syncytiotrophoblast")
+
+#contrast.labels <- c("Cytotrophoblast" , "Endothelial", "Extravillous Trophoblast", "Fibroblast", "Hofbauer Cell", "Leukocyte", "Syncytiotrophoblast")
 
 # Get presentable volcanos
 # Add contrast title and set x and y limits without removing data points
@@ -411,35 +451,74 @@ save_volcano_plot <- function(plot, filename) {
 #map2(volcanos, names(mapped), ~ save_volcano_plot(.x, .y))
 ```
 
-```{r, eval = F}
-#alpha <- 0.05
+```{r}
+volcanos$cytotrophoblast
+```
+
+
+```{r}
+# Pull dex results
 results <- map(mapped, ~ .x[["res"]])
+```
 
-#res <- mapped$hofbauer$res
+PrerankGSEA does not resolve ties. Code to make GSEA input and diagnostic plots to ensure that there are not excessive ties. GSEA results seem hard to interpret so far. GSEA should always include all genes tested in differential expression. Perhaps subsetting to the most enriched pathways will be easier to interpret. In RNA-seq, GSEA may benefit from very lowly expressed genes that may be artifactual and expressed in any samples.
+```{r}
+make_gsea_input <- function(res, title) {
 
-#rank_upreg <- function(res) {
-  res <-
-    res %>%
-    filter(padj < alpha) %>%
+  return <- res %>%
     arrange(desc(stat)) %>%
-    filter(log2FoldChange > 0)
-  res <- res$gene_symbol
-  return(res)
+    dplyr::select(gene_symbol, stat)
+  
+  # Pull the stat associated with the largest p-value less than .05 for boundaries
+  stat.lim <- res %>%
+    filter(padj < .05) %>%
+    arrange(desc(padj)) %>%
+    slice_head(n = 1) %>%
+    pull(stat)
+  
+  # Pull the associated padj
+  padj.lim <- res %>%
+    filter(padj < .05) %>%
+    arrange(desc(padj)) %>%
+    slice_head(n = 1) %>%
+    pull(padj)
+  
+  # Get number of stat duplicates
+  dup.stats.counts <- res %>%
+  group_by(stat) %>%
+  filter(n() > 1) %>%
+  tally()
+  
+  # Graph stat duplicates
+  print(ggplot(dup.stats.counts, aes(x = stat)) + geom_histogram() + ggtitle(paste0("Duplicate Test Statistics - ", title)) +
+    geom_vline(xintercept = abs(stat.lim)) + geom_vline(xintercept = -abs(stat.lim)) +
+    geom_label(
+      data = NULL,
+      x = abs(stat.lim),
+      y = 50,
+      label = paste0("padj = ", round(padj.lim, 2))
+    ))
+  
+  # Save plots
+  # Unsure why this code is producing an error about not being able to open .png device
+  # ggsave(
+  #   here("results", "GSEA", " sorted", "dup_stats_plots", paste0(title, "_dup_gsea_input_stats_", Sys.Date(), ".png"))
+  # )
+  
+  # Write  .rnk file for GSEA input
+  #write_tsv(return, here("results", "GSEA", "sorted", paste0(title, "_dup_gsea_input_stats_", Sys.Date(), ".rnk")), col_names = FALSE)
+  
+  return(return)
 }
 
-gost.input <- rank_upreg(res)
+inputs <- map2(results, contrast.labels, ~ make_gsea_input(res = .x, title = .y))
+```
 
-# Changing significant to FALSE to troubleshoot no results
-gostres <- gost(query = gost.input,
-               organism = "hsapiens", ordered_query = TRUE,
-               multi_query = FALSE, significant = TRUE, exclude_iea = TRUE,
-               measure_underrepresentation = FALSE, evcodes = FALSE,
-               user_threshold = 0.05, correction_method = "g_SCS",
-               domain_scope = "annotated", custom_bg = NULL,
-               numeric_ns = "", sources = NULL, as_short_link = FALSE)
-gostplot(gostres, capped = FALSE, interactive = TRUE)
+```{r}
+map2(results, contrast.labels, ~ ggplot(data = .x, mapping = aes(x = pvalue)) + geom_histogram() + ggtitle(.y))
+```
 
-
+```{r}
 gost_deseq2 <- function(res, alpha) {
   
   # Filter results and rank by test statistic
@@ -470,15 +549,7 @@ gost_deseq2 <- function(res, alpha) {
   return(results)
 }
 
-test <- results[1:3]
-
-gost.test <- map(test, gost_deseq2, alpha = .05)
-
 gost.mapped <- map(results, ~ gost_deseq2(.x, alpha = .05))
-#names(gost.mapped) <- contrast.labels
-
-
-gost_deseq2(results$cytotrophoblast, alpha = .05)
 ```
 
 ``` {r cyto_vs_all, eval = F}
