@@ -29,7 +29,8 @@ library(scater)
 # Set seed since this pipeline includes stochastic algorithms
 set.seed(1)
 # Set default working directory
-data_dir <- "C:/Users/k_cam/Google Drive/Placenta_Cell_Types/RNA/placenta_rna/data/"
+#data_dir <- "C:/Users/k_cam/Google Drive/Placenta_Cell_Types/RNA/placenta_rna/data/"
+data_dir <- paste0(here("data"), "/")
 ```
 # Single-cell RNA-seq analysis of KC and TNL Pique-Regi placental villous tissue samples
 ### Important References
@@ -46,7 +47,6 @@ seu <- readRDS(paste0(data_dir, "fetal_assigned_res.0.3_2020-12-16.rda"))
 ```{r}
 DimPlot(seu, group.by = 'seurat_clusters', label = T, pt.size = .25)
 ```
-
 
 Split into maternal versus fetal subsets.
 ```{r}
@@ -308,7 +308,7 @@ VlnPlot(monocytes, "GZMB")
 # Does not express pan-lymphocyte marker
 VlnPlot(monocytes, "IL7R")
 ```
-Using reasolution of 0.3, the FCGR3A+ monocytes (and possibly the related FCER1A+ DC subtype comes with) are cluster identity 2, will not pull out because it's such a small population.
+Using resolution of 0.3, the FCGR3A+ monocytes (and possibly the related FCER1A+ DC subtype comes with) are cluster identity 2, will not pull out because it's such a small population.
 ```{r}
 fcgr3a.monoctyes <- WhichCells(monocytes, ident = "2")
 ```
@@ -340,7 +340,6 @@ DimPlot(t.cells, group.by = 'ident', label = T, repel = T, pt.size = .25) + NoLe
 # saveRDS(t.cells, file = paste0(data_dir, "t_cells_subcluster", Sys.Date(), ".rda"))
 # t.cells <- readRDS(paste0(data_dir, "t_cells_subcluster2020-12-21.rda"))
 ```
-
 
 Differentiating CD4 from CD8 T cells
 https://satijalab.org/seurat/v3.1/pbmc3k_tutorial.html Seurat cell type assignment
@@ -557,7 +556,7 @@ DimPlot(named.fetal, label = T, repel = T, pt.size = .25, label.size = 3) + NoLe
 ```
 
 ```{r}
-ggsave(filename = paste0(data_dir, "fetal_cleaned_", Sys.Date(), ".png"), device = "png")
+#ggsave(filename = paste0(data_dir, "fetal_cleaned_", Sys.Date(), ".png"), device = "png")
 ```
 
 ## Confirming CD4+ Memory T Cells assignment
