@@ -19,7 +19,7 @@ library(EnvStats)
 library(Matrix)
 
 # Bioconductor packages
-library(DropletUtils)
+#-library(DropletUtils)
 library(edgeR)
 library(scater)
 ```
@@ -76,7 +76,7 @@ TOTAL.RNA.RAW <- lapply(raw.seurat, function(x) x$nCount_RNA %>% sum()) %>% as.n
 # Total unique genes measured
 TOTAL.GENES.RAW <- lapply(raw.seurat, function(x) x %>% nrow()) %>% as.numeric
 # Sex of samples
-FETAL.SEX <- c("F", "F", "M", "M", "F", "M", "M")
+FETAL.SEX <- c("F", "F", "M", "M", "M", "F", "M")
 ```
 
 ## Get list of Seurat objects
