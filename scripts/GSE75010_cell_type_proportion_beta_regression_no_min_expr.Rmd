@@ -159,7 +159,9 @@ fviz_eig(res.pca)
 ```
 
 ```{r}
-#View(res.pca)
+#View(abs(res.pca$rotation))
+colSums(res.pca$rotation)
+#View(res.pca$center)
 ```
 
 Graph of individuals. Individuals with a similar profile are grouped together.
@@ -178,7 +180,7 @@ pc.1.2 <- fviz_pca_var(res.pca,
              legend.title = "Contribution",
              # Default labelsize = 4
              labelsize = 2*4,
-             repel = TRUE,     # Avoid text overlapping 
+             repel = TRUE,      # Avoid text overlapping
              ) + 
   theme(legend.position = "none")
 pc.1.2
@@ -435,9 +437,9 @@ head(var.contrib[, 1:4])
 
 Interesting way to visualize the relative abundance of each cell type
 ```{r}
-annotation.row <- data.frame( Phenotype = t1$phenotype)
-rownames(annotation.row) <- t1$sample
-pheatmap(active, cutree_rows = 2, annotation_row = annotation.row)
+annotation.row <- data.frame(Phenotype = t1$phenotype)
+  
+#pheatmap(active, cutree_rows = 2, annotation_row = annotation.row)
 ```
 
 Corrplot to identify inversely correlated proportions. Maternal plasma and B cells are inversely correlated as well as Maternal NK/Fetal CD8+ cytotoxic
@@ -487,8 +489,7 @@ Convert to long data format for graphing purposes
 ```{r}
 # Remove the unnecessary columns
 # Select was masked, had to add dplyr::
-#merged.violin <- merged %>% dplyr::select(!c(batch, ga, sex, p_value, correlation, rmse))
-merged.violin <- merged %>% dplyr::select(!c(batch, ga, sex, 'P-value', Correlation, RMSE))
+merged.violin <- merged %>% dplyr::select(!c('P-value', Correlation, RMSE))
 
 #long <- gather(merged.violin, cell_type, proportion, fibroblasts:extravillous_trophoblasts, factor_key = T)
 long <- gather(merged.violin, 'Cell Type', Proportion, 'Fetal Mesenchymal Stem Cells':'Fetal Extravillous Trophoblasts', factor_key = T)
@@ -500,6 +501,18 @@ levels(long$phenotype) <- c("Control", "Preeclampsia")
 #long.nosyn <- long %>% filter(cell_type != "Syncytiotrophoblast")
 #long.syn <- long %>% filter(cell_type == "Syncytiotrophoblast")
 ```
+
+Stacked bar chart of cell type proportions by sample
+```{r}
+stacked.bar <- ggplot(long, aes(fill = `Cell Type`, x = sample, y = Proportion)) + geom_bar(postion = "stack", stat = "identity")
+stacked.bar + theme(axis.text.x=element_blank(), axis.ticks.x = element_blank()) + xlab("Sample")
+stacked.bar + theme(legend.position = "none", axis.text.x=element_blank(), axis.ticks.x = element_blank()) + xlab("Sample")
+
+stacked.bar + theme(legend.position = "none", axis.text.x=element_blank(), axis.ticks.x = element_blank()) + xlab("Sample")
+
+#ggsave(here("results", "GSE75010", paste0("/", Sys.Date(), "_stacked_cell_type_proportions.png")))
+```
+
 
 ```{r}
 #long.placenta <- long %>%
@@ -576,6 +589,35 @@ fetal
 
 #ggsave(paste0(results_dir, "fetal_bivariate_cell_type_proportion_distribution_", Sys.Date(), ".png"))
 ```
+```{r}
+fetal <- ggplot(long.fetal, aes(x = Proportion, y = Cell.Type, color = sex, point_color = sex, fill = sex)) +
+  geom_density_ridges(
+    jittered_points = TRUE, scale = .95, rel_min_height = .01,
+    point_shape = "|", point_size = 1, size = 0.25,
+    position = position_points_jitter(height = 0)
+  ) +
+  ylab("Cell Type") +
+  scale_y_discrete(expand = c(0, 0)) +
+  scale_x_continuous(expand = c(0, 0), name = "Cell Type Proportion", labels = scales::percent_format(accuracy = 1)) +
+  scale_fill_manual(values = c("#D55E0050", "#0072B250"), labels = c("Female", "Male")) +
+  scale_color_manual(values = c("#D55E00", "#0072B2"), guide = "none") +
+  scale_discrete_manual("point_color", values = c("#D55E00", "#0072B2"), guide = "none") +
+  coord_cartesian(clip = "off") +
+  guides(fill = guide_legend(
+    override.aes = list(
+      fill = c("#D55E00A0", "#0072B2A0"),
+      color = NA, point_color = NA)
+    )
+  ) +
+  ggtitle("Cell Type Proportions in Males vs. Females") +
+  theme_ridges(center = TRUE) +
+  theme(legend.title = element_blank(), legend.position = c(.65, .2), legend.text = element_text(size = 10), axis.title.x=element_blank(), plot.title = element_text(size = 12), axis.text.y = element_text(size = 8), axis.title.y = element_blank()) +
+  facet_wrap(phenotype)
+
+fetal
+
+#ggsave(here("results", "GSE75010", paste0("/", Sys.Date(), "cell_type_props_male_v_female_preeclampsia_facet_wrap.png")))
+```
 
 ```{r}
 colnames(long.fetal)
@@ -583,9 +625,8 @@ colnames(long.fetal)
 
 
 ```{r}
-long.fetal %>% group_by(phenotype, Cell.Type) %>% summarise(describe(Proportion))
+long.fetal %>% group_by(phenotype, Cell.Type) %>% summarise(median = median(Proportion)) #%>% View
 ```
-
 
 ```{r}
 maternal <-  ggplot(long.maternal, aes(x = Proportion, y = Cell.Type, color = phenotype, point_color = phenotype, fill = phenotype)) +
@@ -641,13 +682,46 @@ maternal
 
 #ggsave(paste0(results_dir, "maternal_bivariate_cell_type_proportion_distribution_", Sys.Date(), ".png"))
 ```
+
 ```{r}
-ct.prop.panel <- ggarrange(fetal.panel, maternal.panel, labels = "AUTO", common.legend = TRUE, legend = "bottom", font.label = list(size = 24, face = "bold", color = "black"))
-ggexport(ct.prop.panel, width = 1920, height = 1080, filename = here("results", "GSE75010", paste0(Sys.Date(), "_fetal_maternal_proportions.png")))
+maternal <-  ggplot(long.maternal, aes(x = Proportion, y = Cell.Type, color = sex, point_color = sex, fill = sex)) +
+  geom_density_ridges(
+    jittered_points = TRUE, scale = .95, rel_min_height = .01,
+    point_shape = "|", point_size = 1, size = 0.25,
+    position = position_points_jitter(height = 0)
+  ) +
+  ylab("Cell Type") +
+  scale_y_discrete(expand = c(0, 0)) +
+  scale_x_continuous(expand = c(0, 0), name = "Cell Type Proportion", labels = scales::percent_format(accuracy = 1)) +
+  scale_fill_manual(values = c("#D55E0050", "#0072B250"), labels = c("Female", "Male")) +
+  scale_color_manual(values = c("#D55E00", "#0072B2"), guide = "none") +
+  scale_discrete_manual("point_color", values = c("#D55E00", "#0072B2"), guide = "none") +
+  coord_cartesian(clip = "off") +
+  guides(fill = guide_legend(
+    override.aes = list(
+      fill = c("#D55E00A0", "#0072B2A0"),
+      color = NA, point_color = NA)
+    )
+  ) +
+  ggtitle("Cell Type Proportions in Males vs. Females") +
+  theme_ridges(center = TRUE) +
+  theme(legend.title = element_blank(), legend.position = c(.65, .2), legend.text = element_text(size = 10), axis.title.x=element_blank(), plot.title = element_text(size = 12), axis.text.y = element_text(size = 8), axis.title.y = element_blank()) + facet_wrap(phenotype)
+
+maternal
+
+#ggsave(here("results", "GSE75010", paste0("/", Sys.Date(), "maternal_cell_type_props_male_v_female_preeclampsia_facet_wrap.png")))
 ```
 
+```{r}
+long.maternal %>% group_by(phenotype, Cell.Type) %>% summarise(median = median(Proportion)) %>% View
+```
 
-Beta transformation function to accomodate 0's in the cell types where 0's are predicted.
+```{r}
+ct.prop.panel <- ggarrange(fetal.panel, maternal.panel, labels = "AUTO", common.legend = TRUE, legend = "bottom", font.label = list(size = 24, face = "bold", color = "black"))
+#ggexport(ct.prop.panel, width = 1920, height = 1080, filename = here("results", "GSE75010", paste0(Sys.Date(), "_fetal_maternal_proportions.png")))
+```
+
+Beta transformation function to accommodate 0's in the cell types where 0's are predicted.
 ```{r}
 beta_transform <- function(x, n) {
   return((1/n)*(x*(n-1)+0.5))
@@ -799,7 +873,7 @@ forest <- ggplot(data=estimates.graph,
     theme_bw() +
     theme(text = element_text(size=16),
           legend.position = 'none') +
-    xlab('') + ylab('Odds Ratio') +
+    xlab('') + ylab('Prevalence Odds Ratio') +
     coord_flip() +
     scale_color_manual(values = c("grey", "red"))
 
@@ -808,3 +882,79 @@ forest
 #ggsave(paste0(results_dir, "beta_forest_", Sys.Date(), ".png"), device = png())
 ```
 
+Pull all sex model effect estimates and combine to a single tibble for graphing.
+```{r}
+pull_estimates <- function(data) {
+  return(
+    data %>%
+      filter(term == "sexM") %>%
+      dplyr::select(estimate,
+                    conf.low,
+                    conf.high,
+                    p.value) %>%
+      mutate(
+        or = exp(estimate),
+        lower = exp(conf.low),
+        upper = exp(conf.high)
+      )
+  )
+}
+estimates <- lapply(X = models, FUN = pull_estimates)
+# Collapse list of model estimates to a single tibble
+estimates <- Reduce(rbind, estimates)
+# Add cell_type names and reorganize columns
+estimates <-
+  estimates %>%
+  mutate(Cell.Type = names(models)) %>%
+  dplyr::select(Cell.Type, everything())
+# Recode cell type names
+# First, recode all ".." to "+ "
+estimates$Cell.Type <- str_replace_all(string = estimates$Cell.Type, pattern = "\\.{2}", replacement = "+ ")
+# Then, replace remaining "." with " "
+estimates$Cell.Type <- str_replace_all(string = estimates$Cell.Type, pattern = "\\.{1}", replacement = " ")
+
+# Save results
+#write.csv(estimates, paste0(results_dir, "beta_models_estimates.csv"))
+```
+
+Make modifications to the results table for graphing.
+```{r}
+# Create an indicator variable if significant
+estimates$is.sig <- estimates$p.value < .05
+
+# Create a fetal/maternal indicator to reorder by
+estimates$is.fetal <- grepl("^Fetal", estimates$Cell.Type)
+# Set factor variable with true as the reference level
+estimates$is.fetal <- factor(estimates$is.fetal, levels = c(F, T))
+
+# Arrange cell types by descending Odds Ratio within each fetal/maternal group
+estimates.graph <- 
+  estimates %>%
+  group_by(is.fetal) %>%
+  arrange(desc(or), .by_group = T)
+
+# Get cell types ordered from above
+factor.order <- estimates.graph$Cell.Type
+#saveRDS(factor.order, paste0(data_dir, "beta_or_ranked_cell_type_factor_", Sys.Date(), ".rda"))
+
+# Relevel the factor with the ordered cell types
+estimates.graph$Cell.Type <- factor(estimates.graph$Cell.Type, levels = factor.order)
+```
+
+Sex forest plot code
+```{r}
+forest <- ggplot(data=estimates.graph, 
+                       aes(x=Cell.Type, y=or, ymin=lower, ymax=upper, color = is.sig)) +
+    geom_pointrange(position=position_dodge2(width=1), size=1.3) +
+    geom_hline(yintercept=1, linetype=2) +
+    theme_bw() +
+    theme(text = element_text(size=16),
+          legend.position = 'none') +
+    xlab('') + ylab('Odds Ratio') +
+    coord_flip() +
+    scale_color_manual(values = c("grey", "red"))
+
+forest + ggtitle("Male vs. female")
+
+#ggsave(paste0(results_dir, "sex_beta_forest_", Sys.Date(), ".png"), device = png())
+```
