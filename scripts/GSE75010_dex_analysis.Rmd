@@ -121,7 +121,7 @@ run_limma_model <-
     
     #Extract model results.
     #hits <- topTable(fit, coef = "phenotypePE", number = Inf)
-    hits <- topTable(fit, coef = "phenotypePreeclampsia", number = Inf)
+    hits <- topTable(fit, coef = "phenotypePreeclampsia", number = Inf, confint=TRUE)
     
     #Histogram of raw p-values
     hist(
@@ -321,6 +321,7 @@ pc.model <- run_limma_model(
 )
 ```
 
+
 Reducing the cell composition to just PC3 still completely attenuates DEX results.
 ```{r}
 covariates <- c("phenotype", "sex", "ga", "batch", "Dim.3")
@@ -375,6 +376,39 @@ ggplot(res) +
 
 #ggsave(paste0(here("results", "GSE75010", "/"), "compare_limma_models_", Sys.Date(), ".png"))
 ```
+
+Search for gene names of interest to compare models
+```{r}
+# Combine the 
+primary <- rbind(base.res, pc.res)
+search_hits <- function(gene_symbol_string) {
+  idx <- grepl(gene_symbol_string, primary$gene_symbol)
+  View(primary[idx, ])
+}
+search_hits("TGF")
+search_hits("HIF")
+search_hits("ENG")
+search_hits("FLT")
+search_hits("PGF")
+search_hits("LEP")
+search_hits("KDR")
+search_hits("FSTL")
+search_hits("EGFR")
+
+
+# search_hits("LIMK")
+search_hits("ICAM")
+search_hits("IL")
+search_hits("EPO")
+search_hits("ME")
+search_hits("VEG")
+search_hits("GF")
+search_hits("IGF")
+search_hits("TBX3")
+
+search_hits("PGAM")
+```
+
 
 Pull out the two models for the publication, the 5 PCs-adjusted model and the base model.
 ```{r}
@@ -677,7 +711,6 @@ Interestingly, GA is only marginally associated with FLT1 status without cell co
 out.fit <- lm(FLT1 ~ phenotype + sex + ga + batch, data = df)
 print(tidy(out.fit))
 ```
-
 
 Outcome model
 ```{r}
