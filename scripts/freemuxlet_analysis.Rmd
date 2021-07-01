@@ -6,12 +6,13 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
+library(here)
 library(tidyverse)
 library(ggridges)
 
 knitr::opts_chunk$set(echo = TRUE)
 
-data_dir <- "C:/Users/k_cam/Google Drive/Placenta_Cell_Types/RNA/placenta_rna/data/freemuxlet/"
+data_dir <- paste0(here("data", "freemuxlet"), "/")
 ```
 
 ```{r}
@@ -48,8 +49,8 @@ all %>%
   group_by(sample, BEST.GUESS) %>%
   tally()
 
-saveRDS(all, paste0(data_dir, "freemuxlet_assignments_", Sys.Date(), ".rda"))
-write_csv(all, paste0(data_dir, "freemuxlet_assignments_", Sys.Date(), ".csv"))
+#saveRDS(all, paste0(data_dir, "freemuxlet_assignments_", Sys.Date(), ".rda"))
+#write_csv(all, paste0(data_dir, "freemuxlet_assignments_", Sys.Date(), ".csv"))
 ```
 
 Cluster represents freemuxlet clusters assigned from entire 1-22, X, Y 1000Genomes .vcf reference.
@@ -92,11 +93,6 @@ data <- rbind(all, min) %>%
   arrange(BARCODE)
 data.mismatch <- data %>%
   filter(mismatch == T)
-```
-
-
-```{r}
-data.ggplot <- aes()
 ```
 
 ```{r}
