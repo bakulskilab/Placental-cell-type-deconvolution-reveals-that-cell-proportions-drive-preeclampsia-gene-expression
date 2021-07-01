@@ -66,10 +66,45 @@ VlnPlot(seu, features = "nFeature_RNA", pt.size = .1, group.by = "orig.ident") +
 #ggsave(paste0(results_dir, "qc_replicate_total_genes_", Sys.Date(), ".png"))
 ```
 
+Fetal sex check using XIST as a biomarker for female sex.
+```{r}
+seu$fetal <- seu$fetal %>% as.factor()
+fetal <- subset(seu, subset = fetal == "Fetal")
+
+biorep.expr <- AverageExpression(fetal, group.by = c("fetal", "biorep"))
+biorep.expr <- biorep.expr$RNA %>% t() %>% as.data.frame()
+biorep.expr <- rownames_to_column(biorep.expr, var = "biorep")
+#View(head(biorep.expr))
+
+biorep.expr$biorep <- factor(biorep.expr$biorep)
+levels(biorep.expr$biorep)
+levels(biorep.expr$biorep) <- c("Sample 1", "Sample 2", "Sample 3", "Sample 4", "Sample 5")
+
+ggplot(data = biorep.expr, aes(x = biorep, y = XIST)) + geom_point() + labs(x = "Biological Replicate") + ggtitle("Average XIST expression in fetal cells by biological replicate") + theme_minimal()
+
+#ggsave(here("results", "seurat", paste0(Sys.Date(), "xist_sex_expression.png")))
+```
+
 VEGFR Receptor expression by cluster
 ```{r}
 VlnPlot(seu, features = "KDR") + NoLegend()
 VlnPlot(seu, features = "FLT1") + NoLegend()
+```
+
+Looking at Preeclampsia-related genes from "Hypoxia in the pathogenesis of preeclampsia" by Keiichi Matsubara
+```{r}
+VlnPlot(seu, features = "ENG") + NoLegend()
+VlnPlot(seu, features = "LEP") + NoLegend()
+
+VlnPlot(seu, features = "HIF1A") + NoLegend()
+VlnPlot(seu, features = "HIF1B") + NoLegend()
+VlnPlot(seu, features = "TGFB3") + NoLegend()
+
+FeaturePlot(seu, features = "HIF1A") + NoLegend()
+
+hif <- grepl("HIF", rownames(seu))
+hifs <- rownames(seu)[hif]
+  
 VlnPlot(seu, features = "CD9") + NoLegend()
 #ggsave(paste0(results_dir, "FLT1_expr_by_cluster_", Sys.Date(), ".png"))
 ```
@@ -243,9 +278,13 @@ table <- table(Idents(seu), seu$ident)
 samples <- c("1A", "1B", "2A", "2B", "3", "4", "5")
 colnames(table) <- samples
 table.df <- as.data.frame(table)
-write.csv(table, file = here("results", "seurat", paste0(Sys.Date(), "_cell_counts.csv")))
-```
 
+total <- sum(table.df$Freq) %>% as.numeric
+
+
+
+#write.csv(table, file = here("results", "seurat", paste0(Sys.Date(), "_cell_counts.csv")))
+```
 
 Compare proliferative and cytotrophoblasts.
 ```{r}
@@ -345,7 +384,6 @@ prolif.genes <- FindMarkers(seu, ident.1 = "Fetal Mesenchymal Stem Cells", ident
 View(prolif.genes %>% rownames_to_column(var = "gene"))
 ```
 
-
 ```{r}
 marker_Volcano(prolif.genes, "Mesenchymal Stem Cells vs. Fibroblasts", num.to.plot = 10, genes.of.interest = NULL, threshold = 0.05, output_dir = here("results", "seurat"))
 ```
@@ -375,4 +413,3 @@ terms.to.plot <- terms.to.plot$term_id[1:10]
 ```{r}
 pp <- publish_gostplot(p, highlight_terms = terms.to.plot, filename = here("results", "seurat", paste0(Sys.Date(), "_mesenchymal_stem_vs_fibroblast_enriched_gost_plot.png")))
 ```
-

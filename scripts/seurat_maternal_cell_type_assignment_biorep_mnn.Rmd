@@ -26,11 +26,14 @@ library(Matrix)
 library(batchelor)
 library(edgeR)
 library(scater)
+library(scDblFinder)
 # Set seed since this pipeline includes stochastic algorithms
 set.seed(1)
 # Set default working directory
-data_dir <- "C:/Users/k_cam/Google Drive/Placenta_Cell_Types/RNA/placenta_rna/data/"
-results_dir <- "C:/Users/k_cam/Google Drive/Placenta_Cell_Types/RNA/placenta_rna/results/seurat/"
+#data_dir <- "C:/Users/k_cam/Google Drive/Placenta_Cell_Types/RNA/placenta_rna/data/"
+data_dir <- paste0(here("data"), "/")
+#results_dir <- "C:/Users/k_cam/Google Drive/Placenta_Cell_Types/RNA/placenta_rna/results/seurat/"
+results_dir <- paste0(here("results", "seurat"), "/")
 ```
 # Single-cell RNA-seq analysis of KC and TNL Pique-Regi placental villous tissue samples
 ### Important References
@@ -499,9 +502,9 @@ ggsave(paste0(results_dir, "qc_cluster_total_genes_", Sys.Date(), ".png"))
 ```{r}
 list <- SplitObject(seu, split.by = "fetal")
 DimPlot(list$Fetal, label = T, repel = T, pt.size = .25, label.size = 2.5) + NoLegend()
-ggsave(paste0(results_dir, "Fetal_Combined_UMAP_", Sys.Date(), ".png"))
+#ggsave(paste0(results_dir, "Fetal_Combined_UMAP_", Sys.Date(), ".png"))
 DimPlot(list$Maternal, label = T, repel = T, pt.size = .25, label.size = 2.5) + NoLegend()
-ggsave(paste0(results_dir, "Maternal_Combined_UMAP_", Sys.Date(), ".png"))
+#ggsave(paste0(results_dir, "Maternal_Combined_UMAP_", Sys.Date(), ".png"))
 ```
 
 

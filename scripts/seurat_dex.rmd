@@ -33,7 +33,10 @@ Save marker gene results
 ```{r}
 # All results
 #write.csv(markers, here("results", "seurat", "all_markers_cleaned_combined_seurat_2020-12-22.csv"))
+```
 
+
+```{r}
 top.10.per <- markers %>%
   filter(avg_logFC > 0) %>%
   filter(p_val_adj < p_val_adj_threshold) %>%
