@@ -8,6 +8,7 @@ knitr::opts_chunk$set(echo = TRUE)
 knitr::knit_engines$set(python = reticulate::eng_python)
 
 #install.packages("package_name",  repos="http://cran.us.r-project.org") # Only this mirror worked for multiple packages
+library(here)
 library(knitr)
 library(tidyverse)
 library(devtools)
@@ -22,14 +23,14 @@ library(clustree)
 library(Matrix)
 
 # Bioconductor packages
-#remotes::install_github('chris-mcginnis-ucsf/DoubletFinder') #Install DoubletFinder and depends
 library(batchelor)
 library(edgeR)
 library(scater)
 # Set seed since this pipeline includes stochastic algorithms
 set.seed(1)
 # Set default working directory
-data_dir <- "C:/Users/k_cam/Google Drive/Placenta_Cell_Types/RNA/placenta_rna/data/"
+#data_dir <- "C:/Users/k_cam/Google Drive/Placenta_Cell_Types/RNA/placenta_rna/data/"
+data_dir <- paste0(here("data"), "/")
 ```
 # Single-cell RNA-seq analysis of KC and TNL Pique-Regi placental villous tissue samples
 ### Important References
@@ -72,6 +73,13 @@ The top 25 most variables genes are labelled in the plot of standardized varainc
 seu <- NormalizeData(object = seu, normalization.method = "LogNormalize", scale.factor = 10000)
 seu <- FindVariableFeatures(object = seu)
 ```
+
+```{r}
+all.genes <- rownames(seu)
+seu <- ScaleData(seu, features = all.genes)
+seu <- RunPCA(seu, features = VariableFeatures(object = seu))
+```
+
 Elbow plot to identify the dimensionality of the dataset. Seurat errs on the side of selecting more rather than fewer PCs because too few PCs can significantly affect the result.
 
 ElbowPlot() plots the standard deviations (or approximate singular values if running PCAFast) of the principle components for easy identification of an elbow in the graph. This elbow often corresponds well with the significant dims.
@@ -79,12 +87,15 @@ ElbowPlot() plots the standard deviations (or approximate singular values if run
 GSEA could be conducted on the PCs to see if they identify cell types or a group of similar cell types.
 
 50 looks like more than enough to capture the variability in the dataset.
-```{r Dataset_Dimensionality}
-ElbowPlot(object = seu, ndims = 100)
-```
+
 ```{r}
 DimPlot(seu, reduction = "pca", group.by = 'orig.ident')
 ```
+
+```{r Dataset_Dimensionality}
+ElbowPlot(object = seu, ndims = 100)
+```
+
 ## Uncorrected Clustering, t-SNE, UMAP 
 
 Next, we use a non-linear dimensional reduction technique to embed the first 50 PCs of the dataset into two dimensions for visualization and exploration. Seurat recommends using the same number of PCs for t-SNE and neighbor-graph. Each point represents a single cell's transcriptome. Cells with similar gene expression profiles are plotted closer together. To identify communities (cell types in this biological context), Seurat creates a shared nearest neighbor graph and creates communities that optimize "modularity", the density of links within communities compared to links between communities.
@@ -112,7 +123,7 @@ DimPlot(object = seu,pt.size=0.01, reduction='umap',group.by='batch')
 ```
 ## MNN Correction and Clustering
 
-Re-running pipeline after MNN correction, batch correct for KC40 vs. KC42
+Re-running pipeline after MNN correction, batch correct for biological replicate
 ```{r}
 #saveRDS(seu, paste0(data_dir, "fetal_assigned_res.0.3_",Sys.Date(), ".rda"))
 
@@ -239,7 +250,7 @@ meta.new <- df %>%
                "male",
                "female")
            )
-  ) %>% select(barcode, fetal, sex, everything())
+  )
 meta.new$fetal <- factor(meta.new$fetal,
                          levels = c(FALSE, TRUE),
                          labels = c("Maternal", "Fetal"))
@@ -259,7 +270,6 @@ DimPlot(seu, group.by = 'fetal', pt.size = .25)
 DimPlot(seu, group.by = 'biorep', split.by = 'fetal', pt.size = .25)
 DimPlot(seu, group.by = 'sex', pt.size = .25)
 ```
-
 
 ```{r}
 # Function that accepts Seurat  that has been processed up to the clustering step, clusters at desired resolutions (vector), adds cluster identities at different resolutions, and returns Seurat object with resolution cluster identities
@@ -293,6 +303,7 @@ DimPlot(seu, group.by = 'res.0.2', label = T, pt.size = .25)
 ```{r}
 # Reset default cluster resolution
 seu <- FindClusters(seu, resolution = 0.3)
+
 seu.res.0.7 <- FindAllMarkers(seu)
 ```
 
@@ -310,13 +321,12 @@ All.mnn.res.0.7 %>%
   View()
 ```
 
-
-
-
 ```{r mnn_reduction_expression}
-# MNN-corrected with UMAP   embeddings
+# MNN-corrected with UMAP embeddings
 #saveRDS(All.mnn.labelled, "tnl_combined_mnn_labelled.rda")
-All.mnn.labelled <- readRDS("C:/Users/k_cam/Downloads/scRNA_hpc_qc/tnl_combined_mnn_labelled.rda")
+#All.mnn.labelled <- readRDS("C:/Users/k_cam/Downloads/scRNA_hpc_qc/tnl_combined_mnn_labelled.rda")
+
+All.mnn.labelled <- seu
 
 # MNN-corrected cluster markers
 All.mnn.labelled <- RenameIdents(object = All.mnn.labelled,
@@ -344,10 +354,6 @@ All.mnn.labelled <- RenameIdents(object = All.mnn.labelled,
 combined.mnn.res.0.7.labelled <- FindAllMarkers(All.mnn.labelled)
 
 DimPlot(All.mnn.labelled, label = T, repel = T, label.size = 4, pt.size = .25) + NoLegend()
-```
-SRP 2020 Graphics
-```{r}
-srp <- subset(All.mnn.labelled, idents = -(""))
 ```
 
 Cibersort manuscript contains helpful hematopoeitc reference genes: https://www-ncbi-nlm-nih-gov.proxy.lib.umich.edu/pmc/articles/PMC6610714/
@@ -384,7 +390,7 @@ FeaturePlot(object = All.mnn.labelled,
 ```{r Find_All_Markers}
 All.mnn.labelled <- FindClusters(All.mnn.labelled, resolution = 0.7)
 combined.mnn.res.0.7 <- FindAllMarkers(All.mnn.labelled)
-saveRDS(combined.mnn.res.0.7, paste0(data_dir, "combined_res_0.7.rda"))
+#saveRDS(combined.mnn.res.0.7, paste0(data_dir, "combined_res_0.7.rda"))
 
 combined.mnn.res.0.7 <- combined.mnn.res.0.2
 
@@ -395,7 +401,7 @@ levels(test$cluster) <- c("Cytotrophoblasts","Naive T Cells", "CD14+ Monocytes",
 test.sorted <- test %>%
   arrange(cluster, desc(avg_logFC), p_val_adj)
 
-write.csv(test, paste0(data_dir, "marker_genes_sorted.csv"))
+#write.csv(test, paste0(data_dir, "marker_genes_sorted.csv"))
 
 combined.mnn.res.0.7 %>%
   filter(cluster == '13') %>%
@@ -502,7 +508,6 @@ plot2
 placenta.subset <- ScaleData(placenta.subset)
 ```
 
-
 ```{r Subset_clusters}
 # Re-run UMAP and cluster pipeline, using the same mnn-corrected reduction, just with different variable features
 placenta.subset <- RunUMAP(placenta.subset, reduction = "mnn", dims = 1:50)
@@ -524,16 +529,11 @@ placenta.subset <- RenameIdents(object = placenta.subset,
 
 #saveRDS(placenta.subset, paste0(data_dir, "placenta_subset.rda"))
 placenta.subset <- readRDS(paste0(data_dir, "placenta_subset.rda"))
-
-```
-
-```{r doublet finder}
-placenta.subset.doublets <- doubletFinder(placenta.subset, 25)
 ```
 
 ```{r FindAllMarkers}
 placenta.all.markers <- FindAllMarkers(placenta.subset)
-saveRDS(placenta.all.markers, paste0(data_dir, "placenta_all_markers.rda"))
+#saveRDS(placenta.all.markers, paste0(data_dir, "placenta_all_markers.rda"))
 placenta.all.markers <- readRDS(paste0(data_dir, "placenta_all_markers.rda"))
 View(placenta.all.markers)
 
@@ -545,7 +545,7 @@ View(test)
 test.sorted <- test %>%
   arrange(cluster, desc(avg_logFC), p_val_adj)
 
-write.csv(test, paste0(data_dir, "placenta_marker_genes_sorted.csv"))
+#write.csv(test, paste0(data_dir, "placenta_marker_genes_sorted.csv"))
 
 # Sort by logFC followed by the p-value
 placenta.all.markers %>%
@@ -636,7 +636,7 @@ VlnPlot(object=All, features='nFeature_RNA', pt.size=0.15) + NoLegend() + ggtitl
 VlnPlot(object=All, features='percent.mito', pt.size=0.15) + NoLegend() + ggtitle("Percentage of Reads Mapping to Mitochondrial Genes") + theme(axis.title.x = element_blank())
 ```
 
-```{r WIP Supplemental Figure 4 Correlation}
+```{r Supplemental Figure 4 Correlation}
 # From https://github.com/satijalab/seurat/issues/1313
 # In Seurat, easiest method is to average expression across genes, and then use correlation functions
 
