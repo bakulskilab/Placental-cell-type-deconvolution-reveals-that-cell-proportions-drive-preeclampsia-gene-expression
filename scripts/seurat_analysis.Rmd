@@ -13,6 +13,7 @@ knitr::knit_engines$set(python = reticulate::eng_python)
 library(devtools)
 library(here)
 library(ggrepel)
+library(ggpubr)
 library(knitr)
 library(tidyverse)
 library(Seurat)
@@ -84,6 +85,34 @@ ggplot(data = biorep.expr, aes(x = biorep, y = XIST)) + geom_point() + labs(x = 
 
 #ggsave(here("results", "seurat", paste0(Sys.Date(), "xist_sex_expression.png")))
 ```
+
+UMAP plots for Figure 1
+```{r}
+# Set label size for Seurat DimPlots
+label.size <- 9
+
+all.umap <- DimPlot(seu, label = T, label.size = label.size, repel = T) + NoLegend()
+fetal.umap <- subset(seu, subset = fetal == "Fetal") %>% DimPlot(label = T, label.size = label.size, repel = T) + NoLegend()
+maternal.umap <- subset(seu, subset = fetal == "Maternal") %>% DimPlot(label = T, label.size = label.size, repel = T) + NoLegend()
+
+umap.panel <- ggarrange(
+  all.umap,
+  ggarrange(
+    fetal.umap,
+    maternal.umap,
+    ncol = 2,
+    labels = c("B", "C"),
+    font.label = list(size = 36, face = "bold", color = "black")
+  ),
+  nrow = 2,
+  labels = "A",
+  font.label = list(size = 36, face = "bold", color = "black")
+)
+umap.panel
+
+#ggexport(umap.panel, filename = here("results", "seurat", "umap", paste0(Sys.Date(), "_umap_multipanel.png")), width = 1920, height = 1080)
+```
+
 
 VEGFR Receptor expression by cluster
 ```{r}
