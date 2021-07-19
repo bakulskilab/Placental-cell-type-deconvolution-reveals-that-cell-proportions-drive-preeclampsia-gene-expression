@@ -39,7 +39,9 @@ https://www.bioconductor.org/packages/release/bioc/vignettes/GEOquery/inst/doc/G
 
 Load
 ```{r}
-seu <- readRDS(paste0(data_dir, "cleaned_combined_seurat_2020-12-22.rda"))
+data_dir <- "G:/My Drive/Placenta_Cell_Types/RNA/placenta_rna/data/"
+seu <- readRDS(paste0(data_dir,"cleaned_combined_seurat_2020-12-22.rda"))
+#seu <- readRDS(paste0(data_dir, "cleaned_combined_seurat_2020-12-22.rda"))
 ```
 
 ```{r}
