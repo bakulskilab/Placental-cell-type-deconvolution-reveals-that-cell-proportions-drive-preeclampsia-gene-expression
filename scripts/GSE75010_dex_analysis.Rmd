@@ -528,8 +528,10 @@ p2 <- panel_subplot(res = pc.model$res, threshold = threshold, genes.of.interest
 #Manually set axis limits and drawing side-by-side.
 p1 <- p1 + coord_cartesian(xlim = c(-.45, 1.2), ylim = c(0, 5)) + ggtitle("Base model") + theme(legend.title = element_blank())
 
+p1.legend.plot <- p1 + theme(legend.text = element_text(size = 36))
+
 # Get legend for shared legend
-p1.legend <- get_legend(p1 + guides(colour = guide_legend(override.aes = list(size=8), reverse = TRUE)))
+p1.legend <- get_legend(p1.legend.plot + guides(colour = guide_legend(override.aes = list(size=20), reverse = TRUE)))
 
 p2 <- p2 + coord_cartesian(xlim = c(-.45, 1.2), ylim = c(0, 5)) + ggtitle("Cell type-adjusted")
 
