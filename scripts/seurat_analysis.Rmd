@@ -67,6 +67,65 @@ VlnPlot(seu, features = "nFeature_RNA", pt.size = .1, group.by = "orig.ident") +
 #ggsave(paste0(results_dir, "qc_replicate_total_genes_", Sys.Date(), ".png"))
 ```
 
+QC metrics by cluster
+```{r}
+base.size <- 24
+x.lab.size <- 20
+x.lab.hjust <- 0.75
+
+cluster.rna <- VlnPlot(seu, features = "nCount_RNA", pt.size = .1) + theme_bw(base_size = base.size) + NoLegend() + coord_flip() + 
+  theme(axis.text.y = element_blank(), axis.title.y = element_blank(), plot.title = element_text(hjust = 0.5), axis.text.x = element_text(size = x.lab.size, hjust = x.lab.hjust)) + 
+  ggtitle("Total RNA molecules") 
+#ggsave(paste0(results_dir, "qc_cluster_total_RNA_", Sys.Date(), ".png"))
+
+cluster.rna.legend <- VlnPlot(seu, features = "nCount_RNA", pt.size = .1) + theme_bw(base_size = base.size) + coord_flip() + 
+  theme(legend.text = element_text(size = 32, hjust = 1), legend.spacing = unit(1, "npc")) + 
+  ggtitle("Total RNA molecules") +  guides(fill = guide_legend(ncol = 1, keyheight = 2.5, reverse = T))
+legend <- get_legend(cluster.rna.legend)
+#as_ggplot(legend)
+
+cluster.gene <- VlnPlot(seu, features = "nFeature_RNA", pt.size = .1) + theme_bw(base_size = base.size) + NoLegend() + 
+  theme(axis.text.y = element_blank(),  axis.title.y = element_blank(), plot.title = element_text(hjust = 0.5), axis.text.x = element_text(size = x.lab.size, hjust = x.lab.hjust)) +
+  ggtitle("Detected genes") + coord_flip()
+#ggsave(paste0(results_dir, "qc_cluster_total_genes_", Sys.Date(), ".png")) 
+
+cluster.mito <- VlnPlot(seu, features = "subsets_Mito_percent", pt.size = .1) + theme_bw(base_size = base.size) + NoLegend() + 
+  theme(axis.text.y = element_blank(), axis.title.y = element_blank(), plot.title = element_text(hjust = 0.5), axis.text.x = element_text(size = x.lab.size, hjust = x.lab.hjust)) +
+  ggtitle("% Mitochondrial genes") + coord_flip()
+#ggsave(paste0(results_dir, "qc_cluster_mito_", Sys.Date(), ".png"))
+```
+
+```{r}
+panel <- ggarrange(cluster.rna, cluster.gene, cluster.mito, ncol = 3, nrow = 1, labels = "AUTO", font.label = list(size = 30, face = "bold", color = "black"), legend = "left", legend.grob = legend)
+ggexport(panel, filename = here("results", "seurat", paste0(Sys.Date(), "_cluster_qc_vlns.png")), width = 1980, height = 1080)
+```
+
+```{r, eval = F}
+seurat.cluster.qc.plot <- VlnPlot(
+  seu,
+  features = c("nCount_RNA", "nFeature_RNA", "subsets_Mito_percent"),
+  cols = NULL,
+  pt.size = NULL,
+  idents = NULL,
+  sort = FALSE,
+  assay = NULL,
+  group.by = NULL,
+  split.by = NULL,
+  adjust = 1,
+  y.max = NULL,
+  same.y.lims = FALSE,
+  log = FALSE,
+  ncol = NULL,
+  slot = "data",
+  split.plot = FALSE,
+  stack = FALSE,
+  combine = FALSE,
+  fill.by = "ident",
+  flip = FALSE
+) + NoLegend() + theme(axis.title.y = element_blank(), axis.title.x = element_blank())
+#ggsave(plot = seurat.cluster.qc.plot, filename = here("results", "seurat", paste0(Sys.Date(), "_seurat_cluster_qc_vlns.png")))
+```
+
 Fetal sex check using XIST as a biomarker for female sex.
 ```{r}
 seu$fetal <- seu$fetal %>% as.factor()
@@ -108,7 +167,6 @@ umap.panel <- ggarrange(
   labels = "A",
   font.label = list(size = 36, face = "bold", color = "black")
 )
-umap.panel
 
 #ggexport(umap.panel, filename = here("results", "seurat", "umap", paste0(Sys.Date(), "_umap_multipanel.png")), width = 1920, height = 1080)
 ```
