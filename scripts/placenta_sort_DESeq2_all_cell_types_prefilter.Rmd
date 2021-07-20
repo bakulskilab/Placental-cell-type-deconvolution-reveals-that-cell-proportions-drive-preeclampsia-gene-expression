@@ -11,6 +11,7 @@ library(ashr)
 library(ggplot2)
 library(ggrepel)
 library(gprofiler2)
+library(ggpubr)
 library(here)
 library(knitr)
 library(pheatmap)
@@ -369,13 +370,13 @@ run_deseq2 <- function(target, dds) {
       legend.title = element_blank(),
       plot.title = element_text(size = rel(1.5), hjust = 0.5),
       axis.title = element_text(size = rel(1.25))
-    ) +
-    labs(caption = paste0(
-      dim(res)[1],
-      " total genes (",
-      summary(is.na(results$padj))[3],
-      " dropped from contrast)"
-    ))
+    )# +
+    #labs(caption = paste0(
+    #  dim(res)[1],
+    #  " total genes (",
+    #  summary(is.na(results$padj))[3],
+    #  " dropped from contrast)")
+    #  )
   
   # Create a label dataframe for geom_label annotation
   label.df <- data.frame(
@@ -516,7 +517,7 @@ save_volcano_plot <- function(plot, filename) {
 ```
 
 ```{r}
-map(volcanos.ind, print)
+#map(volcanos.ind, print)
 ```
 
 ```{r}
@@ -526,12 +527,11 @@ volcano.legend <- get_legend(big.volcano.ct + theme(legend.title = element_blank
 #volcano.legend <- get_legend(big.volcano.ct + theme(legend.title = element_blank(), legend.key.width = unit(4, "cm"), legend.key.height = unit(4, "cm")), position = "right")
 ```
 
-
 ```{r}
 panel <- ggarrange(volcanos[[1]], volcanos[[2]], volcanos[[3]], volcanos[[4]], volcanos[[5]], volcanos[[6]], volcanos[[7]], volcano.legend, ncol = 4, nrow = 2, labels = "AUTO", font.label = list(size = 36, face = "bold", color = "black"))
 #print(panel)
 # Works okay with theme_bw(base_size = 20) and font.label size = 24 in ggarrange
-#ggexport(panel, filename = here("results", "bulk", "volcanos", paste0(Sys.Date(), "_volcano_multipanel.png")), width = 1920, height = 1080)
+ggexport(panel, filename = here("results", "bulk", "volcanos", paste0(Sys.Date(), "_volcano_multipanel.png")), width = 1920, height = 1080)
 ```
 
 ```{r}
