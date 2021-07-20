@@ -195,7 +195,7 @@ doublets.kc <-
   group_by(orig.ident, doublet) %>%
   tally() %>%
   filter(doublet == "doublet") %>%
-  select(n)
+  dplyr::select(n)
 doublets.kc <- doublets.kc$n
 
 # Remove doublets
@@ -215,7 +215,7 @@ doublets.pr <-
   group_by(orig.ident, doublet) %>%
   tally() %>%
   filter(doublet == "doublet") %>%
-  select(n)
+  dplyr::select(n)
 doublets.pr <- c(0, doublets.pr$n)
 
 pr.seu <- subset(x = pr.seu,
@@ -482,16 +482,30 @@ colnames(QC) <- c("Sample", "Fetal Sex", "Droplets Sequenced", "Total Unique RNA
 ```
 
 ```{r}
-plotColData(sce.combined, x="sample", y="sum", colour_by="discard") + 
-        scale_y_log10() + ggtitle("Total RNA molecules by replicate")
+base.size <- 24
+
+rna.vln <- plotColData(sce.combined, x="sample", y="sum", colour_by="discard") + 
+        scale_y_log10() + ggtitle("Total RNA molecules") + theme_bw(base_size = base.size) +
+        theme(legend.position = "bottom") +
+        guides(colour = guide_legend(override.aes = list(size=20), reverse = TRUE))
+
+
 #ggsave(here("results", "single_cell_qc", paste0(Sys.Date(), "rna_molecules_by_rep.png")))
-plotColData(sce.combined, x="sample", y="detected", colour_by="discard") + 
-        scale_y_log10() + ggtitle("Detected genes by replicate")
+gene.vln <- plotColData(sce.combined, x="sample", y="detected", colour_by="discard") + 
+        scale_y_log10() + ggtitle("Detected genes") + theme_bw(base_size = base.size)
 #ggsave(here("results", "single_cell_qc", paste0(Sys.Date(), "genes_detected_by_rep.png")))
-plotColData(sce.combined, x="sample", y="subsets_Mito_percent", 
-        colour_by="discard") + ggtitle("Percentage of reads mapping to mitochondrial genes by replicate") + ylab("percentage")
+mito.vln <- plotColData(sce.combined, x="sample", y="subsets_Mito_percent", 
+        colour_by="discard") + ggtitle("% Mitochondrial genes") + ylab("percentage") + theme_bw(base_size = base.size)
 #ggsave(here("results", "single_cell_qc", paste0(Sys.Date(), "percent_mito_by_rep.png")))
+
+legend <- get_legend(rna.vln)
 ```
+
+```{r}
+panel <- ggarrange(rna.vln, gene.vln, mito.vln, ncol = 3, nrow = 1, labels = "AUTO", font.label = list(size = 40, face = "bold", color = "black"), common.legend = TRUE, legend = "bottom", legend.grob = legend)
+ggexport(panel, filename = here("results", "GSE75010", paste0(Sys.Date(), "_qc_vlns.png")), width = 1980, height = 1080)
+```
+
 
 # TODO
 Clean-up merged object, looks like merging causes duplicate metadata columns
