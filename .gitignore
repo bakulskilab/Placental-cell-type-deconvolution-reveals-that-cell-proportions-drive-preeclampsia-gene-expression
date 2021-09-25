@@ -7,4 +7,3 @@ data/*
 results/*
 scripts/archive/*
 scripts/sensitivity/*
-scripts/*.html
