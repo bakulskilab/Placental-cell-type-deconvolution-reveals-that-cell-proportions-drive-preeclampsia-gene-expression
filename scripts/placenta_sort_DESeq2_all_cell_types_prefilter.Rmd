@@ -1,12 +1,13 @@
 ---
 title: "DESeq2 Analysis of Placenta Sorted Cell Types"
 subtitle: "Kyle Campbell - March 14th, 2019"
-output: html_document
+output:
+  html_document:
+   self_contained: true
 ---
 
 ```{r setup, include=FALSE}
-# Update R all installed R Packages
-# update.packages(ask = FALSE)
+# CRAN Packages
 library(ashr)
 library(ggplot2)
 library(ggrepel)
@@ -18,6 +19,7 @@ library(pheatmap)
 library(RColorBrewer)
 library(tidyverse)
 
+# Bioconductor Packages
 library(BiocManager)
 library(biomaRt)
 library(DESeq2)
@@ -107,21 +109,20 @@ https://www.researchgate.net/post/How-to-deal-with-multiple-ensemble-IDs-mapping
 
 Our first contrast of interest is how cell type-specific expression differs vs. the average expression across all other cell types. [This thread](https://support.bioconductor.org/p/118090/) recommends fitting a no-intercept model to answer this question. [Another thread](https://support.bioconductor.org/p/86347/) contains a brief discussion of how to code it. These contrasts will exclude the composite tissue group. I wonder if excluding the composite samples from normalization and filtering is appropriate for this particular set of comparisions. I think that also depends on whether we use the composite samples in any analyses.
 
-Updated code (3/2021) and outstanding questions:
-1. Include composite samples in model for gene variance moderation or drop?
+Updated code (3/2021) and outstanding forks:
+1. Include composite samples in model for gene variance moderation or drop? Leave in
   a. "If I have multiple groups, should I run all together or split into pairs of groups?" DESeq2 vignette recommends to do so unless within-group variability varies differently than other groups, the high variance can disrupt the genewise dispersion estimates in the other groups.
-  b. Emprically test running with and without
 2. Include endothelial in the cell type comparison group?
   a. Empirically test
     i. Stable model either way (fewer hits than CT)
-3. Handling Ensembl ID/HGNC symbol multimapping
+3. Handling Ensembl ID/HGNC symbol multimapping? Multimapping a very minor issue (see below), so leave as is
   a. previously handled at annotating results stage (when DESeq2 vignette does it)
     i. Currently, independent filtering handles most multimapping reads due to low counts or low variance, requiring no filtering
     ii. Less than 100 multimapping genes per contrast remain even after independent filtering and are dropped
 
 Note: in DESeq2 alpha is the FDR-adjusted significance cutoff
 
-Bimodal histograms are a little weird down below. Several threads (https://support.bioconductor.org/p/102313/, https://www.biostars.org/p/331711/, https://www.biostars.org/p/312792/), including Michael Love suggest pre-filtering as low counts may be causing the peaks on the p-value histogram (recall that a well-calibrated statistical test has a uniform p-value distribution with a spike at low p-values if there's a significant difference). 
+4. Bimodal histograms are a little weird down below. Several threads (https://support.bioconductor.org/p/102313/, https://www.biostars.org/p/331711/, https://www.biostars.org/p/312792/), including Michael Love suggest pre-filtering as low counts may be causing the peaks on the p-value histogram (recall that a well-calibrated statistical test has a uniform p-value distribution with a spike at low p-values if there's a significant difference). 
 
 Pre-filtering: normalized counts greater than 10 per gene and detected in at least three samples, as recommended in the DESeq2 paper to address bimodal p-value distribution.
 
@@ -150,6 +151,18 @@ Load the prefiltered version.
 dds <- readRDS(here("data", "bulk", "2021-04-16_dds_prefiltered.rda"))
 ```
 
+Format and export metadata table
+```{r}
+meta.tb <- dds@colData %>% as.data.frame %>% as_tibble
+levels(meta.tb$sample.ID) <- c("Sample 6", "Sample 7", "Sample 1", "Sample 8")
+meta.tb$sample.ID <- relevel(meta.tb$sample.ID, "Sample 1")
+
+meta.tb$title <- paste0(meta.tb$sample.ID, " - Bulk RNA-seq - ", str_to_title(meta.tb$cell.type))
+
+#write.csv(meta.tb, here("data", "bulk", "bulk_RNA_seq_meta.csv"), row.names = FALSE)
+```
+
+
 ## Data Quality Assessment by Clustering and Visualization
 
 We'll begin by transforming the data to the log-fold-2 scale using the same shrinkage transformation employed in the DEX pipeline without prefiltering.
@@ -159,7 +172,7 @@ We'll begin by transforming the data to the log-fold-2 scale using the same shri
 rld <- readRDS(here("data", "bulk", "2021-03-26DESeq2_rld.rda"))
 ```
 
-103911 - leukocyte is an extreme outlier on blind PCA analysis, will remove and rerun. PCA looks similar with 103911 - do not remove
+103911 - leukocyte apperas to be an outlier on blind PCA analysis, will remove and rerun. PCA looks similar with 103911 - do not remove
 ```{r}
 #dds_103911 <- dds[,colnames(dds) != "103911"]
 #dds_103911 <- DESeq(dds_103911)
@@ -439,7 +452,7 @@ cell.types
 mas <- map(mapped, ~ DESeq2::plotMA((.x[["shrunk"]])))
 ```
 
-Making presentable Volcanos plots
+Making presentable Volcano plots
 ```{r}
 # Define a base_size variable for the font size for the publication multipanel
 base.size <- 24
@@ -531,7 +544,7 @@ volcano.legend <- get_legend(big.volcano.ct + theme(legend.title = element_blank
 panel <- ggarrange(volcanos[[1]], volcanos[[2]], volcanos[[3]], volcanos[[4]], volcanos[[5]], volcanos[[6]], volcanos[[7]], volcano.legend, ncol = 4, nrow = 2, labels = "AUTO", font.label = list(size = 36, face = "bold", color = "black"))
 #print(panel)
 # Works okay with theme_bw(base_size = 20) and font.label size = 24 in ggarrange
-ggexport(panel, filename = here("results", "bulk", "volcanos", paste0(Sys.Date(), "_volcano_multipanel.png")), width = 1920, height = 1080)
+#ggexport(panel, filename = here("results", "bulk", "volcanos", paste0(Sys.Date(), "_volcano_multipanel.png")), width = 1920, height = 1080)
 ```
 
 ```{r}
@@ -557,11 +570,17 @@ all$.id <- factor(all$.id)
 levels(all$.id) <- contrast.labels
 colnames(all) <- c("Cell Type", "Gene", "log2 Fold-change", "Base Mean", "P-value", "False-discovery rate-adjusted Q-value")
 
+all.grouped <- all %>% group_by(`Cell Type`) %>% arrange(`Cell Type`, `log2 Fold-change`)
+
+all.grouped %>% filter(`False-discovery rate-adjusted Q-value` < 0.05) %>% tally()
+library(psych)
+all.grouped %>% filter(`False-discovery rate-adjusted Q-value` < 0.05) %>% filter(`log2 Fold-change` > 0) %>% tally() %>% describe()
+
 all.top10 <- all %>%
   slice_head(n = 10)
 
 # Save
-#write_csv(all, here("results", "bulk", paste0(Sys.Date(), "_deseq2_dex.csv")))
+#write_csv(all.grouped, here("results", "bulk", paste0(Sys.Date(), "_deseq2_all_dex.csv")))
 #write_csv(all.top10, here("results", "bulk", paste0(Sys.Date(), "_deseq2_dex_top10.csv")))
 ```
 
@@ -696,7 +715,11 @@ gsea.table <- gsea.all %>%
 
 colnames(gsea.table) <- c("Cell Type", "Name", "Size", "nes", "pval", "qval")
 
+# A couple dozen of the least significant terms in the Hofbauer contrast return NA values from GSEA and are present here as NA's; does not meaningfully affect results
 gsea.table <- gsea.table %>%
+  mutate(nes = as.numeric(nes)) %>%
+  mutate(pval = as.numeric(pval)) %>%
+  mutate(qval = as.numeric(qval)) %>%
   mutate(nes =  round(nes, digits = 3)) %>%
   mutate(pval = round(pval, digits = 3)) %>%
   mutate(qval = round(qval, digits = 3)) %>%
