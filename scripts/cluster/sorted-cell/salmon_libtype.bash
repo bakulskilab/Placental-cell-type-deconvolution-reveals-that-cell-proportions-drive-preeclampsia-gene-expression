@@ -1,4 +1,4 @@
-## Align to genome and infer libtype
+## Align to genome and infer libtype to verify correct featureCount analysis settings
 # https://salmon.readthedocs.io/en/latest/salmon.html#what-s-this-libtype/
 
 # Load Bionformatics tools
@@ -25,4 +25,4 @@ module load salmon
 -o /nfs/turbo/bakulski1/People/kyleac/Placenta_Sort_RNA/salmon_out/sample_103893 \
 --validateMappings
 
-# ISR most likely libarary type for paired-end sample
+# ISR most likely libarary type for paired-end sample, confirm reverse stranded
