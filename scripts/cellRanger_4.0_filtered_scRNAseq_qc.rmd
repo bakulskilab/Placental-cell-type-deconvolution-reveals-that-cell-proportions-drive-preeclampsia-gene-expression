@@ -8,6 +8,7 @@ knitr::opts_chunk$set(echo = TRUE)
 knitr::knit_engines$set(python = reticulate::eng_python)
 
 #install.packages("package_name",  repos="http://cran.us.r-project.org") # Only this mirror worked for multiple packages
+library(ggpubr)
 library(here)
 library(knitr)
 library(tidyverse)
@@ -19,7 +20,7 @@ library(EnvStats)
 library(Matrix)
 
 # Bioconductor packages
-#-library(DropletUtils)
+# library(DropletUtils)
 library(edgeR)
 library(scater)
 ```
@@ -41,7 +42,7 @@ tenx_to_seu <- function(tenx_directory, name) {
 ```
 ## Unfiltered 10x output stats
 Unfiltered 10x output data have been stored as dgCMatrix. Vector is all caps represent final columns for supplemental table. Chunk contains TOTAL.DROPLETS.RAW, TOTAL.RNA.RAW, TOTAL.GENES.RAW, FETAL.SEX.
-```{r, eval = F}
+```{r}
 # Get raw 10X data directory
 tenx.raw.out <- paste0(here("data", "tenx_unfiltered_data"), "/")
 # Get filenames
@@ -141,7 +142,7 @@ files <-
 freemux.clusters <- lapply(files, readr::read_tsv, col_types = "iciiffdfddddfdfddfdd")
 names(freemux.clusters) <- names
 
-# Optional? 'QC' freemux output?
+# Optional 'QC' freemux output?
 ```
 ## Custom function to add freemuxlet cluster assignment to Seurat MetaData
 ```{r}
@@ -290,7 +291,7 @@ Identify if a rare cell type might have been discarded.
 lost <- calculateAverage(counts(sce)[,!discard])
 kept <- calculateAverage(counts(sce)[,discard])
 
-logged <- cpm(cbind(lost, kept), log=TRUE, prior.count=2)
+logged <- edgeR::cpm(cbind(lost, kept), log=TRUE, prior.count=2)
 logFC <- logged[,1] - logged[,2]
 abundance <- rowMeans(logged)
 ```
@@ -408,7 +409,7 @@ Identify if a rare cell type might have been discarded.
 lost <- calculateAverage(counts(sce.pr)[,!discard])
 kept <- calculateAverage(counts(sce.pr)[,discard])
 
-logged <- cpm(cbind(lost, kept), log=TRUE, prior.count=2)
+logged <- edgeR::cpm(cbind(lost, kept), log=TRUE, prior.count=2)
 logFC <- logged[,1] - logged[,2]
 abundance <- rowMeans(logged)
 ```
@@ -447,7 +448,7 @@ sce.combined <- cbind(sce, sce.pr)
 sce.combined$sample <- factor(sce.combined$ident, labels = LIBRARY.ID)
 ```
 
-```{r, eval = F}
+```{r}
 sce.meta <- data.frame(
   LIBRARY.ID = sce.combined$sample,
   rna = sce.combined$sum,
@@ -503,7 +504,7 @@ legend <- get_legend(rna.vln)
 
 ```{r}
 panel <- ggarrange(rna.vln, gene.vln, mito.vln, ncol = 3, nrow = 1, labels = "AUTO", font.label = list(size = 40, face = "bold", color = "black"), common.legend = TRUE, legend = "bottom", legend.grob = legend)
-ggexport(panel, filename = here("results", "GSE75010", paste0(Sys.Date(), "_qc_vlns.png")), width = 1980, height = 1080)
+#ggexport(panel, filename = here("results", "single_cell_qc", paste0(Sys.Date(), "_qc_vlns.png")), width = 1980, height = 1080)
 ```
 
 
