@@ -12,12 +12,14 @@ library(ggridges)
 
 knitr::opts_chunk$set(echo = TRUE)
 
-data_dir <- paste0(here("data", "freemuxlet"), "/")
+data_dir <- paste0(here("data", "freemuxlet", "raw_data"), "/")
 ```
 
 ```{r}
 # Pull full file paths
 files <- paste0(data_dir, dir(path = data_dir))
+# Subtracting the desktop.ini file
+files <- files[-1]
 # Pull sample IDs
 names <- str_extract(files, "(kc|pr)(_\\d+)+")
 # Reformat sample IDs
@@ -57,8 +59,8 @@ Cluster represents freemuxlet clusters assigned from entire 1-22, X, Y 1000Genom
 Cluster.minaf represents 1-22, X 1000Genomes genotype data only, filtering rare variants with MAF < 10%
 
 ```{r}
-cluster <- read_tsv(paste0(data_dir, "pr478clusters.txt"))
-cluster.minaf <- read_tsv(paste0(data_dir, "pr478clusters.minAF.txt"))
+cluster <- read_tsv(here("data", "freemuxlet", "pr478clusters.txt"))
+cluster.minaf <- read_tsv(here("data", "freemuxlet", "pr478clusters.minAF.txt"))
 
 # Sort both by BARCODE
 cluster <- 
@@ -76,7 +78,7 @@ summary(all.best)
 minaf.best <- as.factor(cluster.minaf$BEST.GUESS)
 summary(minaf.best)
 ```
-Create new variables to investigate differences in assignment
+Create new variables to investigate differences in assignment; no issues
 ```{r}
 all <- cluster
 min <- cluster.minaf
