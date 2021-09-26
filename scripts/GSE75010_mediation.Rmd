@@ -6,6 +6,7 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
+#devtools::install_github("BS1125/CMAverse")
 library(CMAverse)
 library(here)
 library(limma)
@@ -116,24 +117,7 @@ summary(res_gformula.m.a)
 ```
 # {-}
 
-# Transcriptome-wide Mediation Analysis {.tabset}
-```{r, results='hide'}
-# Genes start at column 61
-colnames(df.all[61:75])
-
-#outcomes <- colnames(df.all[,61:75])
-
-outcomes <- c("LEP", "IGF1", "FSTL3")
-res <- outcomes %>%
-  map(function(x)
-    cmest(data = df.all, model = "gformula", outcome = x, exposure = "phenotype",
-                      mediator = c("Dim.1", "Dim.2", "Dim.3", "Dim.4", "Dim.5"), basec = c("sex", "batch"), postc = "ga", EMint = TRUE,
-                      mreg = list("linear", "linear", "linear", "linear", "linear"), yreg = "linear", postcreg = list("linear"),
-                      astar = 0, a = 1, mval = list(0, 0, 0, 0, 0), estimation = "imputation", inference = "bootstrap", nboot = 2)
-  )
-```
-
-## Imai Mediation Package Approach
+## Imai Mediation Approach
 Using the mediation package approach
 
 Mediator model (PC3 in this case)
