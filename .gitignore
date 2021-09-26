@@ -5,5 +5,6 @@
 desktop.ini
 data/*
 results/*
-scripts/archive/*
-scripts/sensitivity/*
+scripts/archive/*html
+scripts/archive/teaching/*html
+scripts/archive/unpursued/*html
