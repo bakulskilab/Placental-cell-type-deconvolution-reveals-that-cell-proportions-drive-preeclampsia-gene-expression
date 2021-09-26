@@ -72,5 +72,5 @@ names(counts) <- NULL
 ```
 
 ```{r}
-write.table(x=counts, sep = '\t', quote = F, row.names = F, col.names = F, file = paste0(data_dir, "KC_Pique-Regi_sc_signature_matrix_input_", Sys.Date(), ".txt"))
+#write.table(x=counts, sep = '\t', quote = F, row.names = F, col.names = F, file = paste0(data_dir, "KC_Pique-Regi_sc_signature_matrix_input_", Sys.Date(), ".txt"))
 ```
