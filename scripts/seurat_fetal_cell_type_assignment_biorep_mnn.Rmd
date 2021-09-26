@@ -8,6 +8,7 @@ knitr::opts_chunk$set(echo = TRUE)
 knitr::knit_engines$set(python = reticulate::eng_python)
 
 #install.packages("package_name",  repos="http://cran.us.r-project.org") # Only this mirror worked for multiple packages
+library(here)
 library(knitr)
 library(tidyverse)
 library(devtools)
@@ -26,10 +27,11 @@ library(Matrix)
 library(batchelor)
 library(edgeR)
 library(scater)
+library(scDblFinder)
+library(scran)
 # Set seed since this pipeline includes stochastic algorithms
 set.seed(1)
 # Set default working directory
-#data_dir <- "C:/Users/k_cam/Google Drive/Placenta_Cell_Types/RNA/placenta_rna/data/"
 data_dir <- paste0(here("data"), "/")
 ```
 # Single-cell RNA-seq analysis of KC and TNL Pique-Regi placental villous tissue samples
@@ -65,7 +67,7 @@ Custom function to run fastMNN pipe with
 ```{r}
 pipe.fast.mnn <- function(seu, batch) {
   seu <- RunFastMNN(object.list = SplitObject(seu, split.by = batch), verbose = T)
-  print(seu@tools$RunFastMNN@metadata$merge.info$lost.var)
+  #seu@tools$RunFastMNN@metadata$merge.info$lost.var %>% print
   seu <- RunUMAP(seu, reduction = "mnn", dims = 1:30)
   seu <- FindNeighbors(seu, reduction = "mnn", dims = 1:30)
   seu <- FindClusters(seu, res = 0.2)
@@ -114,22 +116,22 @@ DimPlot(fetal, group.by = 'biorep', label = F, pt.size = .25)
 ```
 
 ```{r}
-fetal.markers.res.0.2 <- FindAllMarkers(fetal)
+#fetal.markers.res.0.2 <- FindAllMarkers(fetal)
 ```
 
 ```{r}
-ct.diff <- FindMarkers(fetal, ident.1 = "7", ident.2 = "0", min.pct = 0, logfc.threshold = 0, only.pos = F, min.cells.feature = 1, min.cells.group = 1)
+#ct.diff <- FindMarkers(fetal, ident.1 = "7", ident.2 = "0", min.pct = 0, logfc.threshold = 0, only.pos = F, min.cells.feature = 1, min.cells.group = 1)
 
-ct.markers <- FindMarkers(fetal, ident.1 = "7", ident.2 = "0")
+#ct.markers <- FindMarkers(fetal, ident.1 = "7", ident.2 = "0")
 
-ct.markers %>%
-  arrange(desc(avg_logFC)) %>%
-  view()
+#ct.markers %>%
+#  arrange(desc(avg_logFC)) %>%
+#  View()
 ```
 
 ```{r}
-ct.diff %>% rownames_to_column(var = "gene") %>%
-  filter(gene %in% c("PAGE4", "XIST", "DDX3X", "E1F1AX", "TOP2A", "PCNA", "MKI67"))
+#ct.diff %>% rownames_to_column(var = "gene") %>%
+#  filter(gene %in% c("PAGE4", "XIST", "DDX3X", "E1F1AX", "TOP2A", "PCNA", "MKI67"))
 ```
 Trying to tease apart proliferative CTs at the ST surface from interstitial CTs. Pique-regi et al. used sex-specific transcripts that may have been counfounded by fetal sex. Let's look some more canonical markers from "Expression of the proliferation markers Ki67 and transferrin receptor by human trophoblast populations (1988)". Ki67 very highly expressed in cluster 7 compared to 0 and is a marker of CTs near the ST interace. Transferrin, however, was deteced only in a couple cells at very low level. In addition, a differential expression test between the 2 clusters revealed very high expression of PCNA, a cofactor of DNA polymerase delta and TOP2A, DNA Topoisomerase II Alpha.
 ```{r}
@@ -234,7 +236,7 @@ FeaturePlot(object = fetal,
             features = c("IL3RA"),
             cols = c("lightgrey", "blue"),
             pt.size = .1)
-# DC 1, bizarrely, no CLEC9A expression, which is supposed to clearly delineate a THBD+ subset, but shows up in the small cluster thought to be pDC
+# DC 1, unexpectedly, no CLEC9A expression, which is supposed to clearly delineate a THBD+ subset, but shows up in the small cluster thought to be pDC
 FeaturePlot(object = fetal,
             features = c("THBD", "CLEC9A"),
             cols = c("lightgrey", "blue"),
@@ -262,7 +264,7 @@ DimPlot(monocytes, group.by = 'seurat_clusters', label = T, pt.size = .25)
 ```
 
 ```{r}
-monocytes.markers <- FindAllMarkers(monocytes)
+#monocytes.markers <- FindAllMarkers(monocytes)
 ```
 "Single-cell RNA-seq reveals new types of human blood dendritic cells, monocytes and progenitors" for marker genes for the small monocyte population. pDC cluster may contain the "new" DC5 population from this paper, but leaving as pDC.
 ```{r}
@@ -391,7 +393,7 @@ VlnPlot(t.cells, features = "CD3E")
 VlnPlot(t.cells, features = "CD4")
 VlnPlot(t.cells, features = "CD8A")
 VlnPlot(t.cells, features = "KLRB1")
-VlnPlot(t.cells, features = c("GZMB", "GZMK")).
+VlnPlot(t.cells, features = c("GZMB", "GZMK"))
 VlnPlot(t.cells, features = c("S100A4", "IL7R"))
 # Resident Memory CD4+ T Cell Markers (https://www.rndsystems.com/product-highlights/antibodies-memory-t-cell-subset-identification), CD69 and CD103 (TIGAE)
 VlnPlot(t.cells, features = c("CD69", "ITGAE"))
@@ -411,7 +413,7 @@ clustree(mesenchymal, prefix = "res.", node_colour = "sc3_stability") + theme(le
 ```{r}
 mesenchymal <- FindClusters(mesenchymal, resolution = 0.1)
 DimPlot(mesenchymal, group.by = 'seurat_clusters', label = T, pt.size = .25)
-mesenchymal.markers <- FindAllMarkers(mesenchymal)
+#mesenchymal.markers <- FindAllMarkers(mesenchymal)
 ```
 
 "Fibroblasts and mesenchymal stem cells: Two sides of the same coin?"
@@ -431,7 +433,7 @@ fetal <- RenameIdents(fetal,
                       "1" = "T Cells",
                       "2" = "NK/T Cells",
                       "3" = "Mesenchymal",
-                      "4" = "CD14+ Monocytes", 
+                      "4" = "CD14+ Monocytes",
                       "5" = "Hofbauer Cells",
                       "6" = "B Cells",
                       "7" = "Proliferative Cytotrophoblasts",
@@ -458,8 +460,6 @@ DimPlot(fetal, label = T, repel = T, pt.size = .25, label.size = 3) + NoLegend()
 
 Initial findDoubletClusters by cluster readily identified 13 as a doublet cluster. Removed and re-run.
 ```{r}
-library(scDblFinder)
-library(scran)
 fetal.sce <- as.SingleCellExperiment(fetal)
 dbl <- findDoubletClusters(fetal.sce, clusters = fetal.sce$fetal.res.0.2.subclustered.labelled)
 dbl.df <- as.data.frame(dbl)
@@ -494,13 +494,14 @@ VlnPlot(small, features = "dbl.dens")
 ```
 
 ```{r}
-pdc.b <- CellSelector(plot = dbl.dens.small)
-pdc.single.outliers <- CellSelector(plot = dbl.dens.small)
-pdc.high.dbl <- CellSelector(plot = dbl.dens.small)
-pdc.high.dbl.2 <- CellSelector(plot = dbl.dens.small)
-pdc.nrbc <- CellSelector(plot = dbl.dens.small)
-cells.to.drop <- c(pdc.b, pdc.single.outliers, pdc.high.dbl, pdc.high.dbl.2, pdc.nrbc)
+#pdc.b <- CellSelector(plot = dbl.dens.small)
+#pdc.single.outliers <- CellSelector(plot = dbl.dens.small)
+#pdc.high.dbl <- CellSelector(plot = dbl.dens.small)
+#pdc.high.dbl.2 <- CellSelector(plot = dbl.dens.small)
+#pdc.nrbc <- CellSelector(plot = dbl.dens.small)
+#cells.to.drop <- c(pdc.b, pdc.single.outliers, pdc.high.dbl, pdc.high.dbl.2, pdc.nrbc)
 #saveRDS(cells.to.drop, paste0(data_dir, "cell_selector_dropped_pdc_rbc_clusters_", Sys.Date(), ".rda"))
+cells.to.drop <- readRDS(paste0(data_dir, "cell_selector_dropped_pdc_rbc_clusters_2020-12-22.rda"))
 ```
 
 ```{r}
@@ -510,25 +511,27 @@ FeaturePlot(smaller, features = c("HBG2", "ITM2C"))
 FeaturePlot(smaller, features = c("dbl.dens"))
 FeaturePlot(smaller, features = c("HBG2", "DDX3Y"))
 ```
+
 ```{r}
 rbc.plot <- FeaturePlot(smaller, features = "HBG2")
-rbc.1 <- CellSelector(rbc.plot)
-rbc.2 <- CellSelector(rbc.plot)
+#rbc.1 <- CellSelector(rbc.plot)
+#rbc.2 <- CellSelector(rbc.plot)
 ```
-```{r}
+
+```{r, eval = F}
 smaller <- SetIdent(smaller, cells = rbc.1, value = "RBC1")
 smaller <- SetIdent(smaller, cells = rbc.2, value = "RBC2")
 # No apparent difference between the two RBC clusters
 rbc.markers <- FindMarkers(smaller, ident.1 = "RBC1", ident.2 = "RBC2")
 ```
 
-```{r}
+```{r, eval = F}
 # Reset nRBC identities
 smaller <- SetIdent(smaller, cells = rbc.1, value = "Nucleated Red Blood Cells")
 smaller <- SetIdent(smaller, cells = rbc.2, value = "Nucleated Red Blood Cells")
 ```
 
-```{r}
+```{r, eval = F}
 dropped.13 <- WhichCells(fetal, idents = "13")
 #saveRDS(dropped.13, file = paste0(data_dir, "ct_mesenchymal_doublet_cluster_ids_", Sys.Date(), ".rda"))
 # Dropping doublets from pDC, nRBC with cells.to.drop
@@ -538,16 +541,23 @@ fetal <- subset(fetal, cells = drop.fetal, invert = T)
 fetal <- RenameIdents(fetal, "Interstitial Cytotrophoblasts" = "Cytotrophoblasts")
 fetal <- StashIdent(fetal, "final_clusters")
 #saveRDS(fetal, paste0(data_dir,"cleaned_fetal_seurat", Sys.Date(), ".rda"))
+```
+
+```{r}
 fetal <- readRDS(paste0(data_dir, "cleaned_fetal_seurat2020-12-22.rda"))
 ```
 
 Rename cell type clusters with Fetal label
-```{r}
+```{r, eval = F}
 idents <- Idents(fetal)
 cell.type <- paste0("Fetal ", idents)
 Idents(fetal) <- cell.type
 fetal <- StashIdent(fetal, "cell.type")
 #saveRDS(fetal, paste0(data_dir, "named_cleaned_fetal_seurat_2020-12-22.rda"))
+```
+
+
+```{r}
 named.fetal <- readRDS(paste0(data_dir, "named_cleaned_fetal_seurat_2020-12-22.rda"))
 ```
 
@@ -564,8 +574,8 @@ High S100A4, CD4 expression and low CCR7, CD8A expression indicates CD4+ Memory 
 ```{r}
 FeaturePlot(named.fetal, features = "S100A4")
 ```
+
 ```{r}
 VlnPlot(named.fetal, features = c("S100A4" , "CCR7"))
 VlnPlot(named.fetal, features = c("CD8A", "CD4"))
 ```
-
