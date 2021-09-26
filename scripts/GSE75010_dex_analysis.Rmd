@@ -31,7 +31,9 @@ knitr::opts_chunk$set(echo=TRUE)
 #data_dir <- paste0(here("data"), "/")
 #results_dir <- paste0(here("results", "GSE75010"), "/")
 ```
+
 Based on Bioconductor workflow http://www.bioconductor.org/packages/release/workflows/vignettes/maEndToEnd/inst/doc/MA-Workflow.html#14_a_pathway_enrichment_analysis_using_reactome and limma user guide https://bioconductor.org/packages/3.12/bioc/vignettes/limma/inst/doc/usersguide.pdf. https://hbctraining.github.io/Training-modules/Visualization_in_R/lessons/03_advanced_visualizations.html also used to guide Volcano plot construction.
+
 ## Load and format data
 Load normalized expression data and cleaned metadata from script "GSE75010_preprocess.Rmd".
 ```{r}
@@ -40,10 +42,12 @@ meta <- readRDS(paste0(here("data", "/"), "GSE75010_with_abundances2021-01-01.rd
 
 #gse <- getGEO("GSE75010", GSEMatrix = TRUE)
 ```
+
 Based on the phenoData, this array platform is single color.
 ```{r}
 #colnames(gse$GSE75010_series_matrix.txt.gz@phenoData@data)
 ```
+
 Reformat expression data to a matrix with genes as rownames.
 ```{r}
 genes <- expr %>% dplyr::select(X)
@@ -51,12 +55,14 @@ rownames(expr) <- genes$X
 expr <- expr %>% dplyr::select(-X)
 expr <- as.matrix(expr)
 ```
+
 Initialize an expression set object.
 ```{r}
 d <- ExpressionSet(expr)
 # Clean-up
 rm (gse, genes, expr)
 ```
+
 Add metadata.
 ```{r}
 # Drop p-value, correlation, and RMSE, won't drop for now
@@ -65,6 +71,7 @@ pData(d) <- meta
 # Clean-up
 #rm(meta)
 ```
+
 ## PCA projection
 PCA for low-dimensional representation.
 ```{r, eval=FALSE}
@@ -673,6 +680,7 @@ summary(duplicated(gsea.input.pc$t))
 ```
 
 "The GSEA analysis report highlights enrichment gene sets with an FDR of less than 25% as those most likely to generate interesting hypotheses and drive further research, but provides analysis results for all analyzed gene sets. In general, given the lack of coherence in most expression datasets and the relatively small number of gene sets being analyzed, an FDR cutoff of 25% is appropriate. However, if you have a small number of samples and use gene_set permutation (rather than phenotype permutation) for your analysis, you are using a less stringent assessment of significance and would then want to use a more stringent FDR cutoff, such as 5%." The GSEA Preranked analysis, which we are using, uses gene_set permutation and we have a sample size of 330. Not sure where that puts the FDR threshold.
+
 ```{r}
 # Extract model cell type-adjusted model results relevant to GSEA
 gsea.input.base <- base.res %>% dplyr::select(gene_symbol, t) %>% arrange(desc(t))
@@ -693,9 +701,8 @@ flt1 <- expression_data %>% dplyr::select(FLT1)
 flt1 <- rownames_to_column(flt1, var = "sample")
 df <- left_join(df, flt1)
 
-
 #saveRDS(df, file = here("data", paste0(Sys.Date(), "_med_data.rda")))
-saveRDS(df.all, file = here("data", paste0(Sys.Date(), "_all_med_data.rda")))
+#saveRDS(df.all, file = here("data", paste0(Sys.Date(), "_all_med_data.rda")))
 ```
 
 ```{r}
@@ -826,7 +833,6 @@ ggplot(res, aes(x = -log10(adj.P.Val), y = model)) +
   theme(legend.title = element_blank(), legend.position = c(.65, .2), legend.text = element_text(size = 10), axis.title.x=element_blank(), plot.title = element_text(size = 12), axis.text.y = element_text(size = 10), axis.title.y = element_blank())
 ```
 
-
 ## Outdated Adjusted Gene-set Enrichment for code reference
 
 Prepare a ranked gene list (q < .05 & descending absolute logFC) for gProfiler g:GOSt gene-set enrichment input
@@ -953,7 +959,6 @@ idx <- result[result$term_id %in% terms.to.highlight, ]
 indices <- rownames(idx)
 ```
 
-
 Plot Manhattan with highlighted terms
 ```{r, eval = FALSE}
 #publish_gostplot(p, highlight_terms = gostres$result[indices, ], width = NA, height = NA,
@@ -961,14 +966,11 @@ Plot Manhattan with highlighted terms
 
 publish_gostplot(p, highlight_terms = terms.to.highlight, width = NA, height = NA,
                  filename = paste0(here("data", "/"), "gProfiler/", "gost_highlighted_terms_", Sys.Date(), ".png"))
-
 ```
-
 
 ```{r, eval = FALSE}
 #ggsave(paste0(here("data", "/"), "gProfiler/", "gost_highlighted_terms_", Sys.Date(), ".png"), device = "png")
 ```
-
 
 ```{r, eval = FALSE}
 publish_gosttable(gostres.small, 
