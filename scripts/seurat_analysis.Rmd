@@ -14,6 +14,7 @@ library(devtools)
 library(here)
 library(ggrepel)
 library(ggpubr)
+library(gprofiler2)
 library(knitr)
 library(tidyverse)
 library(Seurat)
@@ -46,6 +47,13 @@ Load cleaned Seurat data
 seu <- readRDS(paste0(data_dir,"cleaned_combined_seurat_2020-12-22.rda"))
 ```
 
+Format and export Seurat processed data
+```{r}
+seu.kc <- subset(seu, subset = batch == "kc")
+#saveRDS(seu.kc, here("data", paste0(Sys.Date(), "processed_single_cell_Seurat_object.rda")))
+```
+
+
 QC metrics by replicate, TODO: relabel orig.ident for nicer graphs
 ```{r}
 VlnPlot(seu, features = "subsets_Mito_percent", pt.size = .1, group.by = "orig.ident") + NoLegend() + 
@@ -76,7 +84,6 @@ x.lab.hjust <- 0.75
 cluster.rna <- VlnPlot(seu, features = "nCount_RNA", pt.size = .1) + theme_bw(base_size = base.size) + NoLegend() + coord_flip() + 
   theme(axis.text.y = element_blank(), axis.title.y = element_blank(), plot.title = element_text(hjust = 0.5), axis.text.x = element_text(size = x.lab.size, hjust = x.lab.hjust)) + 
   ggtitle("Total RNA molecules") 
-#ggsave(paste0(results_dir, "qc_cluster_total_RNA_", Sys.Date(), ".png"))
 
 cluster.rna.legend <- VlnPlot(seu, features = "nCount_RNA", pt.size = .1) + theme_bw(base_size = base.size) + coord_flip() + 
   theme(legend.text = element_text(size = 32, hjust = 1), legend.spacing = unit(1, "npc")) + 
@@ -87,19 +94,18 @@ legend <- get_legend(cluster.rna.legend)
 cluster.gene <- VlnPlot(seu, features = "nFeature_RNA", pt.size = .1) + theme_bw(base_size = base.size) + NoLegend() + 
   theme(axis.text.y = element_blank(),  axis.title.y = element_blank(), plot.title = element_text(hjust = 0.5), axis.text.x = element_text(size = x.lab.size, hjust = x.lab.hjust)) +
   ggtitle("Detected genes") + coord_flip()
-#ggsave(paste0(results_dir, "qc_cluster_total_genes_", Sys.Date(), ".png")) 
 
 cluster.mito <- VlnPlot(seu, features = "subsets_Mito_percent", pt.size = .1) + theme_bw(base_size = base.size) + NoLegend() + 
   theme(axis.text.y = element_blank(), axis.title.y = element_blank(), plot.title = element_text(hjust = 0.5), axis.text.x = element_text(size = x.lab.size, hjust = x.lab.hjust)) +
   ggtitle("% Mitochondrial genes") + coord_flip()
-#ggsave(paste0(results_dir, "qc_cluster_mito_", Sys.Date(), ".png"))
 ```
 
 ```{r}
 panel <- ggarrange(cluster.rna, cluster.gene, cluster.mito, ncol = 3, nrow = 1, labels = "AUTO", font.label = list(size = 30, face = "bold", color = "black"), legend = "left", legend.grob = legend)
-ggexport(panel, filename = here("results", "seurat", paste0(Sys.Date(), "_cluster_qc_vlns.png")), width = 1980, height = 1080)
+#ggexport(panel, filename = here("results", "seurat", paste0(Sys.Date(), "_cluster_qc_vlns.png")), width = 1980, height = 1080)
 ```
 
+Seurat's built-in version that I didn't use.
 ```{r, eval = F}
 seurat.cluster.qc.plot <- VlnPlot(
   seu,
@@ -171,7 +177,6 @@ umap.panel <- ggarrange(
 #ggexport(umap.panel, filename = here("results", "seurat", "umap", paste0(Sys.Date(), "_umap_multipanel.png")), width = 1920, height = 1080)
 ```
 
-
 VEGFR Receptor expression by cluster
 ```{r}
 VlnPlot(seu, features = "KDR") + NoLegend()
@@ -184,7 +189,7 @@ VlnPlot(seu, features = "ENG") + NoLegend()
 VlnPlot(seu, features = "LEP") + NoLegend()
 
 VlnPlot(seu, features = "HIF1A") + NoLegend()
-VlnPlot(seu, features = "HIF1B") + NoLegend()
+#VlnPlot(seu, features = "HIF1B") + NoLegend()
 VlnPlot(seu, features = "TGFB3") + NoLegend()
 
 FeaturePlot(seu, features = "HIF1A") + NoLegend()
@@ -204,6 +209,9 @@ percent.fetal <- mf[1]/(mf[1]+mf[2])
 
 Paint by fetal/maternal status
 ```{r}
+legend.text.size <- 24
+umap.pt.size <- 1.1
+umap.mf <- DimPlot(seu, group.by = 'fetal', pt.size = umap.pt.size) + ggtitle("") + theme(legend.text = element_text(size = legend.text.size))
 DimPlot(seu, group.by = 'fetal') + NoLegend() + ggtitle("")
 #ggsave(paste0(results_dir, "seu_group_by_fetal_status_", Sys.Date(), ".png"))
 ```
@@ -219,7 +227,7 @@ seu$batch <- factor(seu$batch, labels = c("KC", "PR"))
 
 Paint by batch
 ```{r}
-DimPlot(seu, group.by = 'batch') + NoLegend()
+DimPlot(seu, group.by = 'batch') + ggtitle("")
 #ggsave(paste0(results_dir, "seu_group_by_batch_", Sys.Date(), ".png"))
 ```
 
@@ -231,6 +239,9 @@ DimPlot(seu, group.by = 'batch')
 ```{r}
 seu.graph <- seu
 seu.graph$biorep <- factor(seu.graph$biorep, labels = c("Sample 1" , "Sample 2" , "Sample 3", "Sample 4", "Sample 5"))
+
+umap.biorep <- DimPlot(seu.graph, group.by = 'biorep', pt.size = umap.pt.size) + ggtitle("") + theme(legend.text = element_text(size = legend.text.size))
+
 DimPlot(seu.graph, group.by = 'biorep') + ggtitle("")
 #ggsave(here("results", "seurat", paste0(Sys.Date(), "seu_group_by_biorep.png")))
 rm(seu.graph)
@@ -241,6 +252,10 @@ Subset to and paint by technical replicates
 kc.40 <- subset(seu, subset = biorep == "kc.40")
 Idents(kc.40) %>% levels
 kc.40$orig.ident <- factor(kc.40$orig.ident, labels = c("Sample 1A", "Sample 1B"))
+
+
+umap.sample1 <- DimPlot(kc.40, group.by = "orig.ident", pt.size = umap.pt.size) + ggtitle("") + theme(legend.text = element_text(size = legend.text.size))
+
 DimPlot(kc.40, group.by = "orig.ident")
 #ggsave(paste0(results_dir, "seu_group_by_kc40_technical_legend_", Sys.Date(), ".png"))
 rm(kc.40)
@@ -301,10 +316,14 @@ ggplot(cor.df, aes(x = correlation)) +
 ```{r}
 kc.42 <- subset(seu, subset = biorep == "kc.42")
 kc.42$orig.ident <- factor(kc.42$orig.ident, labels = c("Sample 2A", "Sample 2B"))
+
+umap.sample2 <- DimPlot(kc.42, group.by = "orig.ident", pt.size = umap.pt.size) + ggtitle("") + theme(legend.text = element_text(size = legend.text.size))
+
 DimPlot(kc.42, group.by = "orig.ident")
 #ggsave(paste0(results_dir, "seu_group_by_kc42_technical_legend_", Sys.Date(), ".png"))
 rm(kc.42)
 ```
+
 ```{r}
 # Subset to the technical replicate
 kc.42.1 <- subset(seu, subset = orig.ident == "kc.42.1")
@@ -356,6 +375,12 @@ ggplot(cor.df, aes(x = correlation)) +
 #ggsave(paste0(results_dir, "kc_42_technical_cluster_cor_", Sys.Date(), ".png"))
 ```
 
+
+```{r}
+panel <- ggarrange(umap.sample1, umap.sample2, umap.mf, umap.biorep, ncol = 2, nrow = 2, labels = "AUTO", font.label = list(size = 30, face = "bold", color = "black"))
+#ggexport(panel, filename = here("results", "seurat", "umap", paste0(Sys.Date(), "_umaps_var.png")), width = 1980, height = 1080)
+```
+
 ```{r}
 seu$cell.type %>% factor %>% levels
 ```
@@ -368,14 +393,42 @@ table.df <- as.data.frame(table)
 
 total <- sum(table.df$Freq) %>% as.numeric
 
-
-
 #write.csv(table, file = here("results", "seurat", paste0(Sys.Date(), "_cell_counts.csv")))
 ```
 
 Compare proliferative and cytotrophoblasts.
 ```{r}
 prolif.genes <- FindMarkers(seu, ident.1 = "Fetal Proliferative Cytotrophoblasts", "Fetal Cytotrophoblasts")
+```
+
+Full list of genes, formatted for publication
+```{r}
+prolif.markers <- prolif.genes %>%
+  rownames_to_column(var = "gene") %>%
+  #filter(avg_log2FC > 0) %>%
+  #filter(p_val_adj < p_val_adj_threshold) %>%
+  #group_by(cluster) %>%
+  arrange(desc(avg_log2FC)) %>%
+  #slice_head(n=10) %>%  # Formatting after this line
+  mutate(p_val = if_else(p_val == 0, 2.23e-308, p_val)) %>%
+  mutate(p_val_adj = if_else(p_val_adj == 0, 2.23e-308, p_val_adj)) %>%
+  dplyr::select(gene, avg_log2FC, pct.1, pct.2, p_val, p_val_adj) %>%
+  mutate(p_val = format(p_val, scientific = TRUE, digits = 3)) %>%
+  mutate(p_val_adj = format(p_val_adj, scientific = TRUE, digits = 3)) %>%
+  mutate(avg_log2FC = format(avg_log2FC, digits = 3)) %>%
+  mutate('p-value' = if_else(p_val == 2.23e-308, "< 2.23E-308", as.character(p_val))) %>%
+  mutate('adjusted p-value' = if_else(p_val_adj == 2.23e-308, "< 2.23E-308", as.character(p_val_adj))) %>%
+  dplyr::select(-c(p_val, p_val_adj))
+
+prolif.markers.colnames <- c("Gene", "log2 Fold-change", "Percentage cluster cells expressing gene", "Percentage other cells expressing gene", "P-value", "Bonferroni-adjusted p-value")
+colnames(prolif.markers) <- prolif.markers.colnames
+
+# Write to .csv
+#write.csv(prolif.markers, paste0(here("results", "seurat", paste0("/", Sys.Date(),  "prolif_ct_markers.csv"))), row.names = FALSE)
+```
+
+```{r}
+prolif.markers$Gene %>% length
 ```
 
 ```{r}
@@ -448,6 +501,19 @@ gostres <- gost(query = list.gProfiler,
                numeric_ns = "", sources = NULL, as_short_link = FALSE)
 ```
 
+Get full enrichment results
+```{r}
+# Drop parent column list for .csv save of all results
+gostres.table <- gostres$result
+gostres.table$parents <- NULL
+
+gostres.table <- 
+  gostres.table %>%
+  relocate(term_name, .after = significant) %>%
+  dplyr::select(-c(query))
+#write.csv(gostres.table, here("results", "seurat", paste0("prolif_ct_vs_ct_markers_gost_results_table_", Sys.Date(), ".csv")), row.names = FALSE)
+```
+
 ```{r}
 p <- gostplot(gostres, capped = FALSE, interactive = FALSE) + ggtitle("Proliferative vs. Non-Proliferative Cytotrophoblasts")
 p
@@ -459,10 +525,10 @@ terms.to.plot <- terms.to.plot$term_id[1:10]
 ```
 
 ```{r}
-pp <- publish_gostplot(p, highlight_terms = terms.to.plot, filename = here("results", "seurat", paste0(Sys.Date(), "_prolif_ct_enriched_gost_plot.png")))
+#pp <- publish_gostplot(p, highlight_terms = terms.to.plot, filename = here("results", "seurat", paste0(Sys.Date(), "_prolif_ct_enriched_gost_plot.png")))
 ```
 
-Compare proliferative and cytotrophoblasts.
+Compare mesenchymal stem cells and fibroblasts
 ```{r}
 prolif.genes <- FindMarkers(seu, ident.1 = "Fetal Mesenchymal Stem Cells", ident.2 = "Fetal Fibroblasts")
 ```
@@ -498,5 +564,5 @@ terms.to.plot <- terms.to.plot$term_id[1:10]
 ```
 
 ```{r}
-pp <- publish_gostplot(p, highlight_terms = terms.to.plot, filename = here("results", "seurat", paste0(Sys.Date(), "_mesenchymal_stem_vs_fibroblast_enriched_gost_plot.png")))
+#pp <- publish_gostplot(p, highlight_terms = terms.to.plot, filename = here("results", "seurat", paste0(Sys.Date(), "_mesenchymal_stem_vs_fibroblast_enriched_gost_plot.png")))
 ```
