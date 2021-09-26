@@ -112,10 +112,12 @@ rndr.strat <- function(label, n, ...) {
     ifelse(n==0, label, render.strat.default(label, n, ...))
 }
 ```
+
 Bivariate outcome with t-test for continuous variables and Chi-square test for categorical outcomes.
 ```{r}
 table1(~ sex + ga + batch | phenotype, data=t1, droplevels=F, render=rndr, render.strat=rndr.strat, overall=F)
 ```
+
 Bivariate batch with Kruskal-Wallis ANOVA (regular ANOVA homogeneity of variances violated) for continuous variables and Chi-square test for categorical outcomes.
 ```{r}
 t1$phenotype <- droplevels(t1$phenotype)
@@ -152,6 +154,7 @@ prop.var <- as.data.frame(pca.summary$importance)
 # The first 5 components provide almost 78% of the variance explained.
 sum(prop.var[2,1:5])
 ```
+
 https://blog.bioturing.com/2018/06/18/how-to-read-pca-biplots-and-scree-plots/ briefly summarizes applied PCA analysis.
 Scree plot
 ```{r}
@@ -172,6 +175,7 @@ fviz_pca_ind(res.pca,
              label = F
              )
 ```
+
 Graph of variables. Positively correlated variables point to the same side of the plot. Negatively correlated variables point to opposite sides of the graph
 ```{r}
 pc.1.2 <- fviz_pca_var(res.pca,
@@ -402,7 +406,6 @@ fviz_add(p, quanti.coord, color ="blue", geom="arrow")
 #ggsave(paste0(results_dir, "variables_pca_plus_ga_", Sys.Date(), ".png"))
 ```
 
-
 ```{r}
 # Helper function 
 #::::::::::::::::::::::::::::::::::::::::
@@ -485,6 +488,7 @@ violin_compare_groups <- function(data, group, variables) {
 cell.types <- colnames(merged)[6:19]
 violins <- violin_compare_groups(merged, "phenotype", cell.types)
 ```
+
 Convert to long data format for graphing purposes
 ```{r}
 # Remove the unnecessary columns
@@ -512,7 +516,6 @@ stacked.bar + theme(legend.position = "none", axis.text.x=element_blank(), axis.
 
 #ggsave(here("results", "GSE75010", paste0("/", Sys.Date(), "_stacked_cell_type_proportions.png")))
 ```
-
 
 ```{r}
 #long.placenta <- long %>%
@@ -713,7 +716,7 @@ maternal
 ```
 
 ```{r}
-long.maternal %>% group_by(phenotype, Cell.Type) %>% summarise(median = median(Proportion)) %>% View
+long.maternal %>% group_by(phenotype, Cell.Type) %>% summarise(median = median(Proportion))
 ```
 
 ```{r}
@@ -727,6 +730,7 @@ beta_transform <- function(x, n) {
   return((1/n)*(x*(n-1)+0.5))
 }
 ```
+
 Function to run beta regressions over the outcomes of interest.
 ```{r}
 # run beta regression models with multiple outcomes, the same set of covariates, and a dataset that includes all outcomes and covariates.
@@ -793,6 +797,7 @@ outcomes <- outcomes[!(outcomes %in% c("Fetal.Naive.CD4..T.Cells", "Fetal.B.Cell
 models <- beta_reg_models(outcomes, covariates, merged)
 fits <- beta_reg_model_fits(outcomes , covariates, merged)
 ```
+
 Comparing fixed precision parameter, Phi, against variable precision parameter modeled with all covariates.
 ```{r}
 # Fixed dispersion
@@ -801,10 +806,12 @@ Comparing fixed precision parameter, Phi, against variable precision parameter m
 #mod2 <- betareg(as.formula(paste0("fibroblasts", " ~ ", paste(covariates, collapse = " + "), " | ", paste(covariates, collapse = " + "))), #data = merged)
 #lrtest(mod, mod2)
 ```
+
 Model fit diagnostics plots can be accessed with plot.
 ```{r}
 #plot(mod)
 ```
+
 Pull all model effect estimates and combine to a single tibble for graphing.
 ```{r}
 pull_estimates <- function(data) {
