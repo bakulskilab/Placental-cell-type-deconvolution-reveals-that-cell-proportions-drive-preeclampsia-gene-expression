@@ -56,3 +56,7 @@ Deconvolution and Secondary Data Analysis of GSE75010
 4. GSE75010_gsea_res
 	Analysis of differential expression GSEA results
 	input: (GSEA 3 output)
+
+5. GSE75010_mediation
+	Mediation analysis with preeclampsia as the exposure, cell type composition as the mediator, and gene expression as the outcome
+	input: (2), (3)
