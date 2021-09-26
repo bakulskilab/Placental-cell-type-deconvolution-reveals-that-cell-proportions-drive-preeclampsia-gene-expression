@@ -7,7 +7,9 @@ output: html_document
 
 ```{r setup, include=FALSE}
 library(here)
+library(ggrepel)
 library(gprofiler2)
+library(psych)
 library(Seurat)
 library(tidyverse)
 
@@ -17,11 +19,25 @@ knitr::opts_chunk$set(echo = TRUE)
 ## Imporant References
 "Bias, robustness and scalability in single-cell differential expression analysis"
 "Current best practices in single‐cell RNA‐seq analysis: a tutorial"
-Straightforward appraoch is to simply use the default Wilcoxon Rank Sum test in Seurat or MAST, which takes into dropout and provides a GLM-like model to adjust for covariates (limma-voom also works)
+Straightforward approach is to simply use the default Wilcoxon Rank Sum test in Seurat or MAST, which takes into dropout and provides a GLM-like model to adjust for covariates (limma-voom also works)
+
+Load cleaned Seurat data
+```{r, eval = F}
+seu <- readRDS(here("data","cleaned_combined_seurat_2020-12-22.rda"))
+```
+
+```{r, eval = F}
+all.markers <- FindAllMarkers(seu)
+#saveRDS(all.markers, here(data,"all_markers_cleaned_combined_seurat_2020-12-22.rda"))
+```
 
 Load dex results
 ```{r}
 markers <- readRDS(here("data", "all_markers_cleaned_combined_seurat_2020-12-22.rda"))
+```
+
+```{r}
+markers %>% group_by(cluster) %>% tally()
 ```
 
 Set p_val_adj_threshold, q < .05, Bonferroni-adjusted in Seurat
@@ -35,6 +51,29 @@ Save marker gene results
 #write.csv(markers, here("results", "seurat", "all_markers_cleaned_combined_seurat_2020-12-22.csv"))
 ```
 
+```{r}
+all.cluster.markers <- markers %>%
+  #filter(avg_logFC > 0) %>%
+  #filter(p_val_adj < p_val_adj_threshold) %>%
+  group_by(cluster) %>%
+  arrange(desc(avg_logFC)) %>%
+  #slice_head(n=10) %>%  # Formatting after this line
+  mutate(p_val = if_else(p_val == 0, 2.23e-308, p_val)) %>%
+  mutate(p_val_adj = if_else(p_val_adj == 0, 2.23e-308, p_val_adj)) %>%
+  dplyr::select(cluster, gene, avg_logFC, pct.1, pct.2, p_val, p_val_adj) %>%
+  mutate(p_val = format(p_val, scientific = TRUE, digits = 3)) %>%
+  mutate(p_val_adj = format(p_val_adj, scientific = TRUE, digits = 3)) %>%
+  mutate(avg_logFC = format(avg_logFC, digits = 3)) %>%
+  mutate('p-value' = if_else(p_val == 2.23e-308, "< 2.23E-308", as.character(p_val))) %>%
+  mutate('adjusted p-value' = if_else(p_val_adj == 2.23e-308, "< 2.23E-308", as.character(p_val_adj))) %>%
+  dplyr::select(-c(p_val, p_val_adj))
+all.cluster.markers.colnames <- c("Cell type cluster", "Gene", "log2 Fold-change", "Percentage cluster cells expressing gene", "Percentage other cells expressing gene", "P-value", "Bonferroni-adjusted p-value")
+
+colnames(all.cluster.markers) <- all.cluster.markers.colnames
+
+# Write to .csv
+#write.csv(all.cluster.markers, here("results", "seurat", paste0("all_markers_cleaned_combined_seurat_", Sys.Date(), ".csv")), row.names = FALSE)
+```
 
 ```{r}
 top.10.per <- markers %>%
@@ -84,6 +123,7 @@ num.up <- markers %>%
   group_by(cluster) %>%
   tally()
 num.up
+describe(num.up)
 ```
 
 ```{r}
@@ -206,7 +246,7 @@ gostres.table$parents <- NULL
 gostres.table <- 
   gostres.table %>%
   relocate(term_name, .after = significant)
-write.csv(gostres.table, here("results", "seurat", "seurat_all_markers_gost_results_table_", Sys.Date(), ".csv"))
+#write.csv(gostres.table, here("results", "seurat", paste0("seurat_all_markers_gost_results_table_", Sys.Date(), ".csv")), row.names = FALSE)
 
 # Limit term sizes to 200 or less
 gostres.small <- gostres
@@ -224,8 +264,8 @@ gostres.small.table <- gostres.small.table %>%
   slice_head(n = 10)
   
 # View a couple cell types individually
-gostres.small.table %>% filter(query %in% c("Fetal Cytotrophoblasts", "Fetal Proliferative Cytotrophoblasts")) %>% View
-gostres.small.table %>% filter(query == "Fetal Hofbauer Cells") %>% View
+#gostres.small.table %>% filter(query %in% c("Fetal Cytotrophoblasts", "Fetal Proliferative Cytotrophoblasts")) %>% View
+#gostres.small.table %>% filter(query == "Fetal Hofbauer Cells") %>% View
   
 #write.csv(gostres.small.table, here("results", "seurat", "seurat_all_markers_gost_results_table_top10_BP_filtered_", Sys.Date(), ".csv"))
 ```
