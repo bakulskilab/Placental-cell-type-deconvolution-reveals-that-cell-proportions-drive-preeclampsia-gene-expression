@@ -8,6 +8,7 @@ library(here)
 library(tidyverse)
 library(corrplot)
 library(ggplot2)
+library(ggpubr)
 library(ggridges)
 library(ggrepel)
 library(Seurat)
@@ -119,6 +120,9 @@ seu <- RenameIdents(seu,
 # Stash collapse cell type groups under a variable called collpase 
 seu <- StashIdent(seu, "collapse")
 
+table <- table(Idents(seu), seu$ident)
+table %>% sum
+
 # Calculate AverageExpression by cell type group
 # WARNING: by default, returns in non-log space
 gex.sc.average <- AverageExpression(seu, group.by = "collapse", slot = "data")
@@ -224,7 +228,8 @@ lk.bulk        <- bulk.unique[,c( "103903", "103911", "105814")]
 st.bulk        <- bulk.unique[,c( "103893", "105812")]
 ```
 
-```{r BulkSubset}
+Unused
+```{r}
 # ct.bulk        <- bulk.unique[,c("external_gene_name", "103905", "105816")]
 # composite.bulk <- bulk.unique[,c("external_gene_name", "103900", "103908", "103916", "105819", "105820")]
 # # Need to add drop = FALSE to prevent conversion to vector
