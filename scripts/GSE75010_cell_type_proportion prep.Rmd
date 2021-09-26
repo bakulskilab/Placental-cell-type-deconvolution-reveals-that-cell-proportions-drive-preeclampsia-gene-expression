@@ -36,6 +36,7 @@ head(gse[[1]])
 # Detailed phenotype data
 #head(gse$GSE75010_series_matrix.txt.gz@phenoData@data)
 ```
+
 Pull relevant information from the Cox PE dataset. Overlapping covariates between the Cox datasets are fetal sex and gestational age. GSE75010 additionally contains ethnicity, gestational age in days, attempted vaginal delivery, and mode of delivery whereas the aggregated microarrays contain occurrence of labor alone and nationality.
 ```{r}
 # Pull SAMPLE_XXXXX,  PE vs. non-PE, GA, and sex from Cox dataset
@@ -47,6 +48,7 @@ cox <- cox %>%
   dplyr::select(sample, phenotype, batch, ga, sex)
 head(cox)
 ```
+
 Recode Cox dataset to match microarray data.
 ```{r}
 # Recode diagnosis: non-PE to control
@@ -72,6 +74,7 @@ cox$sex <- sapply(cox$sex,
        ))
 head(cox)
 ```
+
 Pull relevant information from the microarray aggregation done by Cox group.
 ```{r}
 array <- read_excel(paste0(data_dir, "journal.pone.0116508.s014.xlsx"), col_names = TRUE)
@@ -81,6 +84,7 @@ array <- array %>%
 colnames(array) <- c("sample", "phenotype", "batch", "ga", "sex")
 head(array)
 ```
+
 Merging the two metadata tables
 ```{r}
 concat <- rbind(cox, array)
