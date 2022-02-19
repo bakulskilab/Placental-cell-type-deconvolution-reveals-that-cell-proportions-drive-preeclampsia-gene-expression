@@ -162,8 +162,17 @@ files <-
 freemux.clusters <- lapply(files, readr::read_tsv, col_types = "iciiffdfddddfdfddfdd")
 names(freemux.clusters) <- names
 
-# Optional 'QC' freemux output?
+# Optional 'QC' freemux output in freemuxlet_analysis_tsang.Rmd
 ```
+
+TESTING
+No na's among raw freemux data
+```{r}
+freemux.clusters$tsang_n4p.clusters$BEST.GUESS %>% is.na %>% summary
+lapply(freemux.clusters, function(x) x$BEST.GUESS %>% as.factor %>% is.na %>% summary)
+```
+
+
 ## Custom function to add freemuxlet cluster assignment to Seurat MetaData
 ```{r}
 # Add freemuxlet cluster assignment to Seurat Metadata
@@ -189,6 +198,7 @@ AddFreemuxletMetaData <- function(seu, freemux.data, col.name) {
   return(seu)                             # Return augmented Seurat object
 }
 ```
+
 ## Add freemuxlet cluster assignment to Seurat objects
 Error output for pr.478 and n4p because it is the only dataset with no assigned doublets. Output appears normal otherwise
 ```{r}
@@ -197,7 +207,29 @@ mapped <-
        freemux.clusters,                    # List of freemuxlet raw data
        AddFreemuxletMetaData,               # Function to call
        col.name = "freemuxlet.assignments") # Every metadata column has same name
+```
 
+```{r}
+lapply(mapped, function(x) dim(x@meta.data))
+```
+
+```{r}
+# Sum of mapped
+#2573+2600+2544+2740+1907+2653+2456+6018+16968+4918+2284+3137+3612+13659+4025+8084+13149
+# sum of all freemuxlet is 93009
+#dim(all)
+# Difference explains the 318 cells in the mapped dataset that are missing from the raw freemuxlet data
+#93327-93009
+# = 318
+```
+
+TESTING
+Missing barcodes come from tsang_n1 and tsang_n2
+```{r}
+lapply(mapped, function(x) x$freemuxlet.assignments %>% as.factor %>% is.na %>% summary)
+```
+
+```{r}
 rm(counts)       # Remove data
 rm(freemux.clusters) # Remove data
 ```
@@ -258,9 +290,13 @@ doublets.tsang <-
   dplyr::select(n)
 doublets.tsang <- doublets.tsang$n
 
-# Remove doublets
+# Manually add 0 doublets removed for sample tsang_n4p, similar to pr 478
+doublets.tsang <- c(doublets.tsang[1], doublets.tsang[2], doublets.tsang[3], doublets.tsang[4], 0, doublets.tsang[5],
+                    doublets.tsang[6], doublets.tsang[7], doublets.tsang[8], doublets.tsang[9])
+
+# Remove doublets and droplets that were dropped from pileup
 tsang.seu <- subset(x = tsang.seu,
-              subset = freemuxlet.assignments == "doublet",
+              subset = freemuxlet.assignments == "doublet" | is.na(freemuxlet.assignments),
               invert = T)
 
 FETAL.MATERNAL.DOUBLETS.REMOVED <- c(doublets.kc, doublets.pr, doublets.tsang)
@@ -646,10 +682,11 @@ panel <- ggarrange(rna.vln, gene.vln, mito.vln, ncol = 3, nrow = 1, labels = "AU
 #ggexport(panel, filename = here("results", "single_cell_qc", paste0(Sys.Date(), "_qc_vlns.png")), width = 1980, height = 1080)
 ```
 
-
 # TODO
 Clean-up merged object, looks like merging causes duplicate metadata columns
 ```{r}
-merged <- merge(kc, pr)
-#saveRDS(merged, paste0(data_dir, "kc_pr_qc_merged_", Sys.Date(), ".rda"))
+# Load in the fully annotated kc, pr Seurat object
+kc.pr.analyzed.seu <- readRDS(here("data", "cleaned_combined_seurat_2020-12-22.rda"))
+merged <- merge(kc.pr.analyzed.seu, tsang)
+#saveRDS(merged, here("data", paste0("kcprfinal_tsang_qc_merged_", Sys.Date(), ".rda")))
 ```
