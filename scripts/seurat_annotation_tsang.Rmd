@@ -30,6 +30,9 @@ library(edgeR)
 library(scater)
 # Set seed since this pipeline includes stochastic algorithms
 set.seed(1)
+
+# Global ggplot options
+options(ggrepel.max.overlaps = Inf)
 ```
 # Single-cell RNA-seq analysis of KC and TNL Pique-Regi placental villous tissue samples
 ### Important References
@@ -73,25 +76,30 @@ DimPlot(seu, reduction = "pca", group.by = 'orig.ident', pt.size = 0.25)
 seu <- RunTSNE(seu, dims.use = 1:50, do.fast = T, dim.embed = 2)
 seu <- FindNeighbors(object=seu, dims=1:50, reduction='pca')
 seu <- RunUMAP(object = seu, dims = 1:50)
-seu <- FindClusters(object = seu, resolution = 0.2) #default is 0.8; 0.2 looks stable in the kc dataset
+seu <- FindClusters(object = seu, resolution = 0.3) #default is 0.8; 0.3 is what I ended up using for the kc/pr analysis
 ```
 
 
 ```{r}
 table(seu@meta.data$seurat_clusters)
 table(seu@meta.data$seurat_clusters,seu$orig.ident)
+```
 
+
+```{r}
 # tSNE plot by sample cluster
 DimPlot(object = seu,pt.size=0.7,reduction='tsne',group.by='seurat_clusters', label = T)
 DimPlot(object = seu,pt.size=0.7,reduction='tsne',group.by='orig.ident')
 DimPlot(object = seu,pt.size=0.01,reduction='tsne',group.by='batch')
-DimPlot(object = seu,pt.size=0.01,reduction='tsne',group.by='final_clusters', label = T, repel = T) + NoLegend()
+DimPlot(object = seu,pt.size=0.01,reduction='tsne',group.by='cell.type', label = T, repel = T) + NoLegend()
 
 # UMAP plot by sample cluster
 DimPlot(object = seu,pt.size=0.7,reduction='umap',group.by='ident', label = T)
 DimPlot(object = seu,pt.size=0.01,reduction='umap',group.by='orig.ident')
 DimPlot(object = seu,pt.size=0.01, reduction='umap',group.by='batch')
-DimPlot(object = seu,pt.size=0.01,reduction='umap',group.by='final_clusters', label = T, repel = T) + NoLegend()
+all.samples.no.mnn <- DimPlot(object = seu,pt.size=0.01,reduction='umap',group.by='cell.type', label = T, repel = T) + NoLegend() + ggtitle("All samples - no MNN")
+all.samples.no.mnn
+#ggsave(plot = all.samples.no.mnn, filename =  here("results", paste0("all_samples_no_mnn_", Sys.Date(), ".png")))
 ```
 
 ## Assigning maternal/fetal status and sex
@@ -225,9 +233,8 @@ meta.new$fetal <- factor(meta.new$fetal,
 meta.new$sex <- factor(meta.new$sex,
                          levels = c("female", "male"),
                          labels = c("Female", "Male"))
-```
 
-```{r}
+# Add new varaibles to Seurat object
 seu <- AddMetaData(object = seu, metadata = meta.new$fetal, col.name = 'fetal')
 seu <- AddMetaData(object = seu, metadata = meta.new$sex, col.name = 'sex')
 ```
@@ -240,13 +247,13 @@ Double-check fetal and sex assignments. Y-linked RPS4Y1 looks normal, but XIST e
 ```{r}
 AverageExpression(object = seu,
                   features = "RPS4Y1",
-                  group.by = c("orig.ident", "freemuxlet.assignments"))$RNA %>% t %>% View
+                  group.by = c("orig.ident", "freemuxlet.assignments"))$RNA %>% t
 AverageExpression(object = seu,
                   features = "XIST",
-                  group.by = c("orig.ident", "fetal"))$RNA %>% t %>% View
+                  group.by = c("orig.ident", "fetal"))$RNA %>% t 
 AverageExpression(object = seu,
                   features = "COL1A1",
-                  group.by = c("orig.ident", "fetal"))$RNA %>% t %>% View
+                  group.by = c("orig.ident", "fetal"))$RNA %>% t
 ```
 
 ```{r}
@@ -268,92 +275,97 @@ rm(tsang)
 
 ```{r}
 DimPlot(seu, group.by = 'fetal', pt.size = .25)
+DimPlot(seu, group.by = 'batch', pt.size = .25)
 DimPlot(seu, group.by = 'biorep', split.by = 'fetal', pt.size = .25)
 DimPlot(seu, group.by = 'sex', pt.size = .25)
 ```
 
-## MNN Correction and Initial t
+## MNN Correction
 Clustering
 MNN batch correction pipeline, batch correct for biological replicate
 ```{r}
 # Mutual Nearest Neighbor Reduction
 # RunFastMNN, splitting by biological replicate (i.e., KC40 vs. KC42 vs. each tnl sample vs. each normal tsang sample)
 seu <- RunFastMNN(object.list = SplitObject(seu, split.by = "biorep"))
-DimPlot(object = seu,pt.size=0.7,reduction='mnn', group.by='orig.ident')
-DimPlot(object = seu,pt.size=0.7,reduction='mnn', group.by='biorep')
 
 # Re-run UMAP and cluster pipeline after MNN correction
 seu <- RunUMAP(seu, reduction = "mnn", dims = 1:50)
 seu <- FindNeighbors(seu, reduction = "mnn", dims = 1:50)
-seu <- FindClusters(seu, resolution = 0.2)
+seu <- FindClusters(seu, resolution = 0.3)
 ```
 
 ```{r}
 # 'biorep' is metadata describing biological replicates
 DimPlot(seu, group.by = 'biorep')
 # 'seurat_clusters' is metadata describing default clustering'
-DimPlot(seu, group.by = 'seurat_clusters', label = T, pt.size = .25)
+DimPlot(seu, group.by = 'seurat_clusters', label = T, pt.size = .25) + NoLegend()
 # 'SampleName' describes KC40A (1A), KC40B (1B), KC42A (2A), KC42B (2B)
 DimPlot(seu, group.by = 'orig.ident')
 DimPlot(seu, group.by = 'freemuxlet.assignments')
+all.samples.mnn <- DimPlot(object = seu,pt.size=0.01,reduction='umap',group.by='cell.type', split.by = 'fetal', label = T, repel = T) + NoLegend() + ggtitle("All samples - MNN")
+all.samples.mnn
+#ggsave(plot = all.samples.mnn, filename =  here("results", paste0("all_samples_mnn_", Sys.Date(), ".png")))
+DimPlot(object = seu,pt.size=0.01,reduction='umap',group.by='cell.type', label = T, repel = T) + NoLegend() + ggtitle("All samples - MNN")
 ```
 
-MNN batch correction pipeline, batch correct for each study
+
+```{r}
+#saveRDS(seu, here("data", paste0(Sys.Date(), "_seu_all_samples_mnn.rda")))
+seu <- readRDS("G:/My Drive/Placenta_Cell_Types/RNA/placenta_cell_types_rna/data/2022-02-20_seu_all_samples_mnn.rda")
+```
+
+
+```{r}
+seu.normal <- subset(seu, invert = T, subset = orig.ident %in% c("tsang_pe1", "tsang_pe2", "tsang_pe3", "tsang_pe4"))
+seu.pe <- subset(seu, subset = orig.ident %in% c("tsang_pe1", "tsang_pe2", "tsang_pe3", "tsang_pe4"))
+```
+
+```{r}
+# 'biorep' is metadata describing biological replicates
+DimPlot(seu.normal, group.by = 'biorep')
+# 'seu.normalrat_clusters' is metadata describing default clustering'
+DimPlot(seu.normal, group.by = 'seurat_clusters', label = T, pt.size = .25) + NoLegend()
+# 'SampleName' describes KC40A (1A), KC40B (1B), KC42A (2A), KC42B (2B)
+DimPlot(seu.normal, group.by = 'orig.ident')
+DimPlot(seu.normal, group.by = 'freemuxlet.assignments')
+all.samples.mnn.normal <- DimPlot(object = seu.normal, pt.size=0.01, reduction='umap', group.by='cell.type', label = T, repel = T) + NoLegend() + ggtitle("All samples - MNN, normal subset")
+all.samples.mnn.normal
+```
+
+```{r}
+DimPlot(object = seu.pe,pt.size=0.01,reduction='umap',group.by='seurat_clusters', split.by = "fetal", label = T, repel = T) + NoLegend() + ggtitle("All samples - MNN, PE subset")
+```
+
+## MNN correction within normal samples only
+
 ```{r}
 # Mutual Nearest Neighbor Reduction
 # RunFastMNN, splitting by biological replicate (i.e., KC40 vs. KC42 vs. each tnl sample vs. each normal tsang sample)
-seu <- RunFastMNN(object.list = SplitObject(seu, split.by = "batch"))
-DimPlot(object = seu,pt.size=0.7,reduction='mnn', group.by='orig.ident')
-DimPlot(object = seu,pt.size=0.7,reduction='mnn', group.by='batch')
-
+seu <- RunFastMNN(object.list = SplitObject(seu.normal, split.by = "biorep"))
+rm(seu.normal)
+rm(seu.pe)
 # Re-run UMAP and cluster pipeline after MNN correction
 seu <- RunUMAP(seu, reduction = "mnn", dims = 1:50)
 seu <- FindNeighbors(seu, reduction = "mnn", dims = 1:50)
-seu <- FindClusters(seu, resolution = 0.2)
-```
-
-```{r}
-DimPlot(object = seu,pt.size=0.7,reduction='mnn', group.by='orig.ident')
-DimPlot(object = seu,pt.size=0.7,reduction='mnn', group.by='biorep')
-DimPlot(object = seu,pt.size=0.7,reduction='mnn', group.by='batch')
-DimPlot(object = seu,pt.size=0.7,reduction='mnn', group.by='seurat_clusters')
-```
-
-
-## Clustering optimization
-
-```{r}
-# Function that accepts Seurat  that has been processed up to the clustering step, clusters at desired resolutions (vector), adds cluster identities at different resolutions, and returns Seurat object with resolution cluster identities
-Seurat_clustree <- function (seuratObject, resolutions) {
-  
-  for(hyperparameter in resolutions) {
-    print(hyperparameter)
-    prefix <- paste0("res.", hyperparameter)
-    print(prefix)
-    seuratObject <- FindClusters(object = seuratObject, resolution = hyperparameter)
-    seuratObject <- AddMetaData(object = seuratObject, metadata = seuratObject$seurat_clusters, col.name = prefix)
-  }
-  return(seuratObject)
-}
-
-resolutions <- seq(from = 0.2, to = 0.7, by = .1)
-seu <- Seurat_clustree(seu, resolutions)
-```
-
-Iterating over 0.2 to 0.7 clustering resolution, .3 looks stable. Additional divisions at .5
-```{r clustree_graph}
-clustree(seu, prefix = "res.", node_colour = "sc3_stability") + theme(legend.position = "bottom") + guides(edge_alpha = F)
-```
-res of 0.3 splits the large T-cell containing cluster into 4 groups instead of 2 and splits the monocyte group into 2 groups.
-```{r}
-# 'seurat_clusters' is metadata describing default clustering'
-DimPlot(seu, group.by = 'res.0.3', label = T, pt.size = .25)
-DimPlot(seu, group.by = 'res.0.2', label = T, pt.size = .25)
-```
-
-```{r}
-# Reset default cluster resolution
 seu <- FindClusters(seu, resolution = 0.3)
-#saveRDS(seu, paste0(data_dir, "fetal_assigned_res.0.3_",Sys.Date(), ".rda"))
-seu.res.0.3 <- FindAllMarkers(seu)
 ```
+
+```{r}
+# 'biorep' is metadata describing biological replicates
+DimPlot(seu, group.by = 'biorep')
+# 'seurat_clusters' is metadata describing default clustering'
+DimPlot(seu, group.by = 'seurat_clusters', label = T, pt.size = .25) + NoLegend()
+# 'SampleName' describes KC40A (1A), KC40B (1B), KC42A (2A), KC42B (2B)
+DimPlot(seu, group.by = 'orig.ident')
+DimPlot(seu, group.by = 'freemuxlet.assignments')
+DimPlot(object = seu,pt.size=0.01,reduction='umap',group.by='cell.type', split.by = 'fetal', label = T, repel = T) + NoLegend() + ggtitle("All samples - MNN")
+
+normal.samples.mnn <- DimPlot(object = seu,pt.size=0.01,reduction='umap',group.by='cell.type', label = T, repel = T) + NoLegend() + ggtitle("Normal samples - MNN")
+normal.samples.mnn
+#ggsave(plot = all.samples.mnn, filename =  here("results", paste0("normal_samples_mnn_", Sys.Date(), ".png")))
+```
+
+```{r}
+#saveRDS(seu, here("data", paste0(Sys.Date(), "_seu_normal_mnn.rda")))
+```
+
