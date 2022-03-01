@@ -1,0 +1,279 @@
+---
+title: "Fetal Cell type assignment - correcting by biorep for batch"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::knit_engines$set(python = reticulate::eng_python)
+
+#install.packages("package_name",  repos="http://cran.us.r-project.org") # Only this mirror worked for multiple packages
+library(here)
+library(knitr)
+library(tidyverse)
+library(devtools)
+library(Seurat)
+#remotes::install_github('satijalab/seurat-wrappers')
+library(SeuratWrappers)
+library(cowplot)
+library(rgl)
+library(EnvStats)
+library(reticulate)
+library(clustree)
+library(Matrix)
+
+# Bioconductor packages
+#remotes::install_github('chris-mcginnis-ucsf/DoubletFinder') #Install DoubletFinder and depends
+library(batchelor)
+library(edgeR)
+library(scater)
+library(scDblFinder)
+library(scran)
+library(SingleR)
+# Set seed since this pipeline includes stochastic algorithms
+set.seed(1)
+
+options(ggrepel.max.overlaps = Inf)
+```
+# Single-cell RNA-seq analysis of KC and TNL Pique-Regi placental villous tissue samples
+### Important References
+Minimal QC recommended: Current best practices in single‐cell RNA‐seq analysis: a tutorial
+Orchestrating Single-cell Analysis
+### Compiling Issues
+This document had trouble compiling via knitr and pandoc. The following thread fixed the issue (https://github.com/rstudio/rstudio/issues/3661).
+
+Custom function to run fastMNN pipe with 
+```{r}
+pipe.fast.mnn <- function(seu, batch) {
+  seu <- RunFastMNN(object.list = SplitObject(seu, split.by = batch), verbose = T)
+  seu@tools$RunFastMNN$merge.info$lost.var %>% print
+  seu <- RunUMAP(seu, reduction = "mnn", dims = 1:30)
+  seu <- FindNeighbors(seu, reduction = "mnn", dims = 1:30)
+  seu <- FindClusters(seu, res = 0.2)
+  return(seu)
+}
+```
+
+## Load Normal Placenta Data
+```{r}
+seu <- readRDS(here("data", "2022-02-20_seu_normal_mnn.rda"))
+#seu <- pipe.fast.mnn(seu, "batch")
+```
+
+```{r}
+DimPlot(seu, group.by = 'cell.type', label = T, repel = T, pt.size = .25) + NoLegend() + ggtitle("Normal Samples - MNN, Batch")
+```
+
+```{r}
+#ggsave(here("results", "seurat", paste0(Sys.Date(), "_normal_samples_seu_mnn.png")))
+```
+
+## Split fetal and maternal
+
+Split into maternal versus fetal subsets.
+```{r}
+split <- SplitObject(seu, split.by = 'fetal')
+rm(seu) # Clean memory
+fetal <- split$Fetal
+maternal <- split$Maternal
+rm(split) # Clean memory
+```
+
+```{r}
+DimPlot(fetal) + ggtitle("Fetal")
+DimPlot(maternal) + ggtitle("Maternal")
+```
+
+```{r}
+rm(maternal)
+```
+
+## MNN and rerunning UMAP on fetal subset and initial clustering
+
+```{r}
+fetal <- pipe.fast.mnn(fetal, "batch")
+```
+
+```{r}
+DimPlot(fetal, group.by = "seurat_clusters", label = T, pt.size =.25) + NoLegend()
+DimPlot(fetal, group.by = 'cell.type', label = T, repel = T, pt.size = .25) + NoLegend()
+```
+
+## Subset to normal Tsang samples
+
+```{r}
+tsang <- subset(fetal, subset = batch == "tsang")
+```
+
+```{r}
+#tsang <- pipe.fast.mnn(tsang, "biorep")
+tsang <- Seurat::RunUMAP(object = tsang, reduction = "mnn", dims = 1:50)
+```
+
+```{r}
+DimPlot(tsang, group.by = "seurat_clusters", label = T, pt.size =.25) + NoLegend()
+```
+
+### Doublet simulation
+https://www.nature.com/articles/ncomms14049#MOESM828 ; original 10x paper
+Should I include cluster assignment from SingleR?
+Should I use de novo clusters?
+Should I up the doublet rate for 10x v1 chemistry? The most important hyperparameter for doublet calling?
+```{r}
+set.seed(1)
+tsang.sce <- as.SingleCellExperiment(tsang)
+tsang.sce$cluster <- fastcluster(tsang.sce)
+tsang.sce$cluster <- as.factor(tsang.sce$cluster)
+plotUMAP(tsang.sce, colour_by="cluster", label = T)
+tsang.dbl <- scDblFinder(tsang.sce, samples = tsang$orig.ident, clusters = "cluster", dbr.sd = 0.15*2)
+```
+
+```{r}
+plotUMAP(tsang.dbl, colour_by="scDblFinder.score")
+```
+
+```{r}
+table(tsang.dbl$scDblFinder.class)
+```
+
+```{r}
+table(tsang.dbl$scDblFinder.class, tsang.dbl$cluster)
+```
+
+
+```{r}
+plotUMAP(tsang.dbl, colour_by="scDblFinder.class")
+```
+
+```{r}
+tsang$scDblFinder.score <- tsang.dbl$scDblFinder.score
+tsang$scDblFinder.class <- tsang.dbl$scDblFinder.class
+tsang$cluster <- tsang.dbl$cluster
+```
+
+```{r}
+FeaturePlot(tsang, features = "scDblFinder.score")
+DimPlot(tsang, group.by = "scDblFinder.class")
+DimPlot(tsang, group.by = "cluster", label = T, repel = T)
+dbl.score.plot <- FeaturePlot(tsang, features = "scDblFinder.score")
+```
+
+### Manually lassoing of nearby doublets
+
+```{r}
+dbl.3 <- CellSelector(dbl.score.plot)
+```
+
+
+```{r}
+dbl.12.8 <- CellSelector(dbl.score.plot)
+```
+
+```{r}
+dbl.8.10 <- CellSelector(dbl.score.plot)
+```
+
+```{r}
+dbl.13 <- CellSelector(dbl.score.plot)
+```
+
+```{r}
+dbl.10.9 <- CellSelector(dbl.score.plot)
+```
+
+```{r}
+#dbl.cell.selector <- c(dbl.10.9, dbl.12.8, dbl.13, dbl.3, dbl.8.10)
+#saveRDS(dbl.cell.selector, file = here("data", paste0("tsang_dbl_cell_selector_ids_", Sys.Date(), ".rda")))
+dbl.cell.selector <- readRDS(here("data", "tsang_dbl_cell_selector_ids_2022-02-28.rda"))
+```
+
+319 additional doublets based on manual lassoing
+```{r}
+scDblFinder.cell.ids <- rownames(tsang@meta.data)[tsang$scDblFinder.class == "doublet"]
+length(scDblFinder.cell.ids)
+dbl.cell.selector %in% scDblFinder.cell.ids %>% summary
+```
+
+```{r}
+dbl.ids.to.drop <- union(scDblFinder.cell.ids, dbl.cell.selector)
+length(dbl.ids.to.drop)
+```
+
+```{r}
+tsang.dbl.filtered <- subset(x = tsang, cells = dbl.ids.to.drop, invert = T)
+tsang <- tsang.dbl.filtered
+rm(tsang.dbl.filtered)
+```
+
+## Algorithmic cell type assignment of Tsang samples using KC and PR carefully annotated samples with SingleR
+Subset to already annotated KC/PR fetals cells and convert to SingleCellExperiment and log-normalize
+```{r}
+fetal.kc.pr.seu <- subset(fetal, subset = batch %in% c("kc", "pr"))
+fetal.kc.pr.sce <- as.SingleCellExperiment(fetal.kc.pr.seu)
+fetal.kc.pr.sce <- logNormCounts(fetal.kc.pr.sce)
+```
+
+Convert SeuratObject to SingleCellExperiment and log-normalize
+```{r}
+tsang.sce <- logNormCounts(as.SingleCellExperiment(tsang.dbl.filtered))
+```
+
+Run SingleR with "wilcox" de.method because single-cell test and reference datasets
+```{r}
+pred <- SingleR(test = tsang.sce,
+                ref = fetal.kc.pr.sce,
+                labels = fetal.kc.pr.sce$cell.type,
+                de.method = "wilcox")
+```
+
+```{r}
+table(pred$labels)
+```
+
+```{r}
+plotScoreHeatmap(pred)
+```
+
+```{r}
+plotDeltaDistribution(pred, ncol = 3)
+```
+
+```{r}
+summary(is.na(pred$pruned.labels))
+```
+
+```{r}
+tsang$labels <- pred$labels
+tsang$pruned.labels <- pred$pruned.labels
+tsang$cell.type <- pred$pruned.labels
+tsang$pruned <- is.na(tsang$pruned.labels)
+```
+
+```{r}
+DimPlot(tsang, group.by = "cell.type", label = T, repel = T) + NoLegend()
+DimPlot(tsang, group.by = "pruned")
+```
+
+### DROP 268 outliers from SingleR notation
+
+```{r}
+table(tsang$pruned)
+tsang.pruned <- subset(tsang, subset = pruned == T, invert = T)
+```
+
+```{r}
+merged <- merge(fetal.kc.pr.seu, tsang.pruned)
+```
+
+```{r}
+merged <- pipe.fast.mnn(merged, "batch")
+DimPlot(merged, group.by = "cell.type", label = T, repel = T) + NoLegend() + ggtitle("Fetal pruned and merged")
+```
+
+```{r}
+#ggsave(here("results", paste0(Sys.Date(), "_singler_seu_pruned_merged_umap.png")))
+```
+
+```{r}
+#saveRDS(merged, here("data", paste0("fetal_pruned_and_merged_", Sys.Date(), ".rda")))
+```
