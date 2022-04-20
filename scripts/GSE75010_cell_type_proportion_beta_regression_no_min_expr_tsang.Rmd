@@ -1,0 +1,964 @@
+---
+title: "GSE75010 Cell Type Proportion by Case-control status Beta Regression"
+author: "Kyle Campbell"
+date: "1/1/2021"
+output: html_document
+---
+```{r setup, include=FALSE}
+library(tidyverse)
+library(betareg)
+library(boot)
+library(car)
+library(corrplot)
+library(DT)
+library(factoextra)
+library(ggcorrplot)
+library(ggridges)
+library(ggpubr)
+library(grid)
+library(gridExtra)
+library(here)
+library(lmtest)
+#library(memisc)
+# Had to detach memisc due to shared function with dplyr that producing annoying warning
+library(pheatmap)
+library(psych)
+library(readxl)
+library(table1)
+library(tidymodels)
+
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Using default max signature genes per class and no min expr, P-value error, increase permutations
+```{r}
+merged <- readRDS(here("data", "GSE75010_with_abundances_2022-04-12.rda"))
+```
+
+Summary stats about the correlation measurement
+```{r}
+describe(merged$Correlation)
+```
+
+Run Levene's test for homogeneity of variance.
+```{r}
+leveneTest(ga ~ batch, data = merged)
+```
+
+table1 r package to do descriptive statistics
+https://cran.r-project.org/web/packages/table1/vignettes/table1-examples.html
+
+Need to create an empty stratum for the variable you want to test by.
+```{r}
+t1 <- merged
+t1$phenotype <- factor(t1$phenotype, levels = c("C", "PE", "99"), labels = c("Control", "Preeclampsia", "P-value"))
+t1$sex <- factor(t1$sex, levels = c("F", "M"), labels = c("Female", "Male"))
+
+label(t1$phenotype) <- "Preeclampsia"
+label(t1$sex) <- "Fetal Sex"
+label(t1$batch) <- "Study"
+label(t1$ga) <- "Gestational Age"
+
+units(t1$ga) <- "wks"
+```
+
+Custom code from the package authors to add p-value column. An empty stratum called P-value is required for the variable you are testing. rndr function will need to be adpated to each specific situation, including the entering the dataframe you wish to use and the statistical test to use for numeric and non-numeric columns. rndr.strat does not need to be modified. Statistically signifianct digits can https://cran.r-project.org/web/packages/table1/vignettes/table1-examples.html#a-column-of-p-values 
+```{r}
+rndr <- function(x, name, ...) {
+    if (length(x) == 0) {
+        # RHS needs to correspond to the dataframe you input to t1()
+        y <- t1[[name]]
+        s <- rep("", length(render.default(x=y, name=name, ...)))
+        if (is.numeric(y)) {
+            # RHS needs to correspond to the dataframe you input to t1()
+            # If the column is numeric, set the desired statistical test, T-test here 
+            p <- t.test(y ~ t1$phenotype)$p.value
+        } else {
+            #Again droplevels() argument needs to be the dataframe you input to t1()
+            # If the column is not numeric, set the desired statistical test, Chi-square here
+            p <- chisq.test(table(y, droplevels(t1$phenotype)))$p.value
+        }
+        s[2] <- sub("<", "&lt;", format.pval(p, digits=2, eps=0.001))
+        s
+    } else {
+        render.default(x=x, name=name, ...)
+    }
+}
+
+rndr.groups <- function(x, name, ...) {
+    if (length(x) == 0) {
+        # RHS needs to correspond to the dataframe you input to t1()
+        y <- t1[[name]]
+        s <- rep("", length(render.default(x=y, name=name, ...)))
+        if (is.numeric(y)) {
+            # RHS needs to correspond to the dataframe you input to t1()
+            # If the column is numeric, set the desired statistical test, Kruskal-Wallis here 
+            p <- kruskal.test(y ~ t1$batch)$p.value
+        } else {
+            #Again droplevels() argument needs to be the dataframe you input to t1()
+            # If the column is not numeric, set the desired statistical test, Chi-square here
+            p <- chisq.test(table(y, droplevels(t1$batch)))$p.value
+        }
+        s[2] <- sub("<", "&lt;", format.pval(p, digits=2, eps=0.001))
+        s
+    } else {
+        render.default(x=x, name=name, ...)
+    }
+}
+
+rndr.strat <- function(label, n, ...) {
+    ifelse(n==0, label, render.strat.default(label, n, ...))
+}
+```
+
+Bivariate outcome with t-test for continuous variables and Chi-square test for categorical outcomes.
+```{r}
+table1(~ sex + ga + batch | phenotype, data=t1, droplevels=F, render=rndr, render.strat=rndr.strat, overall=F)
+```
+
+Bivariate batch with Kruskal-Wallis ANOVA (regular ANOVA homogeneity of variances violated) for continuous variables and Chi-square test for categorical outcomes.
+```{r}
+t1$phenotype <- droplevels(t1$phenotype)
+label(t1$phenotype) <- "Preeclampsia"
+t1$batch <- factor(t1$batch, levels = append(levels(t1$batch), "99"), labels = append(levels(t1$batch), "P-value"))
+
+table1(~ sex + ga + phenotype | batch, data=t1, droplevels=F, render=rndr.groups, render.strat=rndr.strat, overall=F)
+t1$batch <- droplevels(t1$batch)
+label(t1$batch) <- "Batch"
+```
+
+## Cell Type Proportions Exploration and Dimension Reduction
+
+Code based on http://www.sthda.com/english/articles/31-principal-component-methods-in-r-practical-guide/118-principal-component-analysis-in-r-prcomp-vs-princomp/.
+
+Prep data for PCA - extract only the active variables and drop Fetal Naive CD4+ T Cells and Fetal B cells because 0% predicted for each observation.
+```{r}
+# Select only the cell type proportions
+active <- 
+  merged %>%
+  dplyr::select(!c(sample, phenotype, batch, ga, sex, "P-value", RMSE, Correlation, "Fetal Naive CD4+ T Cells", "Fetal B Cells"))
+# Assign sample IDs to rownames of cell type proportions
+rownames(active) <- merged$sample
+```
+
+Run PCA
+```{r}
+res.pca <- prcomp(active, scale = F)
+#saveRDS(res.pca, paste0(data_dir, "GSE75010_cell_type_proportions_pca_", Sys.Date(), ".rda"))
+pca.summary <- summary(res.pca)
+
+prop.var <- as.data.frame(pca.summary$importance)
+
+# The first 5 components provide almost 78% of the variance explained.
+sum(prop.var[2,1:5])
+```
+
+https://blog.bioturing.com/2018/06/18/how-to-read-pca-biplots-and-scree-plots/ briefly summarizes applied PCA analysis.
+Scree plot
+```{r}
+fviz_eig(res.pca)
+```
+
+```{r}
+#View(abs(res.pca$rotation))
+colSums(res.pca$rotation)
+#View(res.pca$center)
+```
+
+Graph of individuals. Individuals with a similar profile are grouped together.
+```{r}
+fviz_pca_ind(res.pca,
+             col.ind = "cos2", # Color by the quality of representation
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             label = F
+             )
+```
+
+Graph of variables. Positively correlated variables point to the same side of the plot. Negatively correlated variables point to opposite sides of the graph
+```{r}
+pc.1.2 <- fviz_pca_var(res.pca,
+             col.var = "contrib", # Color by contributions to the PC
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             legend.title = "Contribution",
+             # Default labelsize = 4
+             labelsize = 2*4,
+             repel = TRUE,      # Avoid text overlapping
+             ) + 
+  theme(legend.position = "none")
+pc.1.2
+#ggsave(paste0(results_dir, "variables_pca_1_2_", Sys.Date(), ".png"))
+```
+
+```{r}
+#print(res.pca$rotation)
+loadings <-res.pca$rotation
+```
+
+```{r}
+pc.1.3 <- fviz_pca_var(res.pca,
+             axes = c(1,3),
+             col.var = "contrib", # Color by contributions to the PC
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             legend.title = "Contribution",
+             # Default labelsize = 4
+             labelsize = 2*4,
+             repel = TRUE,     # Avoid text overlapping 
+             ) + 
+  theme(legend.position = "none")
+pc.1.3
+#ggsave(paste0(results_dir, "variables_pca_1_3_", Sys.Date(), ".png"))
+```
+
+```{r}
+groups <- t1$phenotype
+fviz_pca_ind(res.pca,
+             col.ind = groups, # color by groups
+             palette = c("#00AFBB",  "#FC4E07"),
+             addEllipses = TRUE, # Concentration ellipses
+             legend.title = "Groups",
+             repel = TRUE,
+             label = F
+             )
+#ggsave(paste0(results_dir, "individuals_pca_", Sys.Date(), ".png"))
+```
+
+```{r}
+# Set up PC combinations to loop over
+dims <- list(
+  c(1,2), c(1,3), c(1,4),
+  c(2,3), c(2,4),
+  c(3,4)
+)
+# Add names
+names(dims) <- c("12", "13", "14", "23", "24", "34")
+
+# Apply fviz_pca_ind over desired pc combinations
+pc_inds <- lapply(dims, function(x) fviz_pca_ind(
+    res.pca,
+    axes = x,
+    col.ind = groups,
+    # Default pointsize = 1.5
+    pointsize = 3*1.5,
+    alpha = .5,
+    # color by groups
+    palette = c("#00AFBB",  "#FC4E07"),
+    addEllipses = TRUE,
+    # Concentration ellipses
+    legend.title = "Groups",
+    repel = TRUE,
+    label = F
+  ) + theme(legend.position = "none"))
+
+ggarrange(pc_inds$`12`, pc_inds$`13`,
+          common.legend = TRUE, legend = "bottom")
+```
+
+Make presentable graphs
+```{r}
+pc.plots <- list(
+  "loadings.1.2" = pc.1.2 + ggtitle("Loadings Plot - PC1xPC2"),
+  "loadings.1.3" = pc.1.3 + ggtitle("Loadings Plot - PC1xPC3"),
+  "observations.1.2" = pc_inds$`12` + ggtitle("PCA Plot - PC1xPC2"),
+  "observations.1.3" = pc_inds$`13` + ggtitle("PCA Plot - PC1xPC3")
+)
+
+# Input ggplot to get x and y limits for graph
+get_coord_limits <- function(ggplot) {
+  
+  # Get build options
+  build <- ggplot_build(ggplot)
+  # Get x-limits
+  x <- build$layout$panel_scales_x[[1]]$range$range
+  # Get y-limits
+  y <- build$layout$panel_scales_y[[1]]$range$range
+  
+  # Return x and y limits as list
+  return(list(
+    "x" = x,
+    "y" = y
+  ))
+}
+
+# Pull limits from each graph
+limits <- map(pc.plots[1:2], ~ get_coord_limits(.x))
+
+# Pull x-limits and convert to list of vectors
+x_limits <- map(limits, ~ unlist(.x["x"]))
+# Convert x-limits to vector
+x_limits <- unlist(x_limits)
+# Get x-min
+x_min <- min(x_limits)
+# Get x-max
+x_max <- max(x_limits)
+
+# Pull y-limits and convert to list of vectors
+y_limits <- map(limits, ~ unlist(.x["y"]))
+# Convert y-limits to vector
+y_limits <- unlist(y_limits)
+# Get y-min
+y_min <- min(y_limits)
+# Get y-max
+#y_sorted <- sort(y_limits)
+#y_max <- y_sorted[length(y_sorted)-3] %>% as.numeric
+y_max <- max(y_limits)
+
+plots.loadings <- map(pc.plots[1:2], ~.x + coord_cartesian(xlim = c(x_min, x_max), ylim = c(y_min, y_max)))
+
+# Pull limits from each graph
+limits <- map(pc.plots[3:4], ~ get_coord_limits(.x))
+
+# Pull x-limits and convert to list of vectors
+x_limits <- map(limits, ~ unlist(.x["x"]))
+# Convert x-limits to vector
+x_limits <- unlist(x_limits)
+# Get x-min
+x_min <- min(x_limits)
+# Get x-max
+x_max <- max(x_limits)
+
+# Pull y-limits and convert to list of vectors
+y_limits <- map(limits, ~ unlist(.x["y"]))
+# Convert y-limits to vector
+y_limits <- unlist(y_limits)
+# Get y-min
+y_min <- min(y_limits)
+# Get y-max
+#y_sorted <- sort(y_limits)
+#y_max <- y_sorted[length(y_sorted)-3] %>% as.numeric
+y_max <- max(y_limits)
+
+plots.observations <- map(pc.plots[3:4], ~.x + coord_cartesian(xlim = c(x_min, x_max), ylim = c(y_min, y_max)))
+
+pc.plots <- c(plots.loadings, plots.observations)
+pc.plots <- map(pc.plots, ~ .x + theme_minimal(base_size = 20))
+pc.plots[1:2] <- map(pc.plots[1:2], ~ .x + theme(legend.position = "none"))
+#pc.plots[3:4] <- map(pc.plots[3:4], ~ .x + )
+```
+
+```{r}
+pc.plots$loadings.1.2
+pc.plots$loadings.1.3
+pc.plots$observations.1.2
+pc.plots$observations.1.3
+```
+
+Common legends
+```{r}
+loadings <- ggarrange(pc.plots$loadings.1.2, pc.plots$loadings.1.3, labels = c("A", "B"), common.legend = TRUE, legend = "bottom", font.label = list(size = 24, face = "bold", color = "black"))
+observations <- ggarrange(pc.plots$observations.1.2, pc.plots$observations.1.3, labels = c("C", "D"), common.legend = TRUE, legend = "bottom", font.label = list(size = 24, face = "bold", color = "black"))
+```
+
+Summary and graph of PCA results.
+```{r}
+panel <- ggarrange(loadings, observations, nrow = 2, ncol = 1)
+#ggexport(panel, filename = here("results", "GSE75010", paste0(Sys.Date(), "_PCA_plots.png")), width = 1920, height = 1080)
+```
+
+```{r}
+# Pull phenotype column
+sample <- merged$sample
+phenotype <- merged$phenotype
+
+# Pull PC values
+pca.df <- as.data.frame(res.pca$x)
+
+# Add metadata
+pca.df <- cbind(pca.df, sample)
+pca.df <- cbind(pca.df, phenotype)
+
+#dev.new()
+#pdf(paste0(results_dir, "PC_matrix_", Sys.Date(), ".pdf"))
+pairs(pca.df[1:6], col=pca.df$phenotype)
+#dev.off()
+```
+
+Calculate the coordinates for the levels of grouping variables. The coordinates for a given group is calculated as the mean coordinates of the individuals in the group.
+```{r}
+# 1. Individual coordinates
+res.ind <- get_pca_ind(res.pca)
+# 2. Coordinate of groups
+coord.groups <- res.ind$coord %>%
+  as_data_frame() %>%
+  dplyr::select(Dim.1, Dim.2, Dim.3) %>%
+  mutate(category = groups) %>%
+  group_by(category) %>%
+  summarise(
+    Dim.1 = mean(Dim.1),
+    Dim.2 = mean(Dim.2),
+    Dim.3 = mean(Dim.3)
+    )
+coord.groups
+```
+
+Project gestational age onto PC1xPC2. The coordinates of a given quantitative variable are calculated as the correlation between the quantitative variable and the principal components.
+```{r}
+ga <- t1$ga
+# Predict coordinates and compute cos2
+quanti.coord <- cor(ga, res.pca$x)
+quanti.cos2 <- quanti.coord^2
+# Graph of variables including supplementary variables
+p <- fviz_pca_var(res.pca)
+fviz_add(p, quanti.coord, color ="blue", geom="arrow")
+
+#ggsave(paste0(results_dir, "variables_pca_plus_ga_", Sys.Date(), ".png"))
+```
+
+```{r}
+# Helper function 
+#::::::::::::::::::::::::::::::::::::::::
+var_coord_func <- function(loadings, comp.sdev){
+  loadings*comp.sdev
+}
+# Compute Coordinates
+#::::::::::::::::::::::::::::::::::::::::
+loadings <- res.pca$rotation
+sdev <- res.pca$sdev
+var.coord <- t(apply(loadings, 1, var_coord_func, sdev)) 
+head(var.coord[, 1:4])
+```
+
+```{r}
+# Compute Cos2
+#::::::::::::::::::::::::::::::::::::::::
+var.cos2 <- var.coord^2
+head(var.cos2[, 1:4])
+```
+
+PC1 is predominately placental types, PCs 2:5 are primarily immune cells, PC 6 is primarily placental
+```{r}
+# Compute contributions
+#::::::::::::::::::::::::::::::::::::::::
+comp.cos2 <- apply(var.cos2, 2, sum)
+contrib <- function(var.cos2, comp.cos2){var.cos2*100/comp.cos2}
+var.contrib <- t(apply(var.cos2,1, contrib, comp.cos2))
+head(var.contrib[, 1:4])
+#View(var.contrib)
+```
+
+Interesting way to visualize the relative abundance of each cell type
+```{r}
+annotation.row <- data.frame(Phenotype = t1$phenotype)
+  
+#pheatmap(active, cutree_rows = 2, annotation_row = annotation.row)
+```
+
+Corrplot to identify inversely correlated proportions. Maternal plasma and B cells are inversely correlated as well as Maternal NK/Fetal CD8+ cytotoxic
+```{r}
+# Compute a correlation matrix
+corr <- round(cor(active), 3)
+```
+
+```{r}
+#dev.new()
+#pdf(paste0(results_dir, "cell_type_props_corrplot_", Sys.Date(), ".pdf"))
+corrplot(corr, method = "ellipse", order = "hclust", tl.cex = .7) #tl.cex control axis label size
+#dev.off()
+
+# Alternative options
+#corrplot(corr, method = "ellipse", order = "hclust")
+#corrplot(corr, method = "ellipse", order = "AOE")
+```
+
+## Graphing Cell Type Proportions
+
+```{r}
+graph <- merged
+levels(graph$phenotype) <- c("Control", "Preeclampsia")
+ggplot(graph,aes(x=ga, fill=phenotype)) + geom_density(alpha=0.25) +
+  ggtitle("Distribution of Gestational Age by Case-Control Status") +
+  xlab("Gestational Age (wks)") + ylab("Density") + labs(fill = "Phenotype")
+#ggsave(paste0(results_dir, "ga_distribution_by_case-control_", Sys.Date(), ".png"))
+```
+
+Custom function to graph variables by group via Violin Plot.
+```{r}
+# DATA: dataframe that contains data of interest
+# GROUP: MUST be character vector
+# VARIABLES: MUST be character vector
+violin_compare_groups <- function(data, group, variables) {
+  violins <- list()
+  for(variable in variables) {
+      violins[[variable]] <- ggplot(data, aes(.data[[group]], .data[[variable]])) + geom_violin()
+  }
+  return(violins)
+}
+cell.types <- colnames(merged)[6:19]
+violins <- violin_compare_groups(merged, "phenotype", cell.types)
+```
+
+Convert to long data format for graphing purposes
+```{r}
+# Remove the unnecessary columns
+# Select was masked, had to add dplyr::
+merged.violin <- merged %>% dplyr::select(!c('P-value', Correlation, RMSE))
+
+#long <- gather(merged.violin, cell_type, proportion, fibroblasts:extravillous_trophoblasts, factor_key = T)
+long <- gather(merged.violin, 'Cell Type', Proportion, 'Fetal Mesenchymal Stem Cells':'Fetal Extravillous Trophoblasts', factor_key = T)
+
+# Rename factors for graphing purposes
+levels(long$phenotype) <- c("Control", "Preeclampsia")
+#levels(long$cell_type) <- c("Fibroblasts", "Activated T-cells", "CD14 Monocytes", "Naive T-cells", "Natural Killer", "FCGR3A Monocytes", "B Cells", "Cytotrophoblasts" , "Hofbauer Cells", "pDC", "Endothelial", "Syncytiotrophoblast", "npiCytotrophoblasts", " Extravillous")
+
+#long.nosyn <- long %>% filter(cell_type != "Syncytiotrophoblast")
+#long.syn <- long %>% filter(cell_type == "Syncytiotrophoblast")
+```
+
+Stacked bar chart of cell type proportions by sample
+```{r}
+stacked.bar <- ggplot(long, aes(fill = `Cell Type`, x = sample, y = Proportion)) + geom_bar(postion = "stack", stat = "identity")
+stacked.bar + theme(axis.text.x=element_blank(), axis.ticks.x = element_blank()) + xlab("Sample")
+stacked.bar + theme(legend.position = "none", axis.text.x=element_blank(), axis.ticks.x = element_blank()) + xlab("Sample")
+
+stacked.bar + theme(legend.position = "none", axis.text.x=element_blank(), axis.ticks.x = element_blank()) + xlab("Sample")
+
+#ggsave(here("results", "GSE75010", paste0("/", Sys.Date(), "_stacked_cell_type_proportions.png")))
+```
+
+```{r}
+#long.placenta <- long %>%
+#  dplyr::filter(cell_type %in% c("Fibroblasts", "Cytotrophoblasts" , "Hofbauer Cells", "Endothelial", "Syncytiotrophoblast", #"npiCytotrophoblasts", " Extravillous"))
+#long.immune <- long %>%
+#  dplyr::filter(!cell_type %in% c("Fibroblasts", "Cytotrophoblasts" , "Hofbauer Cells", "Endothelial", "Syncytiotrophoblast", #"npiCytotrophoblasts", " Extravillous"))
+
+long.fetal <- long %>%
+  dplyr::filter(grepl("Fetal ", `Cell Type`))
+
+long.maternal <- long %>%
+  dplyr::filter(grepl("Maternal ", `Cell Type`))
+
+# Make syntactically valid names
+colnames(long.fetal)<- make.names(colnames(long.fetal))
+colnames(long.maternal)<- make.names(colnames(long.maternal))
+```
+Graphing note: scale = "width" argument required rather than ggplot2 default of scale = "area" for this dataset
+
+TODO cleanup x-axis label
+
+https://cran.r-project.org/web/packages/ggridges/vignettes/gallery.html
+```{r}
+fetal <- ggplot(long.fetal, aes(x = Proportion, y = Cell.Type, color = phenotype, point_color = phenotype, fill = phenotype)) +
+  geom_density_ridges(
+    jittered_points = TRUE, scale = .95, rel_min_height = .01,
+    point_shape = "|", point_size = 1, size = 0.25,
+    position = position_points_jitter(height = 0)
+  ) +
+  ylab("Cell Type") +
+  scale_y_discrete(expand = c(0, 0)) +
+  scale_x_continuous(expand = c(0, 0), name = "Cell Type Proportion", labels = scales::percent_format(accuracy = 1)) +
+  scale_fill_manual(values = c("#D55E0050", "#0072B250"), labels = c("Control", "Preeclamptic")) +
+  scale_color_manual(values = c("#D55E00", "#0072B2"), guide = "none") +
+  scale_discrete_manual("point_color", values = c("#D55E00", "#0072B2"), guide = "none") +
+  coord_cartesian(clip = "off") +
+  guides(fill = guide_legend(
+    override.aes = list(
+      fill = c("#D55E00A0", "#0072B2A0"),
+      color = NA, point_color = NA)
+    )
+  ) +
+  ggtitle("Cell Type Proportions in Preeclamptic Cases vs. Controls") +
+  theme_ridges(center = TRUE) +
+  theme(legend.title = element_blank(), legend.position = c(.65, .2), legend.text = element_text(size = 10), axis.title.x=element_blank(), plot.title = element_text(size = 12), axis.text.y = element_text(size = 8), axis.title.y = element_blank())
+
+fetal.panel <- ggplot(long.fetal, aes(x = Proportion, y = Cell.Type, color = phenotype, point_color = phenotype, fill = phenotype)) +
+  geom_density_ridges(
+    jittered_points = TRUE, scale = .95, rel_min_height = .01,
+    point_shape = "|", point_size = 1, size = 0.25,
+    position = position_points_jitter(height = 0)
+  ) +
+  ylab("Cell Type") +
+  labs(fill = "Case-control Status") +
+  scale_y_discrete(expand = c(0, 0)) +
+  scale_x_continuous(expand = c(0, 0), name = "Cell Type Proportion", labels = scales::percent_format(accuracy = 1)) +
+  scale_fill_manual(values = c("#D55E0050", "#0072B250"), labels = c("Control", "Preeclamptic")) +
+  scale_color_manual(values = c("#D55E00", "#0072B2"), guide = "none") +
+  scale_discrete_manual("point_color", values = c("#D55E00", "#0072B2"), guide = "none") +
+  coord_cartesian(clip = "off") +
+  guides(fill = guide_legend(
+    override.aes = list(
+      fill = c("#D55E00A0", "#0072B2A0"),
+      color = NA, point_color = NA)
+    )
+  ) +
+  ggtitle("Cell Type Proportions in Preeclamptic Cases vs. Controls") +
+  theme_minimal(base_size = 20) +
+  theme(axis.text.y = element_text(color = "black"))
+  #theme_ridges(center = TRUE) +
+  #theme(legend.title = element_blank(), legend.position = c(.65, .2), legend.text = element_text(size = 10), axis.title.x=element_blank(), plot.title = element_text(size = 12), axis.text.y = element_text(size = 8), axis.title.y = element_blank())
+
+fetal
+
+#ggsave(paste0(results_dir, "fetal_bivariate_cell_type_proportion_distribution_", Sys.Date(), ".png"))
+```
+```{r}
+fetal <- ggplot(long.fetal, aes(x = Proportion, y = Cell.Type, color = sex, point_color = sex, fill = sex)) +
+  geom_density_ridges(
+    jittered_points = TRUE, scale = .95, rel_min_height = .01,
+    point_shape = "|", point_size = 1, size = 0.25,
+    position = position_points_jitter(height = 0)
+  ) +
+  ylab("Cell Type") +
+  scale_y_discrete(expand = c(0, 0)) +
+  scale_x_continuous(expand = c(0, 0), name = "Cell Type Proportion", labels = scales::percent_format(accuracy = 1)) +
+  scale_fill_manual(values = c("#D55E0050", "#0072B250"), labels = c("Female", "Male")) +
+  scale_color_manual(values = c("#D55E00", "#0072B2"), guide = "none") +
+  scale_discrete_manual("point_color", values = c("#D55E00", "#0072B2"), guide = "none") +
+  coord_cartesian(clip = "off") +
+  guides(fill = guide_legend(
+    override.aes = list(
+      fill = c("#D55E00A0", "#0072B2A0"),
+      color = NA, point_color = NA)
+    )
+  ) +
+  ggtitle("Cell Type Proportions in Males vs. Females") +
+  theme_ridges(center = TRUE) +
+  theme(legend.title = element_blank(), legend.position = c(.65, .2), legend.text = element_text(size = 10), axis.title.x=element_blank(), plot.title = element_text(size = 12), axis.text.y = element_text(size = 8), axis.title.y = element_blank()) +
+  facet_wrap(phenotype)
+
+fetal
+
+#ggsave(here("results", "GSE75010", paste0("/", Sys.Date(), "cell_type_props_male_v_female_preeclampsia_facet_wrap.png")))
+```
+
+```{r}
+colnames(long.fetal)
+```
+
+
+```{r}
+long.fetal %>% group_by(phenotype, Cell.Type) %>% summarise(median = median(Proportion)) #%>% View
+```
+
+```{r}
+maternal <-  ggplot(long.maternal, aes(x = Proportion, y = Cell.Type, color = phenotype, point_color = phenotype, fill = phenotype)) +
+  geom_density_ridges(
+    jittered_points = TRUE, scale = .95, rel_min_height = .01,
+    point_shape = "|", point_size = 1, size = 0.25,
+    position = position_points_jitter(height = 0)
+  ) +
+  ylab("Cell Type") +
+  scale_y_discrete(expand = c(0, 0)) +
+  scale_x_continuous(expand = c(0, 0), name = "Cell Type Proportion", labels = scales::percent_format(accuracy = 1)) +
+  scale_fill_manual(values = c("#D55E0050", "#0072B250"), labels = c("Control", "Preeclamptic")) +
+  scale_color_manual(values = c("#D55E00", "#0072B2"), guide = "none") +
+  scale_discrete_manual("point_color", values = c("#D55E00", "#0072B2"), guide = "none") +
+  coord_cartesian(clip = "off") +
+  guides(fill = guide_legend(
+    override.aes = list(
+      fill = c("#D55E00A0", "#0072B2A0"),
+      color = NA, point_color = NA)
+    )
+  ) +
+  ggtitle("Cell Type Proportions in Preeclamptic Cases vs. Controls") +
+  theme_ridges(center = TRUE) +
+  theme(legend.title = element_blank(), legend.position = c(.65, .2), legend.text = element_text(size = 10), axis.title.x=element_blank(), plot.title = element_text(size = 12), axis.text.y = element_text(size = 8), axis.title.y = element_blank())
+
+maternal.panel <-  ggplot(long.maternal, aes(x = Proportion, y = Cell.Type, color = phenotype, point_color = phenotype, fill = phenotype)) +
+  geom_density_ridges(
+    jittered_points = TRUE, scale = .95, rel_min_height = .01,
+    point_shape = "|", point_size = 1, size = 0.25,
+    position = position_points_jitter(height = 0)
+  ) +
+  ylab("") +
+  labs(fill = "Case-control Status") +
+  scale_y_discrete(expand = c(0, 0)) +
+  scale_x_continuous(expand = c(0, 0), name = "Cell Type Proportion", labels = scales::percent_format(accuracy = 1)) +
+  scale_fill_manual(values = c("#D55E0050", "#0072B250"), labels = c("Control", "Preeclamptic")) +
+  scale_color_manual(values = c("#D55E00", "#0072B2"), guide = "none") +
+  scale_discrete_manual("point_color", values = c("#D55E00", "#0072B2"), guide = "none") +
+  coord_cartesian(clip = "off") +
+  guides(fill = guide_legend(
+    override.aes = list(
+      fill = c("#D55E00A0", "#0072B2A0"),
+      color = NA, point_color = NA)
+    )
+  ) +
+  ggtitle("Cell Type Proportions in Preeclamptic Cases vs. Controls") +
+  theme_minimal(base_size = 20) +
+  theme(axis.text.y = element_text(color = "black"))
+  #theme_ridges(center = TRUE) +
+  #theme(legend.title = element_blank(), legend.position = c(.65, .2), legend.text = element_text(size = 10), axis.title.x=element_blank(), plot.title = element_text(size = 12), axis.text.y = element_text(size = 8), axis.title.y = element_blank())
+
+maternal
+
+#ggsave(paste0(results_dir, "maternal_bivariate_cell_type_proportion_distribution_", Sys.Date(), ".png"))
+```
+
+```{r}
+maternal <-  ggplot(long.maternal, aes(x = Proportion, y = Cell.Type, color = sex, point_color = sex, fill = sex)) +
+  geom_density_ridges(
+    jittered_points = TRUE, scale = .95, rel_min_height = .01,
+    point_shape = "|", point_size = 1, size = 0.25,
+    position = position_points_jitter(height = 0)
+  ) +
+  ylab("Cell Type") +
+  scale_y_discrete(expand = c(0, 0)) +
+  scale_x_continuous(expand = c(0, 0), name = "Cell Type Proportion", labels = scales::percent_format(accuracy = 1)) +
+  scale_fill_manual(values = c("#D55E0050", "#0072B250"), labels = c("Female", "Male")) +
+  scale_color_manual(values = c("#D55E00", "#0072B2"), guide = "none") +
+  scale_discrete_manual("point_color", values = c("#D55E00", "#0072B2"), guide = "none") +
+  coord_cartesian(clip = "off") +
+  guides(fill = guide_legend(
+    override.aes = list(
+      fill = c("#D55E00A0", "#0072B2A0"),
+      color = NA, point_color = NA)
+    )
+  ) +
+  ggtitle("Cell Type Proportions in Males vs. Females") +
+  theme_ridges(center = TRUE) +
+  theme(legend.title = element_blank(), legend.position = c(.65, .2), legend.text = element_text(size = 10), axis.title.x=element_blank(), plot.title = element_text(size = 12), axis.text.y = element_text(size = 8), axis.title.y = element_blank()) + facet_wrap(phenotype)
+
+maternal
+
+#ggsave(here("results", "GSE75010", paste0("/", Sys.Date(), "maternal_cell_type_props_male_v_female_preeclampsia_facet_wrap.png")))
+```
+
+```{r}
+long.maternal %>% group_by(phenotype, Cell.Type) %>% summarise(median = median(Proportion))
+```
+
+```{r}
+ct.prop.panel <- ggarrange(fetal.panel, maternal.panel, labels = "AUTO", common.legend = TRUE, legend = "bottom", font.label = list(size = 24, face = "bold", color = "black"))
+#ggexport(ct.prop.panel, width = 1920, height = 1080, filename = here("results", "GSE75010", paste0(Sys.Date(), "_fetal_maternal_proportions.png")))
+```
+
+Beta transformation function to accommodate 0's in the cell types where 0's are predicted.
+```{r}
+beta_transform <- function(x, n) {
+  return((1/n)*(x*(n-1)+0.5))
+}
+```
+
+Function to run beta regressions over the outcomes of interest.
+```{r}
+# run beta regression models with multiple outcomes, the same set of covariates, and a dataset that includes all outcomes and covariates.
+# outcomes is a character vector
+# covariates is a character vector
+# data is a 2d dataframe suitable for regression
+beta_reg_models <- function(outcomes, covariates, data) {
+  # Initialize empty list to store fitted regression models
+  models <- list()
+  # Loop over outcomes of interest
+  for(outcome in outcomes) {
+    # transform the data to accomodate 0s for beta regression if necessary
+    if (0 %in% data[, outcome]) {
+      data[, outcome] <- beta_transform(data[, outcome], nrow(data))
+    }
+    formula <- as.formula(
+      paste0(outcome, " ~ ", paste(covariates, collapse = " + "))
+    )
+    models[[outcome]] <- tidy(x = betareg(formula = formula, data = data), data = data, conf.int = TRUE, conf.level = .95)
+  }
+  return(models)
+}
+
+# Same function as above but returns model fit statistics
+beta_reg_model_fits <- function(outcomes, covariates, data) {
+  # Initialize empty list to store fitted regression models
+  model_fits <- list()
+  # Loop over outcomes of interest
+  for(outcome in outcomes) {
+    # transform the data to accomodate 0s for beta regression if necessary
+    if (0 %in% data[, outcome]) {
+      data[, outcome] <- beta_transform(data[, outcome], nrow(data))
+    }
+    formula <- as.formula(
+      paste0(outcome, " ~ ", paste(covariates, collapse = " + "))
+    )
+    model_fits[[outcome]] <- glance(x = betareg(formula = formula, data = data), data = data)
+  }
+  return(model_fits)
+}
+```
+Run a model across all the cell types.
+TODO Model Fit Statistics, low pseudo-r-sq, possibly precision parameter optimization required?
+
+No longer need to drop Fetal Naive CD4+ T Cells and Fetal B Cells, which were previously all zeroes and model could not be run.
+
+```{r}
+# Set the covariates vector, including the exposure at the front
+covariates <- c("phenotype", "sex", "ga", "batch")
+# Set the outcomes to be modelled vector, the cell types
+# Get the column positions that correspond to cell type proportions
+cell.types <- grepl("Fetal|Maternal", colnames(merged))
+# Make the names syntactically valid
+colnames(merged) <- make.names(colnames(merged))
+# Pull the relevant columns
+outcomes <- colnames(merged)[cell.types]
+# Check if some cell types are all zeros
+merged %>%
+  dplyr::select(outcomes) %>%
+  colSums()
+# Exclude Fetal Naive CD4+ T Cells and Fetal B Cells; no longer necessary with the Tsang data integration
+#outcomes <- outcomes[!(outcomes %in% c("Fetal.Naive.CD4..T.Cells", "Fetal.B.Cells"))]
+
+models <- beta_reg_models(outcomes, covariates, merged)
+fits <- beta_reg_model_fits(outcomes , covariates, merged)
+```
+
+Comparing fixed precision parameter, Phi, against variable precision parameter modeled with all covariates.
+```{r}
+# Fixed dispersion
+#mod <- betareg(as.formula(paste0("fibroblasts", " ~ ", paste(covariates, collapse = " + "))), data = merged)
+# Variable dispersion model with all covariates, sex and phenotype not significant, some batch dummies are significant 
+#mod2 <- betareg(as.formula(paste0("fibroblasts", " ~ ", paste(covariates, collapse = " + "), " | ", paste(covariates, collapse = " + "))), #data = merged)
+#lrtest(mod, mod2)
+```
+
+Model fit diagnostics plots can be accessed with plot.
+```{r}
+#plot(mod)
+```
+
+Pull all model effect estimates and combine to a single tibble for graphing.
+```{r}
+pull_estimates <- function(data) {
+  return(
+    data %>%
+      filter(term == "phenotypePE") %>%
+      dplyr::select(estimate,
+                    conf.low,
+                    conf.high,
+                    p.value) %>%
+      mutate(
+        or = exp(estimate),
+        lower = exp(conf.low),
+        upper = exp(conf.high)
+      )
+  )
+}
+estimates <- lapply(X = models, FUN = pull_estimates)
+# Collapse list of model estimates to a single tibble
+estimates <- Reduce(rbind, estimates)
+# Add cell_type names and reorganize columns
+estimates <-
+  estimates %>%
+  mutate(Cell.Type = names(models)) %>%
+  dplyr::select(Cell.Type, everything())
+# Recode cell type names
+# First, recode all ".." to "+ "
+estimates$Cell.Type <- str_replace_all(string = estimates$Cell.Type, pattern = "\\.{2}", replacement = "+ ")
+# Then, replace remaining "." with " "
+estimates$Cell.Type <- str_replace_all(string = estimates$Cell.Type, pattern = "\\.{1}", replacement = " ")
+
+# Save results
+#write.csv(estimates, paste0(results_dir, "beta_models_estimates.csv"))
+```
+
+Make modifications to the results table for graphing.
+```{r}
+# Create an indicator variable if significant
+estimates$is.sig <- estimates$p.value < .05
+
+# Create a fetal/maternal indicator to reorder by
+estimates$is.fetal <- grepl("^Fetal", estimates$Cell.Type)
+# Set factor variable with true as the reference level
+estimates$is.fetal <- factor(estimates$is.fetal, levels = c(F, T))
+
+# Arrange cell types by descending Odds Ratio within each fetal/maternal group
+estimates.graph <- 
+  estimates %>%
+  group_by(is.fetal) %>%
+  arrange(desc(or), .by_group = T)
+
+# Get cell types ordered from above
+factor.order <- estimates.graph$Cell.Type
+#saveRDS(factor.order, paste0(data_dir, "beta_or_ranked_cell_type_factor_", Sys.Date(), ".rda"))
+
+# Relevel the factor with the ordered cell types
+estimates.graph$Cell.Type <- factor(estimates.graph$Cell.Type, levels = factor.order)
+```
+
+Forest plot code
+```{r}
+forest <- ggplot(data=estimates.graph, 
+                       aes(x=Cell.Type, y=or, ymin=lower, ymax=upper, color = is.sig)) +
+    geom_pointrange(position=position_dodge2(width=1), size=1.3) +
+    geom_hline(yintercept=1, linetype=2) +
+    theme_bw() +
+    theme(text = element_text(size=16),
+          legend.position = 'none') +
+    xlab('') + ylab('Prevalence Odds Ratio') +
+    coord_flip() +
+    scale_color_manual(values = c("grey", "red"))
+
+forest
+
+#ggsave(paste0(results_dir, "beta_forest_", Sys.Date(), ".png"), device = png())
+```
+
+Pull all sex model effect estimates and combine to a single tibble for graphing.
+```{r}
+pull_estimates <- function(data) {
+  return(
+    data %>%
+      filter(term == "sexM") %>%
+      dplyr::select(estimate,
+                    conf.low,
+                    conf.high,
+                    p.value) %>%
+      mutate(
+        or = exp(estimate),
+        lower = exp(conf.low),
+        upper = exp(conf.high)
+      )
+  )
+}
+estimates <- lapply(X = models, FUN = pull_estimates)
+# Collapse list of model estimates to a single tibble
+estimates <- Reduce(rbind, estimates)
+# Add cell_type names and reorganize columns
+estimates <-
+  estimates %>%
+  mutate(Cell.Type = names(models)) %>%
+  dplyr::select(Cell.Type, everything())
+# Recode cell type names
+# First, recode all ".." to "+ "
+estimates$Cell.Type <- str_replace_all(string = estimates$Cell.Type, pattern = "\\.{2}", replacement = "+ ")
+# Then, replace remaining "." with " "
+estimates$Cell.Type <- str_replace_all(string = estimates$Cell.Type, pattern = "\\.{1}", replacement = " ")
+
+# Save results
+#write.csv(estimates, paste0(results_dir, "beta_models_estimates.csv"))
+```
+
+Make modifications to the results table for graphing.
+```{r}
+# Create an indicator variable if significant
+estimates$is.sig <- estimates$p.value < .05
+
+# Create a fetal/maternal indicator to reorder by
+estimates$is.fetal <- grepl("^Fetal", estimates$Cell.Type)
+# Set factor variable with true as the reference level
+estimates$is.fetal <- factor(estimates$is.fetal, levels = c(F, T))
+
+# Arrange cell types by descending Odds Ratio within each fetal/maternal group
+estimates.graph <- 
+  estimates %>%
+  group_by(is.fetal) %>%
+  arrange(desc(or), .by_group = T)
+
+# Get cell types ordered from above
+factor.order <- estimates.graph$Cell.Type
+#saveRDS(factor.order, paste0(data_dir, "beta_or_ranked_cell_type_factor_", Sys.Date(), ".rda"))
+
+# Relevel the factor with the ordered cell types
+estimates.graph$Cell.Type <- factor(estimates.graph$Cell.Type, levels = factor.order)
+```
+
+Sex forest plot code
+```{r}
+forest <- ggplot(data=estimates.graph, 
+                       aes(x=Cell.Type, y=or, ymin=lower, ymax=upper, color = is.sig)) +
+    geom_pointrange(position=position_dodge2(width=1), size=1.3) +
+    geom_hline(yintercept=1, linetype=2) +
+    theme_bw() +
+    theme(text = element_text(size=16),
+          legend.position = 'none') +
+    xlab('') + ylab('Odds Ratio') +
+    coord_flip() +
+    scale_color_manual(values = c("grey", "red"))
+
+forest + ggtitle("Male vs. female")
+
+#ggsave(paste0(results_dir, "sex_beta_forest_", Sys.Date(), ".png"), device = png())
+```
