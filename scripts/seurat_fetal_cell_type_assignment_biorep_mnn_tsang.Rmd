@@ -1,5 +1,5 @@
 ---
-title: "Fetal Cell type assignment - correcting by biorep for batch"
+title: "Fetal Cell type assignment - correcting by batch (study source)"
 output: html_document
 ---
 
@@ -116,9 +116,7 @@ DimPlot(tsang, group.by = "seurat_clusters", label = T, pt.size =.25) + NoLegend
 
 ### Doublet simulation
 https://www.nature.com/articles/ncomms14049#MOESM828 ; original 10x paper
-Should I include cluster assignment from SingleR?
-Should I use de novo clusters?
-Should I up the doublet rate for 10x v1 chemistry? The most important hyperparameter for doublet calling?
+Should I up the doublet rate for 10x v1 chemistry? The most important hyperparameter for doublet calling? Doubled it
 ```{r}
 set.seed(1)
 tsang.sce <- as.SingleCellExperiment(tsang)
