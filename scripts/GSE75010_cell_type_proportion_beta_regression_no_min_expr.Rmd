@@ -28,13 +28,11 @@ library(table1)
 library(tidymodels)
 
 knitr::opts_chunk$set(echo = TRUE)
-data_dir <- paste0(here("data"), "/")
-results_dir <- paste0(here("results", "GSE75010"), "/")
 ```
 
-Using 2000 max signature genes per class and no min expr 
+Using default max signature genes per class and no min expr, P-value error, increase permutations
 ```{r}
-merged <- readRDS(paste0(data_dir, "GSE75010_with_abundances2021-01-26.rda"))
+merged <- readRDS(here("dat", "GSE75010_with_abundances2021-01-26.rda"))
 ```
 
 Summary stats about the correlation measurement
