@@ -1,0 +1,416 @@
+---
+title: "Validation of scRNA-seq deconvolution approach"
+author: "Kyle Campbell"
+date: "3/24/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::knit_engines$set(python = reticulate::eng_python)
+
+#install.packages("package_name",  repos="http://cran.us.r-project.org") # Only this mirror worked for multiple packages
+library(devtools)
+library(here)
+library(ggrepel)
+options(ggrepel.max.overlaps = Inf) # increase max.overlaps for ggrepel
+library(ggpubr)
+library(gprofiler2)
+library(knitr)
+library(tidyverse)
+library(Seurat)
+#remotes::install_github('satijalab/seurat-wrappers')
+library(SeuratWrappers)
+library(cowplot)
+library(rgl)
+library(EnvStats)
+library(reticulate)
+library(clustree)
+library(Matrix)
+
+# Bioconductor packages
+#remotes::install_github('chris-mcginnis-ucsf/DoubletFinder') #Install DoubletFinder and depends
+library(batchelor)
+library(edgeR)
+library(scater)
+# Set seed since this pipeline includes stochastic algorithms
+set.seed(1)
+```
+
+## Load data
+
+Load cleaned Seurat data
+```{r}
+seu <- readRDS(here("data", "analytic", "2022-03-15_all_merged_pruned_batch_mnn.rda"))
+seu$cell.type <- factor(seu$cell.type)
+```
+
+## Custom functions
+
+Take average rmse between two vectors
+```{r}
+rmse <- function(actual, predicted) {
+  return(sqrt(mean((actual - predicted)^2)))
+}
+```
+
+
+OUTMODED - Split 50/50 test/training dataset, randomly. Leads to significant differences due to large df
+```{r, eval = F, include = F}
+# OUTMODED
+set.seed(1)
+fraction <- 0.5
+n.cell <- nrow(seu@meta.data)
+n.cell.subsample <- fraction*n.cell
+subsample.train <- sample(colnames(seu), n.cell.subsample, replace = FALSE)
+
+seu.train <- subset(seu, cells = subsample.train)
+seu.test <- subset(seu, cells = subsample.train, invert = T)
+```
+
+Split 50/50 forcing equal proportions by cell type; when cell type count is odd, the extra cell goes to training
+```{r}
+set.seed(1)
+# Split seu@meta.data into cell.type groups
+x.groups <-seu@meta.data %>%
+  rownames_to_column(var = "cell.id") %>%
+  select(cell.id, cell.type) %>%
+  group_by(cell.type) %>%
+  group_split()
+# Sample at 50% from those groups w/o replacement
+cell.ids.sample <- x.groups %>% map(~ sample(x = .x$cell.id, size = ceiling(nrow(.x)/2), replace = F)) %>% unlist
+
+seu.train <- subset(seu, cells = cell.ids.sample)
+seu.test <- subset(seu, cells = cell.ids.sample, invert = T)
+
+# Save training IDs for reproducibility
+#saveRDS(cell.ids.sample, here("data", paste0(Sys.Date(), "deconvolution_validation_training_cell_ids.Rda")))
+```
+
+UMAP plots of training and test data are visually identical
+```{r}
+DimPlot(seu.train, pt.size = 0.25, label = T, repel = T) + NoLegend() + ggtitle("Training")
+DimPlot(seu.train, pt.size = 0.25, label = T, repel = T) + NoLegend() + ggtitle("Test")
+```
+
+
+```{r}
+table(seu.train$sex, seu.train$fetal)
+table(seu.test$sex, seu.test$fetal)
+```
+
+```{r}
+all.cell.types <- seu$cell.type %>% factor %>% levels
+train.celltypes <- seu.train@meta.data %>% group_by(cell.type) %>% tally()
+colnames(train.celltypes)[2] <- "train"
+
+test.celltypes <- seu.test@meta.data %>% group_by(cell.type) %>% tally()
+colnames(test.celltypes)[2] <- "test"
+
+cell.type.counts <- left_join(train.celltypes, test.celltypes) %>%
+  mutate(test5050.proportions = test/sum(test))
+```
+
+
+
+```{r}
+# Human-readable percentage formatting
+#mutate("Percentage" = round(test/sum(test)*100, digits = 2))
+```
+
+No significant difference in cell type counts between train and test datasets via Pearson correlation test and rmse
+```{r}
+cor.test(x = cell.type.counts$train, y = cell.type.counts$test)
+rmse(actual =  cell.type.counts$test, predicted = cell.type.counts$train) # note on absolute, not percent scale
+```
+
+Save seu object of training cell ids
+```{r}
+#saveRDS(seu.train, here("data", "seurat", paste0(Sys.Date(), "_kc_pr_ts_5050_train_sig_input.rda")))
+```
+
+Format test data for export to CibersortX; start with the whole training sample, 100% fetal and 100% maternal
+```{r}
+format_seu_for_cibersortx_mixture <- function(seu, export_name) {
+  pseudobulk <- seu@assays$RNA %>% rowSums() %>% cpm() %>% as.data.frame() %>% rownames_to_column(var = "GeneSymbol")
+  colnames(pseudobulk)[2] <- export_name
+  return(pseudobulk)
+}
+
+test.pseudobulk <- format_seu_for_cibersortx_mixture(seu = seu.test, export_name = "Test_5050")
+test.fetal <- format_seu_for_cibersortx_mixture(seu = subset(seu.test, subset = fetal == "Fetal"), export_name = "Fetal_5050")
+test.maternal <- format_seu_for_cibersortx_mixture(seu = subset(seu.test, subset = fetal == "Maternal"), export_name = "Maternal_5050")
+```
+
+## Testing fetal sex deconvolution
+Baseline distribution is 85% fetal
+Of fetal, 41% are female (7,277 cells)
+1,284 maternal cells will make up about 15% of 8,561 total cells; randomly select those maternal cells once and mix with all fetal or all male cells (downsample male to 7277 randomly selected cells)
+We have 3,106 total maternal cells in the dataset
+
+```{r}
+set.seed(1)
+# Split seu.test into sex,fetal groups for three unique groups maternal female, fetal male, and fetal female
+x.groups <-seu.test@meta.data %>%
+  rownames_to_column(var = "cell.id") %>%
+  select(cell.id, cell.type, fetal, sex) %>%
+  group_by(sex) %>%
+  group_by(fetal, .add = T) %>%
+  group_split()
+names(x.groups) <- c("female.fetal", "female.maternal", "male.fetal")
+
+sex.test.maternal.ids <- sample(x.groups$female.maternal$cell.id, size = 1284, replace = F)
+sex.test.female.fetal.ids <- x.groups$female.fetal$cell.id
+sex.test.male.fetal.ids <- sample(x.groups$male.fetal$cell.id, size = 7277, replace = F)
+
+testing.ids <- list(sex.test.maternal.ids, sex.test.female.fetal.ids, sex.test.male.fetal.ids)
+#saveRDS("data", paste0(Sys.Date(), "deconvolution_sex_testing_ids.rda")), saved 4/5/2022
+```
+
+```{r}
+sex.test.female <- format_seu_for_cibersortx_mixture(subset(seu.test, cells = c(sex.test.female.fetal.ids, sex.test.maternal.ids)), export_name = "sex.test.female")
+sex.test.male <- format_seu_for_cibersortx_mixture(subset(seu.test, cells = c(sex.test.male.fetal.ids, sex.test.maternal.ids)), export_name= "sex.test.male")
+```
+
+## Join pseudobulk mixtures and export for CibersortX deconvolution 
+
+```{r}
+test <- test.pseudobulk %>%
+  left_join(test.fetal, by = "GeneSymbol") %>%
+  left_join(test.maternal, by = "GeneSymbol") %>%
+  left_join(sex.test.female, by = "GeneSymbol") %>%
+  left_join(sex.test.male, by = "GeneSymbol")
+```
+
+Write 
+```{r}
+#write.table(x=test, sep = '\t', quote = F, row.names = F, col.names = T, file = here("data", "cibersortx_local", paste0("kc_pr_ts_sc_5050_test_mixtures_cpm_input_", Sys.Date(), ".txt")))
+```
+
+Possibly cpm() the sc-sig-matrix input? CibersortX online tutorial 1 claims it does this automatically, but the file input page does not say that
+```{r}
+#read.table(kc_pr_ts_sc_5050_train_signature_matrix_input_2022-03-25.txt
+```
+
+
+## Get test pseudobulk mixture percentages
+
+Function to get actual cell type percentages
+```{r}
+# https://stackoverflow.com/questions/26003574/use-dynamic-name-for-new-column-variable-in-dplyr
+# glue syntax to programmatically create name in dplyr function
+get_seu_cell_percentages <- function(seu, export_name) {
+  x <-
+    seu@meta.data %>%
+    group_by(cell.type, .drop = F) %>%
+    tally() %>%
+    dplyr::mutate("{export_name}" := (n / sum(n))) %>%
+    dplyr::select(cell.type, all_of(export_name))
+  return(x)
+}
+
+Test_5050_actual <- get_seu_cell_percentages(seu = seu.test, export_name = "Test_5050_actual")
+Fetal_5050_actual <- get_seu_cell_percentages(subset(seu.test, subset = fetal == "Fetal"), export_name = "Fetal_5050_actual")
+Maternal_5050_actual <- get_seu_cell_percentages(subset(seu.test, subset = fetal == "Maternal"), export_name = "Maternal_5050_actual")
+Female_SexTest_actual <- get_seu_cell_percentages(subset(seu.test, cells = c(sex.test.female.fetal.ids, sex.test.maternal.ids)), export_name = "sex.test.female_actual")
+Male_SexTest_actual <- get_seu_cell_percentages(subset(seu.test, cells = c(sex.test.male.fetal.ids, sex.test.maternal.ids)), export_name = "sex.test.male_actual")
+# Join the results
+#Test <- left_join(Test_5050_actual, left_join(Fetal_5050_actual, Maternal_5050_actual))
+Test <- left_join(Test_5050_actual, Fetal_5050_actual) %>%
+  left_join(Maternal_5050_actual) %>%
+  left_join(Female_SexTest_actual) %>%
+  left_join(Male_SexTest_actual)
+```
+
+## Load CibersortX results
+Verify deconvolution results
+```{r}
+res.S <- read_tsv(file = here("results", "cibersortx_local", "pseudobulk_testing_gmax2000_perm_50_S", "CIBERSORTx_Adjusted.txt")) %>%
+  column_to_rownames("Mixture")
+res.noS <- read_tsv(file = here("results", "cibersortx_local", "test_train_5050_mixtures_gmax2000_perm_50_noS", "CIBERSORTX_Results.txt")) %>%
+  column_to_rownames("Mixture")
+```
+
+Function to drop CibersortX deconvolution statistics and reformat with cell type as a column 
+```{r}
+get_imputed_matrix <- function(res) {
+  imp <- res %>%
+  dplyr::select(!c("P-value", "Correlation", "RMSE")) %>%
+  t() %>%
+  as.data.frame()
+imp <- imp %>% rownames_to_column("cell.type")
+return(imp)
+}
+
+res.df.S <- get_imputed_matrix(res.S)
+res.df.noS <- get_imputed_matrix(res.noS)
+```
+
+## S-mode batch correction and fetal maternal test data with g.max = 2000 {.tabset}
+
+```{r}
+ggplot.dat <- left_join(Test, res.df.S)
+```
+
+### All cell types at natural rates
+Batch correction significantly overperforms in full test set
+```{r}
+cor.test(x = res.df.S$Test_5050, y = Test$Test_5050_actual)
+rmse(actual = res.df.S$Test_5050, predicted = Test$Test_5050_actual)
+plot(x = res.df.S$Test_5050, y = Test$Test_5050_actual)
+cor.test(x = res.df.noS$Test_5050, y = Test$Test_5050_actual)
+rmse(actual = res.df.noS$Test_5050, predicted = Test$Test_5050_actual)
+plot(x = res.df.noS$Test_5050, y = Test$Test_5050_actual)
+```
+
+### Test data includes only fetal cells
+Batch correction significantly overperforms in fetal test set
+```{r}
+cor.test(x = res.df.S$Fetal_5050, y = Test$Fetal_5050_actual)
+rmse(predicted = res.df.S$Fetal_5050, actual = Test$Fetal_5050_actual)
+plot(x = res.df.S$Fetal_5050, y = Test$Fetal_5050_actual)
+cor.test(x = res.df.noS$Fetal_5050, y = Test$Fetal_5050_actual)
+rmse(predicted = res.df.noS$Fetal_5050, actual = Test$Fetal_5050_actual)
+plot(x = res.df.noS$Fetal_5050, y = Test$Fetal_5050_actual)
+```
+
+### Test data includes only maternal cells
+No difference in maternal test set; slight advantage in effect measure for no batch correction
+```{r}
+cor.test(x = res.df.S$Maternal_5050, y = Test$Maternal_5050_actual)
+rmse(predicted = res.df.S$Maternal_5050, actual = Test$Maternal_5050_actual)
+plot(x = res.df.S$Maternal_5050, y = Test$Maternal_5050_actual)
+cor.test(x = res.df.noS$Maternal_5050, y = Test$Maternal_5050_actual)
+rmse(predicted = res.df.noS$Maternal_5050, actual = Test$Maternal_5050_actual)
+plot(x = res.df.noS$Maternal_5050, y = Test$Maternal_5050_actual)
+```
+
+### Test data only female fetal cells
+Deconvolution performs just as well in only female fetal cells
+```{r}
+cor.test(x = res.df.S$sex.test.female, y = Test$sex.test.female_actual)
+rmse(predicted = res.df.S$sex.test.female, actual = Test$sex.test.female_actual)
+plot(x = res.df.S$sex.test.female, y = Test$sex.test.female_actual)
+```
+
+### Test data only male fetal cells
+Deconvolution does not perform as well in only male fetal cells; the correlation 
+```{r}
+cor.test(x = res.df.S$sex.test.male, y = Test$sex.test.male_actual)
+rmse(predicted = res.df.S$sex.test.male, actual = Test$sex.test.male_actual)
+plot(x = res.df.S$sex.test.male, y = Test$sex.test.male_actual)
+
+ggplot(data = ggplot.dat,
+       aes(x = sex.test.male,
+           y = sex.test.male_actual,
+           label = ifelse(
+            abs(sex.test.male_actual - sex.test.male) > .03,
+             cell.type,
+             ""
+           ))) +
+  geom_point() +
+  geom_text_repel(min.segment.length = 0)
+```
+
+## {-}
+
+## test data w/ default g-max (300min to 500max) {.tabset}
+Verify deconvolution results
+```{r}
+res.S <- read_tsv(file = here("results", "cibersortx_local", "testing_gmax_default_perm_50_S", "CIBERSORTx_Adjusted.txt")) %>%
+  column_to_rownames("Mixture")
+res.df.S <- get_imputed_matrix(res.S)
+```
+
+### All cell types at natural rates
+
+```{r}
+cor.test(x = res.df.S$Test_5050, y = Test$Test_5050_actual)
+rmse(actual = res.df.S$Test_5050, predicted = Test$Test_5050_actual)
+plot(x = res.df.S$Test_5050, y = Test$Test_5050_actual)
+```
+
+### Test data includes only fetal cells
+
+```{r}
+cor.test(x = res.df.S$Fetal_5050, y = Test$Fetal_5050_actual)
+rmse(predicted = res.df.S$Fetal_5050, actual = Test$Fetal_5050_actual)
+plot(x = res.df.S$Fetal_5050, y = Test$Fetal_5050_actual)
+```
+
+### Test data includes only maternal cells
+
+```{r}
+cor.test(x = res.df.S$Maternal_5050, y = Test$Maternal_5050_actual)
+rmse(predicted = res.df.S$Maternal_5050, actual = Test$Maternal_5050_actual)
+plot(x = res.df.S$Maternal_5050, y = Test$Maternal_5050_actual)
+```
+
+### Test data only female fetal cells
+
+```{r}
+cor.test(x = res.df.S$sex.test.female, y = Test$sex.test.female_actual)
+rmse(predicted = res.df.S$sex.test.female, actual = Test$sex.test.female_actual)
+plot(x = res.df.S$sex.test.female, y = Test$sex.test.female_actual)
+```
+
+### Test data only male fetal cells
+
+```{r}
+cor.test(x = res.df.S$sex.test.male, y = Test$sex.test.male_actual)
+rmse(predicted = res.df.S$sex.test.male, actual = Test$sex.test.male_actual)
+plot(x = res.df.S$sex.test.male, y = Test$sex.test.male_actual)
+```
+
+## { - }
+
+## test data w/ g-max = 1000 {.tabset}
+
+Verify deconvolution results
+```{r}
+res.S <- read_tsv(file = here("results", "cibersortx_local", "testing_gmax_1000_perm_50_S", "CIBERSORTx_Adjusted.txt")) %>%
+  column_to_rownames("Mixture")
+res.df.S <- get_imputed_matrix(res.S)
+```
+
+### All cell types at natural rates
+
+```{r}
+cor.test(x = res.df.S$Test_5050, y = Test$Test_5050_actual)
+rmse(actual = res.df.S$Test_5050, predicted = Test$Test_5050_actual)
+plot(x = res.df.S$Test_5050, y = Test$Test_5050_actual)
+```
+
+### Test data includes only fetal cells
+
+```{r}
+cor.test(x = res.df.S$Fetal_5050, y = Test$Fetal_5050_actual)
+rmse(predicted = res.df.S$Fetal_5050, actual = Test$Fetal_5050_actual)
+plot(x = res.df.S$Fetal_5050, y = Test$Fetal_5050_actual)
+```
+
+### Test data includes only maternal cells
+
+```{r}
+cor.test(x = res.df.S$Maternal_5050, y = Test$Maternal_5050_actual)
+rmse(predicted = res.df.S$Maternal_5050, actual = Test$Maternal_5050_actual)
+plot(x = res.df.S$Maternal_5050, y = Test$Maternal_5050_actual)
+```
+
+### Test data only female fetal cells
+
+```{r}
+cor.test(x = res.df.S$sex.test.female, y = Test$sex.test.female_actual)
+rmse(predicted = res.df.S$sex.test.female, actual = Test$sex.test.female_actual)
+plot(x = res.df.S$sex.test.female, y = Test$sex.test.female_actual)
+```
+
+### Test data only male fetal cells
+
+```{r}
+cor.test(x = res.df.S$sex.test.male, y = Test$sex.test.male_actual)
+rmse(predicted = res.df.S$sex.test.male, actual = Test$sex.test.male_actual)
+plot(x = res.df.S$sex.test.male, y = Test$sex.test.male_actual)
+```
+
+## { - }
