@@ -177,7 +177,13 @@ tsang <- batch$tsang
 rm(batch)
 DimPlot(kc, group.by = 'freemuxlet.assignments', split.by = 'orig.ident', pt.size = .25)
 DimPlot(pr, group.by = 'freemuxlet.assignments', split.by = 'orig.ident', pt.size = .25)
-DimPlot(tsang, group.by = 'freemuxlet.assignments', split.by = 'orig.ident', pt.size = .25)
+DimPlot(tsang, group.by = 'freemuxlet.assignments', split.by = 'orig.ident', pt.size = .25, ncol = 5)
+
+DimPlot(subset(tsang, subset = orig.ident %in% c("tsang_pe1", "tsang_pe2", "tsang_pe3", "tsang_pe4"), invert = T), group.by = 'freemuxlet.assignments', split.by = 'orig.ident', pt.size = .25, ncol = 3)
+```
+
+```{r}
+table(tsang$orig.ident, tsang$freemuxlet.assignments)
 ```
 
 ```{r}
@@ -234,7 +240,7 @@ meta.new$sex <- factor(meta.new$sex,
                          levels = c("female", "male"),
                          labels = c("Female", "Male"))
 
-# Add new varaibles to Seurat object
+# Add new variables to Seurat object
 seu <- AddMetaData(object = seu, metadata = meta.new$fetal, col.name = 'fetal')
 seu <- AddMetaData(object = seu, metadata = meta.new$sex, col.name = 'sex')
 ```
