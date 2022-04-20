@@ -30,6 +30,7 @@ Orchestrating Single-cell Analysis
 https://bioconductor.org/packages/release/bioc/vignettes/DropletUtils/inst/doc/DropletUtils.html
 ### Compiling Issues
 This document had trouble compiling via knitr and pandoc. The following thread fixed the issue (https://github.com/rstudio/rstudio/issues/3661).
+
 ## Custom function to create list of Seurat objects from 10x output directories
 ```{r}
 # Function to convert from 10x output to seurat object with no filtering
@@ -40,6 +41,7 @@ tenx_to_seu <- function(tenx_directory, name) {
   return(seu)
 }
 ```
+
 ## Unfiltered 10x output stats
 Unfiltered 10x output data have been stored as dgCMatrix. Vector is all caps represent final columns for supplemental table. Chunk contains TOTAL.DROPLETS.RAW, TOTAL.RNA.RAW, TOTAL.GENES.RAW, FETAL.SEX.
 ```{r}
@@ -63,7 +65,7 @@ files <-
 # Read files into R
 raw.list <- lapply(files, function(x) readRDS(x))
 # Rename according to naming convention
-LIBRARY.ID <- c("1A", "1B", "2A", "2B", "3", "4", "5", "6", "7", "8A", "8B", "9A", "9B", "PE1", "PE2", "PE3", "PE4")
+LIBRARY.ID <- c("1A", "1B", "2A", "2B", "3", "4", "5", "6", "7", "8C", "8P", "9C", "9P", "PE1", "PE2", "PE3", "PE4")
 names(raw.list) <- LIBRARY.ID
 # Create a Seurat object out of each file
 raw.seurat <- lapply(raw.list, function(x) CreateSeuratObject(counts = x))
@@ -77,10 +79,10 @@ TOTAL.RNA.RAW <- lapply(raw.seurat, function(x) x$nCount_RNA %>% sum()) %>% as.n
 # Total unique genes measured
 TOTAL.GENES.RAW <- lapply(raw.seurat, function(x) x %>% nrow()) %>% as.numeric
 # Sex of samples
-FETAL.SEX <- c("F", "F", "M", "M", "M", "F", "M", NA, NA, NA, NA, NA, NA, NA, NA, NA, NA)
+FETAL.SEX <- c("F", "F", "M", "M", "M", "F", "M", "M", "M", "F", "F", "F", "F", "M", "M", "F", "F")
 ```
 
-## Get list of Seurat objects
+## Get list of droplet-called and filtered Seurat objects
 Contains TOTAL.CELLS
 ```{r}
 tenx_out <- paste0(here("data", "tenx_outs"), "/")
@@ -142,6 +144,7 @@ counts$tsang_pe4$'biorep' <- "tsang_pe4"
 
 TOTAL.CELLS <- lapply(counts, function(x) ncol(x)) %>% as.numeric()
 ```
+
 ## Create list of freemuxlet raw output data
 ```{r}
 freemux_dir <- paste0(here("data", "freemuxlet", "raw_data"), "/")
@@ -171,7 +174,6 @@ No na's among raw freemux data
 freemux.clusters$tsang_n4p.clusters$BEST.GUESS %>% is.na %>% summary
 lapply(freemux.clusters, function(x) x$BEST.GUESS %>% as.factor %>% is.na %>% summary)
 ```
-
 
 ## Custom function to add freemuxlet cluster assignment to Seurat MetaData
 ```{r}
@@ -233,6 +235,7 @@ lapply(mapped, function(x) x$freemuxlet.assignments %>% as.factor %>% is.na %>% 
 rm(counts)       # Remove data
 rm(freemux.clusters) # Remove data
 ```
+
 ## Merge Seurat objects and remove doublets
 Chunk contains FETAL.MATERNAL.DOUBLETS.REMOVED
 ```{r}
@@ -332,12 +335,36 @@ colSums(as.matrix(batch.reasons))
 # Add discard metadata to object
 sce$discard <- batch.reasons$discard
 discard <- batch.reasons$discard
+
+# See http://bioconductor.org/books/3.14/OSCA.basic/quality-control.html#common-choices-of-qc-metrics for further discussion of MAD
+# Performed on the log scale to avoid negative values, and backtransform the result for plotting
+#sce.rna.threshold = exp(median(log(sce$sum)) - 4*mad(log(sce$sum)))
+#sce.gene.threshold = exp(median(log(sce$detected)) - 4*mad(log(sce$detected)))
+#sce.mito.threshold = median(sce$subsets_Mito_percent) + 4*mad(sce$subsets_Mito_percent)
+
+#sce.rna.threshold
+#sce.gene.threshold
+#sce.mito.threshold
+
+# The actual set of functions to retrieve the thresholds; matches those manually calculated above (commented out)
+sce.rna.threshold <- attr(batch.reasons$low_lib_size, "thresholds")[1]
+sce.gene.threshold <- attr(batch.reasons$low_n_features, "thresholds")[1]
+sce.mito.threshold <- attr(batch.reasons$high_subsets_Mito_percent, "thresholds")[2]
+
+# Add thresholds metadata to object
+sce$rna.threshold <- sce.rna.threshold
+sce$gene.threshold <- sce.gene.threshold
+sce$mito.threshold <- sce.mito.threshold
 ```
 
 QC plots.
 ```{r}
-plotColData(sce, x="sum", y="subsets_Mito_percent", colour_by = "discard") + scale_x_log10()
-plotColData(sce, x="detected", y="subsets_Mito_percent", colour_by = "discard") + scale_x_log10()
+plotColData(sce, x="sum", y="subsets_Mito_percent", colour_by = "discard") + scale_x_log10() +
+  geom_vline(xintercept = sce.rna.threshold, linetype = "dashed") +
+  geom_hline(yintercept = sce.mito.threshold, linetype = "dashed")
+plotColData(sce, x="detected", y="subsets_Mito_percent", colour_by = "discard") + scale_x_log10() +
+  geom_vline(xintercept = sce.gene.threshold, linetype = "dashed") +
+  geom_hline(yintercept = sce.mito.threshold, linetype = "dashed") 
 ```
 
 ```{r}
@@ -348,12 +375,14 @@ plotColData(sce, x="ident", y="detected", colour_by="discard") +
 plotColData(sce, x="ident", y="subsets_Mito_percent", 
         colour_by="discard") + ggtitle("Mito percent")
 ```
+
 Exploratory investigation of variance explained by metadata.
 ```{r}
 #vars <- getVarianceExplained(logNormCounts(sce), 
 #    variables=c("ident", "subsets_Mito_percent", "sum", "detected"))
 #plotExplanatoryVariables(vars)
 ```
+
 Subset to QC-filtered cells.
 ```{r}
 # Keeping the columns we DON'T want to discard.
@@ -362,6 +391,7 @@ dropped <- as.numeric(summary(discard)["TRUE"])
 kept <- as.numeric(summary(discard)["FALSE"])
 print(paste0(dropped, " cells were filtered, yielding ", kept, " remaining cells"))
 ```
+
 Identify if a rare cell type might have been discarded.
 ```{r}
 lost <- calculateAverage(counts(sce)[,!discard])
@@ -448,12 +478,26 @@ colSums(as.matrix(batch.reasons))
 # Add discard metadata to object
 sce.pr$discard <- batch.reasons$discard
 discard <- batch.reasons$discard
+
+# Pull thresholds
+sce.pr.rna.threshold <- attr(batch.reasons$low_lib_size, "thresholds")[1]
+sce.pr.gene.threshold <- attr(batch.reasons$low_n_features, "thresholds")[1]
+sce.pr.mito.threshold <- attr(batch.reasons$high_subsets_Mito_percent, "thresholds")[2]
+
+# Add thresholds metadata to object
+sce.pr$rna.threshold <- sce.pr.rna.threshold
+sce.pr$gene.threshold <- sce.pr.gene.threshold
+sce.pr$mito.threshold <- sce.pr.mito.threshold
 ```
 
 QC plots.
 ```{r}
-plotColData(sce.pr, x="sum", y="subsets_Mito_percent", colour_by = "discard") + scale_x_log10()
-plotColData(sce.pr, x="detected", y="subsets_Mito_percent", colour_by = "discard") + scale_x_log10()
+plotColData(sce.pr, x="sum", y="subsets_Mito_percent", colour_by = "discard") + scale_x_log10() +
+  geom_vline(xintercept = sce.pr.rna.threshold, linetype = "dashed") +
+  geom_hline(yintercept = sce.pr.mito.threshold, linetype = "dashed")
+plotColData(sce.pr, x="detected", y="subsets_Mito_percent", colour_by = "discard") + scale_x_log10() +
+  geom_vline(xintercept = sce.pr.gene.threshold, linetype = "dashed") +
+  geom_hline(yintercept = sce.pr.mito.threshold, linetype = "dashed") 
 ```
 
 ```{r}
@@ -547,12 +591,26 @@ colSums(as.matrix(batch.reasons))
 # Add discard metadata to object
 sce.tsang$discard <- batch.reasons$discard
 discard <- batch.reasons$discard
+
+# Pull thresholds
+sce.tsang.rna.threshold <- attr(batch.reasons$low_lib_size, "thresholds")[1]
+sce.tsang.gene.threshold <- attr(batch.reasons$low_n_features, "thresholds")[1]
+sce.tsang.mito.threshold <- attr(batch.reasons$high_subsets_Mito_percent, "thresholds")[2]
+
+# Add thresholds metadata to object
+sce.tsang$rna.threshold <- sce.tsang.rna.threshold
+sce.tsang$gene.threshold <- sce.tsang.gene.threshold
+sce.tsang$mito.threshold <- sce.tsang.mito.threshold
 ```
 
 QC plots.
 ```{r}
-plotColData(sce.tsang, x="sum", y="subsets_Mito_percent", colour_by = "discard") + scale_x_log10()
-plotColData(sce.tsang, x="detected", y="subsets_Mito_percent", colour_by = "discard") + scale_x_log10()
+plotColData(sce.tsang, x="sum", y="subsets_Mito_percent", colour_by = "discard") + scale_x_log10() +
+  geom_vline(xintercept = sce.tsang.rna.threshold, linetype = "dashed") +
+  geom_hline(yintercept = sce.tsang.mito.threshold, linetype = "dashed")
+plotColData(sce.tsang, x="detected", y="subsets_Mito_percent", colour_by = "discard") + scale_x_log10() +
+  geom_vline(xintercept = sce.tsang.gene.threshold, linetype = "dashed") +
+  geom_hline(yintercept = sce.tsang.mito.threshold, linetype = "dashed") 
 ```
 
 ```{r}
@@ -623,6 +681,18 @@ sce.combined <- cbind(sce, sce.pr, sce.tsang)
 sce.combined$sample <- factor(sce.combined$ident, labels = LIBRARY.ID)
 ```
 
+Number and average number of cells QC-filtered
+```{r}
+# 47,720 included
+sum(table(sce.combined$discard, sce.combined$sample)[1,1:13])
+# 3,670.77 per sample 
+sum(table(sce.combined$discard, sce.combined$sample)[1,1:13])/13
+# 5,636 excluded
+sum(table(sce.combined$discard, sce.combined$sample)[2,1:13])
+# 433.54 per sample
+sum(table(sce.combined$discard, sce.combined$sample)[2,1:13])/13
+```
+
 ```{r}
 sce.meta <- data.frame(
   LIBRARY.ID = sce.combined$sample,
@@ -657,21 +727,51 @@ colnames(QC) <- c("Sample", "Fetal Sex", "Droplets Sequenced", "Total Unique RNA
 #write.table(x = QC, file = here("results", "single_cell_qc", "scrna_qc_summary.csv"), row.names = F, sep = ",")
 ```
 
+Subset to only healthy samples
+```{r}
+sce.combined$orig.ident %>% factor %>% levels
+sce.subset <- sce.combined[, !(sce.combined$orig.ident %in% c("tsang_pe1" ,"tsang_pe2", "tsang_pe3", "tsang_pe4")) ,drop=TRUE]
+```
+
 ```{r}
 base.size <- 24
 
-rna.vln <- plotColData(sce.combined, x="sample", y="sum", colour_by="discard") + 
-        scale_y_log10() + ggtitle("Total RNA molecules") + theme_bw(base_size = base.size) +
-        theme(legend.position = "bottom") +
-        guides(colour = guide_legend(override.aes = list(size=20), reverse = TRUE))
-
-
+rna.vln <- plotColData(sce.subset, x="sample", y="sum", colour_by="discard") + 
+  scale_y_log10() + ggtitle("Total RNA molecules") + theme_bw(base_size = base.size) +
+  theme(legend.position = "bottom") +
+  guides(colour = guide_legend(override.aes = list(size=20), reverse = TRUE))
 #ggsave(here("results", "single_cell_qc", paste0(Sys.Date(), "rna_molecules_by_rep.png")))
-gene.vln <- plotColData(sce.combined, x="sample", y="detected", colour_by="discard") + 
+
+gene.vln <- plotColData(sce.subset, x="sample", y="detected", colour_by="discard") + 
         scale_y_log10() + ggtitle("Detected genes") + theme_bw(base_size = base.size)
 #ggsave(here("results", "single_cell_qc", paste0(Sys.Date(), "genes_detected_by_rep.png")))
-mito.vln <- plotColData(sce.combined, x="sample", y="subsets_Mito_percent", 
+
+mito.vln <- plotColData(sce.subset, x="sample", y="subsets_Mito_percent", 
         colour_by="discard") + ggtitle("% Mitochondrial genes") + ylab("percentage") + theme_bw(base_size = base.size)
+#ggsave(here("results", "single_cell_qc", paste0(Sys.Date(), "percent_mito_by_rep.png")))
+
+legend <- get_legend(rna.vln)
+```
+
+Testing to add MAD threshold to each graph
+```{r}
+base.size <- 24
+
+rna.vln <- plotColData(sce.subset, x="sample", y="sum", colour_by="discard") + 
+  scale_y_log10() + ggtitle("Total RNA molecules") +
+  #annotate("text", y = 1e5, x = "1B", label = as.character(round(sce.rna.threshold, 1))) + 
+  theme_bw(base_size = base.size) +
+  theme(legend.position = "bottom") +
+  guides(colour = guide_legend(override.aes = list(size=20), reverse = TRUE))
+
+#ggsave(here("results", "single_cell_qc", paste0(Sys.Date(), "rna_molecules_by_rep.png")))
+
+gene.vln <- plotColData(sce.subset, x="sample", y="detected", colour_by="discard") + 
+  scale_y_log10() + ggtitle("Detected genes") + theme_bw(base_size = base.size)
+#ggsave(here("results", "single_cell_qc", paste0(Sys.Date(), "genes_detected_by_rep.png")))
+
+mito.vln <- plotColData(sce.subset, x="sample", y="subsets_Mito_percent", colour_by="discard") +
+  ggtitle("% Mitochondrial genes") + ylab("percentage") + theme_bw(base_size = base.size)
 #ggsave(here("results", "single_cell_qc", paste0(Sys.Date(), "percent_mito_by_rep.png")))
 
 legend <- get_legend(rna.vln)
@@ -687,6 +787,10 @@ Clean-up merged object, looks like merging causes duplicate metadata columns
 ```{r}
 # Load in the fully annotated kc, pr Seurat object
 kc.pr.analyzed.seu <- readRDS(here("data", "cleaned_combined_seurat_2020-12-22.rda"))
+DimPlot(kc.pr.analyzed.seu, group.by = 'cell.type', split.by = "fetal", label = T, repel = T) + NoLegend()
+```
+
+```{r}
 merged <- merge(kc.pr.analyzed.seu, tsang)
 #saveRDS(merged, here("data", paste0("kcprfinal_tsang_qc_merged_", Sys.Date(), ".rda")))
 ```
