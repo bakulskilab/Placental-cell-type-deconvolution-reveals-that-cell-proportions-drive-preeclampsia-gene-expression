@@ -412,16 +412,134 @@ DimPlot(all.merged, group.by = "seurat_clusters", split.by = "fetal", label = T,
 ```
 
 ```{r}
+table(all.merged$seurat_clusters)
+```
+
+Cluster 15 expresses mesenchymal markers (VIM, DCN) and IGFBP1, HLA-G, and HBG genes
+```{r}
+cluster15vs1.markers <- FindMarkers(all.merged, ident.1 = 15, ident.2 = 1)
+```
+
+```{r}
+cluster15vs1.markers %>%
+  rownames_to_column(var = "gene") %>% 
+  View
+```
+
+```{r}
+FeaturePlot(all.merged, features = "HBG1", split.by = "fetal", pt.size = .25)
+```
+
+```{r}
+cluster9vs0.markers <- FindMarkers(all.merged, ident.1 = 9, ident.2 = 0)
+```
+
+```{r}
+cluster13vs9.markers <- FindMarkers(all.merged, ident.1 = 13, ident.2 = 9)
+```
+
+```{r}
+table(all.merged$seurat_clusters, all.merged$orig.ident)
+```
+
+While cluster 15 doesn't score high on doublets, adjacent subclusters were extremely high in doublet scores. Based on the Tsang_n2 patterns we've previously seen, going to drop cluster 15 as likely soupy doublets.
+```{r}
+DimPlot(all.merged, group.by = "orig.ident", split.by = "fetal", pt.size = .25) + ggtitle("All merged")
+FeaturePlot(all.merged, features = "scDblFinder.score", split.by = "fetal", pt.size = 0.25)
+```
+
+```{r}
+all.merged$is.15 <- ifelse(all.merged$seurat_clusters == 15, TRUE, FALSE)
+DimPlot(all.merged, group.by = "is.15", split.by = "fetal") + NoLegend()
+DimPlot(subset(all.merged, subset = seurat_clusters == 15), split.by = "fetal") + NoLegend()
+```
+
+
+```{r}
+all.merged <- subset(all.merged, subset = seurat_clusters == 15, invert = T)
+```
+
+
+```{r}
 DimPlot(all.merged, group.by = "orig.ident", split.by = "fetal", pt.size = .25) + ggtitle("All merged")
 #ggsave(here("results", "seurat", paste0("all_pruned_merged_biorep_mnn_group_orig.ident_split_fetal", Sys.Date(), ".png")))
+```
+
+```{r}
+DimPlot(all.merged, split.by = "fetal", label = T, repel = T, pt.size = .25) + NoLegend()
+DimPlot(all.merged, label = T, repel = T, pt.size = .25) + NoLegend()
+DimPlot(all.merged, group.by = "cell.type", label = T, repel = T, pt.size = .25) + NoLegend()
+DimPlot(all.merged, group.by = "cell.type", split.by = "fetal", label = T, repel = T, pt.size = .25) + NoLegend()
+DimPlot(subset(all.merged, subset = fetal == "Maternal"), group.by = "cell.type", label = T, repel = T, pt.size = .25) + NoLegend()
+wrangle <- DimPlot(subset(all.merged, subset = fetal == "Maternal"), group.by = "cell.type", label = T, repel = T, pt.size = .25) + NoLegend()
+```
+
+Clean up a few likely stray "maternal" multiplets
+```{r}
+wrangle.right.half <- CellSelector(wrangle)
+wrangle.top <- CellSelector(wrangle)
+wrangle.neg.10 <- CellSelector(wrangle)
+wrangle.neg.5 <- CellSelector(wrangle)
+```
+
+```{r}
+wrangled.ids <- c(wrangle.right.half, wrangle.top, wrangle.neg.10, wrangle.neg.5)
+#saveRDS(wrangled.ids, here("data", paste0(Sys.Date(), "_wrangled_maternal_doublets_all_merged_batch_mnn.rda")))
+wrangled.ids <- readRDS(here("data", "2022-03-15_wrangled_maternal_doublets_all_merged_batch_mnn.rda"))
+```
+
+```{r}
+all.merged <- subset(all.merged, cells = wrangled.ids, invert = T)
+```
+
+```{r}
+DimPlot(all.merged, split.by = "fetal", label = T, repel = T, pt.size = .25) + NoLegend()
+DimPlot(all.merged, label = T, repel = T, pt.size = .25) + NoLegend()
+DimPlot(all.merged, group.by = "cell.type", label = T, repel = T, pt.size = .25) + NoLegend()
+DimPlot(all.merged, group.by = "cell.type", split.by = "fetal", label = T, repel = T, pt.size = .25) + NoLegend()
+DimPlot(all.merged, group.by = "cell.type", label = T, repel = T, pt.size = .25) + NoLegend()
 ```
 
 ```{r}
 table(all.merged$cell.type, all.merged$fetal)
 ```
 
+A bit of a batch effect is apparent with the Mesenchymal Stem Cell/Fibroblast part of the UMAP. Tsang samples don't cluster as closely with KC/PR as KC/PR do with each other.
+```{r}
+markers.cluster0vs13 <- FindMarkers(all.merged, ident.1 = 0, ident.2 = 13)
+markers.cluster0vs13 %>%
+  rownames_to_column(var = "gene") %>%
+  View
+mesenchymal <- subset(all.merged, subset = seurat_clusters %in% c(0, 9, 13))
+mesenchymal.markers <- FindAllMarkers(mesenchymal)
+mesenchymal.markers %>%
+  filter(cluster == 9) %>% View
+```
+
+```{r}
+table(mesenchymal$orig.ident, mesenchymal$seurat_clusters)
+```
+
+```{r}
+DimPlot(mesenchymal, split.by = "batch", group.by = "cell.type")
+```
+
+Confirm cluster 0 is MSC with the following marker genes
+https://pubmed.ncbi.nlm.nih.gov/19089456/ "Gene and miRNA expression signatures of human mesenchymal stromal cells (MSCs) in comparison to fibroblasts"
+VCAM1, HAPLN1 higher in MSC
+https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4075346/
+IGFBP3 (highly specific, like in publication), HAPLN1, CDH11, COL1A1, GJA1, PAPSS2 higher in MSC
+MYH9 discordant (but lowly expressed in this dataset and less delta in publication)
+
 ## Save/load fully merged Seurat object
 ```{r}
+Idents(all.merged) <- "cell.type"
 #saveRDS(all.merged, here("data", "analytic", paste0(Sys.Date(), "_all_merged_pruned_batch_mnn.rda")))
-#all.merged <- readRDS(here("data", "analytic", "2022-03-14_all_merged_pruned_batch_mnn.rda"))
+#all.merged <- readRDS(here("data", "analytic", "2022-03-15_all_merged_pruned_batch_mnn.rda"))
+
+# Relabel CD8+ Cytotoxic as CD8+ activated for clarity
+all.merged$cell.type[all.merged$cell.type == "Fetal CD8+ Cytotoxic T Cells"] <- "Fetal CD8+ Activated T Cells"
+all.merged$cell.type[all.merged$cell.type == "Maternal CD8+ Cytotoxic T Cells"] <- "Maternal CD8+ Activated T Cells"
+all.merged$cell.type %>% factor %>% levels
+#saveRDS(all.merged, here("data", "analytic", paste0(Sys.Date(), "_all_merged_pruned_batch_mnn.rda")))
 ```
