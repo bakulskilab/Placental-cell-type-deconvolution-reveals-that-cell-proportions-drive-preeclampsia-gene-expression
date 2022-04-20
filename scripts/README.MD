@@ -8,7 +8,7 @@ Sorted cell type bulk RNA-seq analysis:
 
 Single-cell analysis:
 1. freemuxlet_analysis
-	Summarizing freemuxlet results to be used for annotation of single-cell RNA-seq data
+	Summarizing freemuxlet results to be used for annotation of single-cell RNA-seq data; not necessary for downstream analysis
 	input: HPC freemuxlet results
 	
 2. cellRanger_4.0_filtered_scRNAseq_qc
