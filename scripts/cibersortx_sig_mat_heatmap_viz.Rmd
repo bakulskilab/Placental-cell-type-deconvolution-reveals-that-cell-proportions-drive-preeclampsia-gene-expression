@@ -1,0 +1,35 @@
+---
+title: "cibersortx_sig_mat_heatmap_viz"
+author: "Kyle Abraham Campbell"
+date: "11/30/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(here)
+library(pheatmap)
+library(tidyverse)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Load CIBERSORTx signature matrix output
+```{r}
+dat <- read_tsv(here("data", "cibersortx", "output", "CIBERSORTx_Job35_KC_Pique-Regi_sc_signature_matrix_input_2020-12-30.txt"))
+dat.mat <- column_to_rownames(dat, var = "NAME")
+dat.mat.log <- log(dat.mat)
+```
+
+```{r}
+dat %>%
+  filter(`Fetal Syncytiotrophoblast` > 1000) %>%
+  select(NAME,  `Fetal Syncytiotrophoblast`)
+summary(dat.mat)
+```
+
+
+pheatmap tips, https://slowkow.com/notes/pheatmap-tutorial/
+```{r}
+pheatmap(dat.mat, kmeans_k = 50, show_rownames = FALSE, main = "Raw counts - 50 gene clusters")
+pheatmap(dat.mat.log, show_rownames = FALSE, main = "Log-transformed counts")
+```
+
