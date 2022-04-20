@@ -1,0 +1,231 @@
+### CibersortX Docker Powershell code ###
+# Estimate cell type fractions; KCPR single-cell input and microarray GSE75010 mixture
+# ` allows for multi-line entry into Powershell
+
+# Check CibersortX version and backtick multi-line
+docker `
+-v
+
+# A1) Deconvolute GSE75010 w KC, PR, Tsang
+docker run `
+-v G:\My` Drive\Placenta_Cell_Types\RNA\placenta_cell_types_rna\data\cibersortx_local:/src/data `
+-v G:\My` Drive\Placenta_Cell_Types\RNA\placenta_cell_types_rna\results\cibersortx_local\analytic_gse75010:/src/outdir `
+cibersortx/fractions `
+--username kyleac@umich.edu `
+--token 027ef63505e8202ff51c424562d3c328 `
+--verbose TRUE `
+--perm 100 `
+--fraction 0 `
+--single_cell TRUE `
+--refsample KC_PR_Tsang_sc_signature_matrix_input_2022-03-15.txt `
+--mixture GSE75010_input_mixture_2020-10-13.txt `
+--rmbatchSmode TRUE
+
+# 1) Deconvolute GSE75010
+docker run ` 
+-v G:\My` Drive\Placenta_Cell_Types\RNA\placenta_cell_types_rna\data\cibersortx_local:/src/data/ `
+-v G:\My` Drive\Placenta_Cell_Types\RNA\placenta_cell_types_rna\results\cibersortx_local\gse75010:/src/outdir `
+cibersortx/fractions `
+--username kyleac@umich.edu `
+--token 027ef63505e8202ff51c424562d3c328 `
+--verbose TRUE `
+--fraction 0 `
+--single_cell TRUE `
+--refsample KC_Pique-Regi_sc_signature_matrix_input_2020-12-30.txt `
+--mixture GSE75010_input_mixture_2020-10-13.txt `
+--rmbatchSmode TRUE
+
+# Deconvolute GSE75010, 2000 genes max
+docker run `
+-v G:\My` Drive\Placenta_Cell_Types\RNA\placenta_cell_types_rna\data\cibersortx_local:/src/data/ `
+-v G:\My` Drive\Placenta_Cell_Types\RNA\placenta_cell_types_rna\results\cibersortx_local\gse75010_gmax2000:/src/outdir `
+cibersortx/fractions `
+--username kyleac@umich.edu `
+--token 027ef63505e8202ff51c424562d3c328 `
+--verbose TRUE `
+--G.max 2000 `
+--fraction 0 `
+--single_cell TRUE `
+--refsample KC_Pique-Regi_sc_signature_matrix_input_2020-12-30.txt `
+--mixture GSE75010_input_mixture_2020-10-13.txt `
+--rmbatchSmode TRUE
+
+# A2) Deconvolute FACS cell fractions with analytic settings, from A1
+docker run `
+-v G:\My` Drive\Placenta_Cell_Types\RNA\placenta_cell_types_rna\data\cibersortx_local:/src/data `
+-v G:\My` Drive\Placenta_Cell_Types\RNA\placenta_cell_types_rna\results\cibersortx_local\analytic_kc_facs_mixtures:/src/outdir `
+cibersortx/fractions `
+--username kyleac@umich.edu `
+--token 027ef63505e8202ff51c424562d3c328 `
+--verbose TRUE `
+--perm 100 `
+--fraction 0 `
+--single_cell TRUE `
+--refsample KC_PR_Tsang_sc_signature_matrix_input_2022-03-15.txt `
+--mixture 2021-11-17_bulk_mixture_CIBERSORTx_input_fpm.txt `
+--rmbatchSmode TRUE
+
+# 2) Deconvolute FACS cell fractions, CibersortX recommends fraction 0 argument for droplet-based scRNA-seq
+docker run `
+-v G:\My` Drive\Placenta_Cell_Types\RNA\placenta_cell_types_rna\data\cibersortx_local:/src/data/ `
+-v G:\My` Drive\Placenta_Cell_Types\RNA\placenta_cell_types_rna\results\cibersortx_local\facs_mixtures:/src/outdir `
+cibersortx/fractions `
+--username kyleac@umich.edu `
+--token 027ef63505e8202ff51c424562d3c328 `
+--perm 100 `
+--verbose TRUE `
+--fraction 0 `
+--single_cell TRUE `
+--refsample KC_Pique-Regi_sc_signature_matrix_input_2020-12-30.txt `
+--mixture 2021-11-17_bulk_mixture_CIBERSORTx_input_fpm.txt `
+--rmbatchSmode TRUE
+
+
+# Deconvolute FACS cell fractions, 2000 G.max
+docker run `
+-v G:\My` Drive\Placenta_Cell_Types\RNA\placenta_cell_types_rna\data\cibersortx_local:/src/data/ `
+-v G:\My` Drive\Placenta_Cell_Types\RNA\placenta_cell_types_rna\results\cibersortx_local\facs_mixtures_gmax2000:/src/outdir `
+cibersortx/fractions `
+--username kyleac@umich.edu `
+--token 027ef63505e8202ff51c424562d3c328 `
+--verbose TRUE `
+--perm 100 `
+--fraction 0 `
+--single_cell TRUE `
+--G.max 2000 `
+--refsample KC_Pique-Regi_sc_signature_matrix_input_2020-12-30.txt `
+--mixture 2021-11-17_bulk_mixture_CIBERSORTx_input_fpm.txt `
+--rmbatchSmode TRUE
+
+
+
+# 3) Deconvolution validation 
+
+# Deconvolution validation 50-50 Train-test on all test, 100% fetal, and 100% maternal, only female fetal, only male fetal w/ S-mode correction
+docker run `
+-v G:\My` Drive\Placenta_Cell_Types\RNA\placenta_cell_types_rna\data\cibersortx_local:/src/data/ `
+-v G:\My` Drive\Placenta_Cell_Types\RNA\placenta_cell_types_rna\results\cibersortx_local\pseudobulk_testing_gmax2000_perm_50_S:/src/outdir `
+cibersortx/fractions `
+--username kyleac@umich.edu `
+--token 027ef63505e8202ff51c424562d3c328 `
+--verbose TRUE `
+--perm 50 `
+--G.max 2000 `
+--fraction 0 `
+--single_cell TRUE `
+--refsample kc_pr_ts_sc_5050_train_signature_matrix_input_2022-03-29.txt `
+--mixture kc_pr_ts_sc_5050_test_mixtures_cpm_input_2022-04-05.txt `
+--rmbatchSmode TRUE
+
+
+# 50-50 Train-test
+docker run `
+-v G:\My` Drive\Placenta_Cell_Types\RNA\placenta_cell_types_rna\data\cibersortx_local:/src/data/ `
+-v G:\My` Drive\Placenta_Cell_Types\RNA\placenta_cell_types_rna\results\cibersortx_local\test_train_5050_gmax2000:/src/outdir `
+cibersortx/fractions `
+--username kyleac@umich.edu `
+--token 027ef63505e8202ff51c424562d3c328 `
+--verbose TRUE `
+--G.max 2000 `
+--fraction 0 `
+--single_cell TRUE `
+--refsample kc_pr_ts_sc_5050_train_signature_matrix_input_2022-03-25.txt `
+--mixture kc_pr_ts_sc_5050_test_mixture_cpm_input_2022-03-25.txt `
+--rmbatchSmode TRUE
+
+# Deconvolution validation 50-50 Train-test on all test, 100% fetal, and 100% maternal, w/ S-mode correction
+docker run `
+-v G:\My` Drive\Placenta_Cell_Types\RNA\placenta_cell_types_rna\data\cibersortx_local:/src/data/ `
+-v G:\My` Drive\Placenta_Cell_Types\RNA\placenta_cell_types_rna\results\cibersortx_local\test_train_5050_mixtures_gmax2000_perm_50_S:/src/outdir `
+cibersortx/fractions `
+--username kyleac@umich.edu `
+--token 027ef63505e8202ff51c424562d3c328 `
+--verbose TRUE `
+--perm 50 `
+--G.max 2000 `
+--fraction 0 `
+--single_cell TRUE `
+--refsample kc_pr_ts_sc_5050_train_signature_matrix_input_2022-03-29.txt `
+--mixture kc_pr_ts_sc_5050_test_mixtures_cpm_input_2022-03-29.txt `
+--rmbatchSmode TRUE
+
+# Deconvolution validation 50-50 Train-test on all test, 100% fetal, and 100% maternal, w/o S-mode correction
+docker run `
+-v G:\My` Drive\Placenta_Cell_Types\RNA\placenta_cell_types_rna\data\cibersortx_local:/src/data/ `
+-v G:\My` Drive\Placenta_Cell_Types\RNA\placenta_cell_types_rna\results\cibersortx_local\test_train_5050_mixtures_gmax2000_perm_50_noS:/src/outdir `
+cibersortx/fractions `
+--username kyleac@umich.edu `
+--token 027ef63505e8202ff51c424562d3c328 `
+--verbose TRUE `
+--perm 50 `
+--G.max 2000 `
+--fraction 0 `
+--single_cell TRUE `
+--refsample kc_pr_ts_sc_5050_train_signature_matrix_input_2022-03-29.txt `
+--mixture kc_pr_ts_sc_5050_test_mixtures_cpm_input_2022-03-29.txt
+
+
+# Deconvolution validation 50-50 Train-test on all test, 100% fetal, and 100% maternal
+docker run `
+-v G:\My` Drive\Placenta_Cell_Types\RNA\placenta_cell_types_rna\data\cibersortx_local:/src/data/ `
+-v G:\My` Drive\Placenta_Cell_Types\RNA\placenta_cell_types_rna\results\cibersortx_local\test_train_5050_mixtures_gmax2000:/src/outdir `
+cibersortx/fractions `
+--username kyleac@umich.edu `
+--token 027ef63505e8202ff51c424562d3c328 `
+--verbose TRUE `
+--perm 300 `
+--G.max 2000 `
+--fraction 0 `
+--single_cell TRUE `
+--refsample kc_pr_ts_sc_5050_train_signature_matrix_input_2022-03-25.txt `
+--mixture kc_pr_ts_sc_5050_test_mixtures_cpm_input_2022-03-26.txt `
+--rmbatchSmode TRUE
+
+
+# 4) Deconvolution validation at different gmax
+# Deconvolution validation 50-50 Train-test on all test, w/ S-mode correction
+docker run `
+-v G:\My` Drive\Placenta_Cell_Types\RNA\placenta_cell_types_rna\data\cibersortx_local:/src/data/ `
+-v G:\My` Drive\Placenta_Cell_Types\RNA\placenta_cell_types_rna\results\cibersortx_local\testing_gmax_default_perm_50_S:/src/outdir `
+cibersortx/fractions `
+--username kyleac@umich.edu `
+--token 027ef63505e8202ff51c424562d3c328 `
+--verbose TRUE `
+--perm 50 `
+--fraction 0 `
+--single_cell TRUE `
+--refsample kc_pr_ts_sc_5050_train_signature_matrix_input_2022-03-29.txt `
+--mixture kc_pr_ts_sc_5050_test_mixtures_cpm_input_2022-04-05.txt `
+--rmbatchSmode TRUE
+
+docker run `
+-v G:\My` Drive\Placenta_Cell_Types\RNA\placenta_cell_types_rna\data\cibersortx_local:/src/data/ `
+-v G:\My` Drive\Placenta_Cell_Types\RNA\placenta_cell_types_rna\results\cibersortx_local\testing_gmax_1000_perm_50_S:/src/outdir `
+cibersortx/fractions `
+--username kyleac@umich.edu `
+--token 027ef63505e8202ff51c424562d3c328 `
+--verbose TRUE `
+--perm 50 `
+--G.max 1000 `
+--fraction 0 `
+--single_cell TRUE `
+--refsample kc_pr_ts_sc_5050_train_signature_matrix_input_2022-03-29.txt `
+--mixture kc_pr_ts_sc_5050_test_mixtures_cpm_input_2022-04-05.txt `
+--rmbatchSmode TRUE
+
+# Deconvolute Dr. Shorey's CPM mixture file
+# Default settings returned p-value = 9999 for deconvolution for each sample and output warning: reached max number of iterations for 1-2 dozen samples
+# Could be relevant: https://www.biostars.org/p/428905/
+docker run `
+-v G:\My` Drive\Placenta_Cell_Types\RNA\placenta_cell_types_rna\data\cibersortx_local:/src/data/ `
+-v G:\My` Drive\Placenta_Cell_Types\RNA\placenta_cell_types_rna\results\cibersortx_local\shorey:/src/outdir `
+cibersortx/fractions `
+--username kyleac@umich.edu `
+--token 027ef63505e8202ff51c424562d3c328 `
+--verbose TRUE `
+--perm 1000 `
+--fraction 0 `
+--single_cell TRUE `
+--refsample KC_Pique-Regi_sc_signature_matrix_input_2020-12-30.txt `
+--mixture 2022_0210_cpm_CIBERsort_placenta.txt `
+--rmbatchSmode TRUE
