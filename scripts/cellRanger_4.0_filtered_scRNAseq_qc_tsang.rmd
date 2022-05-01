@@ -20,7 +20,7 @@ library(EnvStats)
 library(Matrix)
 
 # Bioconductor packages
-# library(DropletUtils)
+library(DropletUtils)
 library(edgeR)
 library(scater)
 ```
@@ -44,7 +44,12 @@ tenx_to_seu <- function(tenx_directory, name) {
 
 ## Unfiltered 10x output stats
 Unfiltered 10x output data have been stored as dgCMatrix. Vector is all caps represent final columns for supplemental table. Chunk contains TOTAL.DROPLETS.RAW, TOTAL.RNA.RAW, TOTAL.GENES.RAW, FETAL.SEX.
+
 ```{r}
+LIBRARY.ID <- c("1A", "1B", "2A", "2B", "3", "4", "5", "6", "7", "8C", "8P", "9C", "9P", "PE1", "PE2", "PE3", "PE4")
+```
+
+```{r, eval = F}
 # Get raw 10X data directory
 tenx.raw.out <- paste0(here("data", "tenx_unfiltered_data"), "/")
 # Get filenames
@@ -65,7 +70,7 @@ files <-
 # Read files into R
 raw.list <- lapply(files, function(x) readRDS(x))
 # Rename according to naming convention
-LIBRARY.ID <- c("1A", "1B", "2A", "2B", "3", "4", "5", "6", "7", "8C", "8P", "9C", "9P", "PE1", "PE2", "PE3", "PE4")
+#LIBRARY.ID <- c("1A", "1B", "2A", "2B", "3", "4", "5", "6", "7", "8C", "8P", "9C", "9P", "PE1", "PE2", "PE3", "PE4")
 names(raw.list) <- LIBRARY.ID
 # Create a Seurat object out of each file
 raw.seurat <- lapply(raw.list, function(x) CreateSeuratObject(counts = x))
@@ -81,6 +86,8 @@ TOTAL.GENES.RAW <- lapply(raw.seurat, function(x) x %>% nrow()) %>% as.numeric
 # Sex of samples
 FETAL.SEX <- c("F", "F", "M", "M", "M", "F", "M", "M", "M", "F", "F", "F", "F", "M", "M", "F", "F")
 ```
+`
+
 
 ## Get list of droplet-called and filtered Seurat objects
 Contains TOTAL.CELLS
@@ -170,7 +177,7 @@ names(freemux.clusters) <- names
 
 TESTING
 No na's among raw freemux data
-```{r}
+```{r, eval = F}
 freemux.clusters$tsang_n4p.clusters$BEST.GUESS %>% is.na %>% summary
 lapply(freemux.clusters, function(x) x$BEST.GUESS %>% as.factor %>% is.na %>% summary)
 ```
@@ -211,11 +218,11 @@ mapped <-
        col.name = "freemuxlet.assignments") # Every metadata column has same name
 ```
 
-```{r}
+```{r, eval = F}
 lapply(mapped, function(x) dim(x@meta.data))
 ```
 
-```{r}
+```{r, eval = F}
 # Sum of mapped
 #2573+2600+2544+2740+1907+2653+2456+6018+16968+4918+2284+3137+3612+13659+4025+8084+13149
 # sum of all freemuxlet is 93009
@@ -227,7 +234,7 @@ lapply(mapped, function(x) dim(x@meta.data))
 
 TESTING
 Missing barcodes come from tsang_n1 and tsang_n2
-```{r}
+```{r, eval = F}
 lapply(mapped, function(x) x$freemuxlet.assignments %>% as.factor %>% is.na %>% summary)
 ```
 
@@ -305,86 +312,77 @@ tsang.seu <- subset(x = tsang.seu,
 FETAL.MATERNAL.DOUBLETS.REMOVED <- c(doublets.kc, doublets.pr, doublets.tsang)
 ```
 
-# KC QC
-```{r}
-# Convert to SingleCellExperiment for QC
-sce <- as.SingleCellExperiment(kc.seu)
-# Factorize the batch variable
+# QC by batch and merge
+
+Initial analysis was too strict for KC batch; a lib.size cutoff of 500 (happens with CellRanger barcode calling), like the other samples appears appropriate w/ diagnostic plots. Will rely on NMAD to do mitochondrial cutoffs for all samples (double-check this is okay for KC); will impose minimum 200 gene detected cutoff for all samples, which is consistent with previous analysis of PR and checks out with QC plots.
+
+https://support.10xgenomics.com/single-cell-gene-expression/software/pipelines/latest/algorithms/overview#cell_calling for additional reading about cell calling
+
+## This section merges and uses fixed thresholds and compares merged adaptive thresholds; not used for the final analytic sample
+
+```{r, eval = F}
+sce <- cbind(as.SingleCellExperiment(kc.seu), as.SingleCellExperiment(pr.seu), as.SingleCellExperiment(tsang.seu))
+sce$sample <- factor(sce$ident, labels = LIBRARY.ID)
 sce$batch <- as.factor(sce$batch)
+#sce <- sce[, !(sce$orig.ident %in% c("tsang_pe1" ,"tsang_pe2", "tsang_pe3", "tsang_pe4")) ,drop=TRUE]
 ```
 
-## Droplet Calling
-Skipping droplet calling since 10x already filters that under Cell Ranger 4.0 based on Aaron Lun's EmptyDroplets().
-
-## Calculate QC Metrics
-Increased NMADs to 4 because NMAD of 3.0 looks too restrictive for KC data. Looks like an appropriate compromise based on QC plots.
-```{r}
+```{r, eval = F}
 # Find mitochondrial genes
 is.mito <- grepl("^MT-", rownames(sce))
 # Add per cell QC metrics to the object
 sce <- addPerCellQC(sce, subsets = list(Mito=is.mito))
 
+sce.rna.threshold <- 500
+sce.gene.threshold <- 200
+sce.mito.threshold <- 10
+
+qc.lib <- sce$sum < sce.rna.threshold
+qc.nexprs <- sce$detected < sce.gene.threshold
+qc.mito <- sce$subsets_Mito_percent > sce.mito.threshold
+discard <- qc.lib | qc.nexprs | qc.mito
+sce$discard <- discard
+
+# Summarize the number of cells removed for each reason.
+DataFrame(LibSize=sum(qc.lib), NExprs=sum(qc.nexprs), MitoProp=sum(qc.mito), Total=sum(discard))
+```
+
+Adaptive threhsolds (nMADs = 3)
+```{r, eval = F}
 # Create QC data frame
 qc.df <- perCellQCMetrics(sce, subsets = list(Mito=is.mito))
 # Reasons for exclusion, considering batch
 batch.reasons <- quickPerCellQC(qc.df, batch=sce$batch,
                                 sub.fields = "subsets_Mito_percent",
-                                nmads = 4)
+                                nmads = 3)
 colSums(as.matrix(batch.reasons))
 
 # Add discard metadata to object
-sce$discard <- batch.reasons$discard
-discard <- batch.reasons$discard
+# With fixed thresholds
+#sce$discard <- discard
 
-# See http://bioconductor.org/books/3.14/OSCA.basic/quality-control.html#common-choices-of-qc-metrics for further discussion of MAD
-# Performed on the log scale to avoid negative values, and backtransform the result for plotting
-#sce.rna.threshold = exp(median(log(sce$sum)) - 4*mad(log(sce$sum)))
-#sce.gene.threshold = exp(median(log(sce$detected)) - 4*mad(log(sce$detected)))
-#sce.mito.threshold = median(sce$subsets_Mito_percent) + 4*mad(sce$subsets_Mito_percent)
-
-#sce.rna.threshold
-#sce.gene.threshold
-#sce.mito.threshold
-
-# The actual set of functions to retrieve the thresholds; matches those manually calculated above (commented out)
-sce.rna.threshold <- attr(batch.reasons$low_lib_size, "thresholds")[1]
-sce.gene.threshold <- attr(batch.reasons$low_n_features, "thresholds")[1]
-sce.mito.threshold <- attr(batch.reasons$high_subsets_Mito_percent, "thresholds")[2]
-
-# Add thresholds metadata to object
-sce$rna.threshold <- sce.rna.threshold
-sce$gene.threshold <- sce.gene.threshold
-sce$mito.threshold <- sce.mito.threshold
+# With adaptive thresholds
+#sce$discard <- batch.reasons$discard
+#discard <- batch.reasons$discard
 ```
 
-QC plots.
-```{r}
+```{r, eval = F}
 plotColData(sce, x="sum", y="subsets_Mito_percent", colour_by = "discard") + scale_x_log10() +
   geom_vline(xintercept = sce.rna.threshold, linetype = "dashed") +
-  geom_hline(yintercept = sce.mito.threshold, linetype = "dashed")
+  geom_hline(yintercept = sce.mito.threshold, linetype = "dashed") +
+  xlab("Library Size") + ylab("Mitochondrial Gene Mapping Rate (%)")
 plotColData(sce, x="detected", y="subsets_Mito_percent", colour_by = "discard") + scale_x_log10() +
   geom_vline(xintercept = sce.gene.threshold, linetype = "dashed") +
-  geom_hline(yintercept = sce.mito.threshold, linetype = "dashed") 
-```
-
-```{r}
-plotColData(sce, x="ident", y="sum", colour_by="discard") + 
-        scale_y_log10() + ggtitle("Total count")
-plotColData(sce, x="ident", y="detected", colour_by="discard") + 
-        scale_y_log10() + ggtitle("Detected features")
-plotColData(sce, x="ident", y="subsets_Mito_percent", 
-        colour_by="discard") + ggtitle("Mito percent")
-```
-
-Exploratory investigation of variance explained by metadata.
-```{r}
-#vars <- getVarianceExplained(logNormCounts(sce), 
-#    variables=c("ident", "subsets_Mito_percent", "sum", "detected"))
-#plotExplanatoryVariables(vars)
+  geom_hline(yintercept = sce.mito.threshold, linetype = "dashed") +
+  xlab("Genes Detected") + ylab("Mitochondrial Gene Mapping Rate (%)")
+plotColData(sce, x="sum", y="detected", colour_by = "discard") + scale_x_log10() +
+  geom_vline(xintercept = sce.rna.threshold, linetype = "dashed") +
+  geom_hline(yintercept = sce.gene.threshold, linetype = "dashed") +
+  xlab("Library Size") + ylab("Genes Detected")
 ```
 
 Subset to QC-filtered cells.
-```{r}
+```{r, eval = F}
 # Keeping the columns we DON'T want to discard.
 filtered <- sce[,!discard]
 dropped <- as.numeric(summary(discard)["TRUE"])
@@ -393,9 +391,136 @@ print(paste0(dropped, " cells were filtered, yielding ", kept, " remaining cells
 ```
 
 Identify if a rare cell type might have been discarded.
-```{r}
+```{r, eval = F}
 lost <- calculateAverage(counts(sce)[,!discard])
 kept <- calculateAverage(counts(sce)[,discard])
+
+logged <- edgeR::cpm(cbind(lost, kept), log=TRUE, prior.count=2)
+logFC <- logged[,1] - logged[,2]
+abundance <- rowMeans(logged)
+```
+
+Blue points are mitochondrial genes and are expected to be downregulated. Exclusion of a cell type may be indicated by overexpression on this plot, of which there does not appear to be strong overexpression.
+```{r, eval = F}
+plot(abundance, logFC, xlab="Average count", ylab="Log-FC (lost/kept)", pch=16)
+points(abundance[is.mito], logFC[is.mito], col="dodgerblue", pch=16)
+```
+
+Looks like only RBCs have been differentially removed via QC
+```{r, eval = F}
+# Pull out differentially regulated genes
+logFC[logFC < -2]
+```
+
+# KC QC
+```{r}
+# Convert to SingleCellExperiment for QC
+sce.kc <- as.SingleCellExperiment(kc.seu)
+# Factorize the batch variable
+sce.kc$batch <- as.factor(sce.kc$batch)
+```
+
+## Droplet Calling
+Skipping droplet calling since 10x already filters that under Cell Ranger 4.0 based on Aaron Lun's EmptyDroplets().
+
+## Calculate QC Metrics
+Lib.size = 500
+Genes = 200
+Mito % = nmad 4
+
+Increased NMADs to 4 because NMAD of 3.0 looks too restrictive for KC data. Looks like an appropriate compromise based on QC plots.
+```{r}
+# Find mitochondrial genes
+is.mito <- grepl("^MT-", rownames(sce.kc))
+# Add per cell QC metrics to the object
+sce.kc <- addPerCellQC(sce.kc, subsets = list(Mito=is.mito))
+
+# Create QC data frame
+qc.df <- perCellQCMetrics(sce.kc, subsets = list(Mito=is.mito))
+# Reasons for exclusion, considering batch
+batch.reasons <- quickPerCellQC(qc.df, batch=sce.kc$batch,
+                                sub.fields = "subsets_Mito_percent",
+                                nmads = 4)
+colSums(as.matrix(batch.reasons))
+
+# Verifying NMADs are calculated correctly manually for learning purposes
+# See http://bioconductor.org/books/3.14/OSCA.basic/quality-control.html#common-choices-of-qc-metrics for further discussion of MAD
+# Performed on the log scale to avoid negative values, and backtransform the result for plotting
+#sce.kc.rna.threshold = exp(median(log(sce.kc$sum)) - 4*mad(log(sce.kc$sum)))
+#sce.kc.gene.threshold = exp(median(log(sce.kc$detected)) - 4*mad(log(sce.kc$detected)))
+#sce.kc.mito.threshold = median(sce.kc$subsets_Mito_percent) + 4*mad(sce.kc$subsets_Mito_percent)
+
+#sce.kc.rna.threshold
+#sce.kc.gene.threshold
+#sce.kc.mito.threshold
+
+# The actual set of functions to retrieve the adaptive thresholds; matches those manually calculated above (commented out)
+sce.kc.rna.threshold <- attr(batch.reasons$low_lib_size, "thresholds")[1]
+sce.kc.gene.threshold <- attr(batch.reasons$low_n_features, "thresholds")[1]
+sce.kc.mito.threshold <- attr(batch.reasons$high_subsets_Mito_percent, "thresholds")[2]
+
+# Add adaptive thresholds metadata to object
+sce.kc$rna.threshold <- sce.kc.rna.threshold
+sce.kc$gene.threshold <- sce.kc.gene.threshold
+sce.kc$mito.threshold <- sce.kc.mito.threshold
+
+# Set lib.size and n.detected thresholds, pull adaptive mito threshold
+lib.size.cutoff <- 500
+gene.det.cutoff <- 200
+qc.lib <- sce.kc$sum < lib.size.cutoff
+qc.nexprs <- sce.kc$detected < gene.det.cutoff
+qc.mito <- sce.kc$subsets_Mito_percent > sce.kc.mito.threshold
+discard <- qc.lib | qc.nexprs | qc.mito
+
+# Summarize the number of cells removed for each reason using the fixed thresholds above, not used
+DataFrame(LibSize=sum(qc.lib), NExprs=sum(qc.nexprs), MitoProp=sum(qc.mito), Total=sum(discard))
+
+# Add discard metadata to object with fixed thresholds, not used
+sce.kc$discard <- discard
+```
+
+QC plots.
+```{r}
+plotColData(sce.kc, x="sum", y="subsets_Mito_percent", colour_by = "discard") + scale_x_log10() +
+  geom_vline(xintercept = lib.size.cutoff, linetype = "dashed") +
+  geom_hline(yintercept = sce.kc.mito.threshold, linetype = "dashed")
+plotColData(sce.kc, x="detected", y="subsets_Mito_percent", colour_by = "discard") + scale_x_log10() +
+  geom_vline(xintercept = gene.det.cutoff, linetype = "dashed") +
+  geom_hline(yintercept = sce.kc.mito.threshold, linetype = "dashed")
+plotColData(sce.kc, x="sum", y="detected", colour_by = "discard") + scale_x_log10() +
+  geom_vline(xintercept = lib.size.cutoff, linetype = "dashed") +
+  geom_hline(yintercept = gene.det.cutoff, linetype = "dashed") 
+```
+
+```{r}
+plotColData(sce.kc, x="ident", y="sum", colour_by="discard") + 
+        scale_y_log10() + ggtitle("Total count")
+plotColData(sce.kc, x="ident", y="detected", colour_by="discard") + 
+        scale_y_log10() + ggtitle("Detected features")
+plotColData(sce.kc, x="ident", y="subsets_Mito_percent", 
+        colour_by="discard") + ggtitle("Mito percent")
+```
+
+Exploratory investigation of variance explained by metadata.
+```{r}
+#vars <- getVarianceExplained(logNormCounts(sce.kc), 
+#    variables=c("ident", "subsets_Mito_percent", "sum", "detected"))
+#plotExplanatoryVariables(vars)
+```
+
+Subset to QC-filtered cells.
+```{r}
+# Keeping the columns we DON'T want to discard.
+filtered <- sce.kc[,!discard]
+dropped <- as.numeric(summary(discard)["TRUE"])
+kept <- as.numeric(summary(discard)["FALSE"])
+print(paste0(dropped, " cells were filtered, yielding ", kept, " remaining cells"))
+```
+
+Identify if a rare cell type might have been discarded.
+```{r}
+lost <- calculateAverage(counts(sce.kc)[,!discard])
+kept <- calculateAverage(counts(sce.kc)[,discard])
 
 logged <- edgeR::cpm(cbind(lost, kept), log=TRUE, prior.count=2)
 logFC <- logged[,1] - logged[,2]
@@ -412,13 +537,13 @@ Even at NMAD = 4, CSH1 is differentially underexpressed, indicates omission of s
 # Pull out differentially regulated genes
 logFC[logFC < -2]
 
-plotExpression(sce, features = "CSH1", x = "subsets_Mito_percent")
+plotExpression(sce.kc, features = "CSH1", x = "subsets_Mito_percent")
 plotExpression(filtered, features = "CSH1", x = "subsets_Mito_percent")
 
-plotExpression(sce, features = "CSH1", x = "total")
+plotExpression(sce.kc, features = "CSH1", x = "total")
 plotExpression(filtered, features = "CSH1", x = "total")
 
-plotExpression(sce, features = "CSH1", x = "detected")
+plotExpression(sce.kc, features = "CSH1", x = "detected")
 plotExpression(filtered, features = "CSH1", x = "detected")
 ```
 
@@ -429,7 +554,7 @@ kc <- as.Seurat(filtered)
 ```
 
 Explore batch effect in KC samples. There doesn't appear to be much of a batch effect.
-```{r}
+```{r, eval = F}
 # Should normalize and find variable features in each dataset separately
 kc <- NormalizeData(object = kc, normalization.method = "LogNormalize", scale.factor = 10000)
 kc <- FindVariableFeatures(object = kc)
@@ -438,11 +563,6 @@ kc <- RunPCA(kc, features = VariableFeatures(object = kc))
 ElbowPlot(object = kc, ndims = 100)
 DimPlot(kc, reduction = "pca", group.by = 'orig.ident')
 DimPlot(kc, reduction = "pca", group.by = 'biorep')
-```
-
-```{r}
-# Rename Samples KC_40_1 and KC_40_2 have been renamed 1A and 1B; KC_42_1 and KC_42_2 <- 2A and 2B.
-#levels(All@active.ident) <- c("Placenta 1A", "Placenta 1B", "Placenta 2A", "Placenta 2B")
 ```
 
 # Pique-Regi data QC
@@ -460,7 +580,10 @@ sce.pr$batch <- as.factor(sce.pr$batch)
 Skipping droplet calling since 10x already filters that under Cell Ranger 4.0 based on Aaron Lun's EmptyDroplets().
 
 ## Calculate QC Metrics
-Deafult NMAD of 3.0 looks too restrictive for KC data but looks fine for PR data.
+Default NMAD of 3 Looks like an appropriate level for the PR data based on QC plots.
+Lib.size = 500
+Genes = 200
+Mito % = nmad 3
 ```{r}
 # Find mitochondrial genes
 is.mito <- grepl("^MT-", rownames(sce.pr))
@@ -470,34 +593,47 @@ sce.pr <- addPerCellQC(sce.pr, subsets = list(Mito=is.mito))
 # Create QC data frame
 qc.df <- perCellQCMetrics(sce.pr, subsets = list(Mito=is.mito))
 # Reasons for exclusion, considering batch
-batch.reasons <- quickPerCellQC(qc.df,
+batch.reasons <- quickPerCellQC(qc.df, batch=sce.pr$batch,
                                 sub.fields = "subsets_Mito_percent",
-                                nmads = 3) # default nmads is 3
+                                nmads = 3)
 colSums(as.matrix(batch.reasons))
 
-# Add discard metadata to object
-sce.pr$discard <- batch.reasons$discard
-discard <- batch.reasons$discard
-
-# Pull thresholds
+# The actual set of functions to retrieve the adaptive thresholds; matches those manually calculated above (commented out)
 sce.pr.rna.threshold <- attr(batch.reasons$low_lib_size, "thresholds")[1]
 sce.pr.gene.threshold <- attr(batch.reasons$low_n_features, "thresholds")[1]
 sce.pr.mito.threshold <- attr(batch.reasons$high_subsets_Mito_percent, "thresholds")[2]
 
-# Add thresholds metadata to object
+# Add adaptive thresholds metadata to object
 sce.pr$rna.threshold <- sce.pr.rna.threshold
 sce.pr$gene.threshold <- sce.pr.gene.threshold
 sce.pr$mito.threshold <- sce.pr.mito.threshold
+
+# Set lib.size and n.detected thresholds, pull adaptive mito threshold
+lib.size.cutoff <- 500
+gene.det.cutoff <- 200
+qc.lib <- sce.pr$sum < lib.size.cutoff
+qc.nexprs <- sce.pr$detected < gene.det.cutoff
+qc.mito <- sce.pr$subsets_Mito_percent > sce.pr.mito.threshold
+discard <- qc.lib | qc.nexprs | qc.mito
+
+# Summarize the number of cells removed for each reason using the fixed thresholds above, not used
+DataFrame(LibSize=sum(qc.lib), NExprs=sum(qc.nexprs), MitoProp=sum(qc.mito), Total=sum(discard))
+
+# Add discard metadata to object with fixed thresholds, not used
+sce.pr$discard <- discard
 ```
 
 QC plots.
 ```{r}
 plotColData(sce.pr, x="sum", y="subsets_Mito_percent", colour_by = "discard") + scale_x_log10() +
-  geom_vline(xintercept = sce.pr.rna.threshold, linetype = "dashed") +
+  geom_vline(xintercept = lib.size.cutoff, linetype = "dashed") +
   geom_hline(yintercept = sce.pr.mito.threshold, linetype = "dashed")
 plotColData(sce.pr, x="detected", y="subsets_Mito_percent", colour_by = "discard") + scale_x_log10() +
-  geom_vline(xintercept = sce.pr.gene.threshold, linetype = "dashed") +
-  geom_hline(yintercept = sce.pr.mito.threshold, linetype = "dashed") 
+  geom_vline(xintercept = gene.det.cutoff, linetype = "dashed") +
+  geom_hline(yintercept = sce.pr.mito.threshold, linetype = "dashed")
+plotColData(sce.pr, x="sum", y="detected", colour_by = "discard") + scale_x_log10() +
+  geom_vline(xintercept = lib.size.cutoff, linetype = "dashed") +
+  geom_hline(yintercept = gene.det.cutoff, linetype = "dashed") 
 ```
 
 ```{r}
@@ -551,7 +687,7 @@ pr <- as.Seurat(filtered)
 ```
 
 Explore batch effect in PR samples. There may be some batch effect in 481 (4) compared to 478 (3) and 484 (5)
-```{r}
+```{r, eval = F}
 # Should normalize and find variable features in each dataset separately
 pr <- NormalizeData(object = pr, normalization.method = "LogNormalize", scale.factor = 10000)
 pr <- FindVariableFeatures(object = pr)
@@ -567,6 +703,8 @@ DimPlot(pr, reduction = "pca", group.by = 'orig.ident')
 sce.tsang <- as.SingleCellExperiment(tsang.seu)
 # Factorize the batch variable
 sce.tsang$batch <- as.factor(sce.tsang$batch)
+# Subset to healthy samples
+sce.tsang <- sce.tsang[, !(sce.tsang$orig.ident %in% c("tsang_pe1" ,"tsang_pe2", "tsang_pe3", "tsang_pe4")) ,drop=TRUE]
 ```
 
 ## Droplet Calling
@@ -574,6 +712,9 @@ Skipping droplet calling since 10x already filters that under Cell Ranger 4.0 ba
 
 ## Calculate QC Metrics
 Default NMAD of 3 Looks like an appropriate level fro the Tsang data based on QC plots.
+Lib.size = 500
+Genes = 200
+Mito % = nmad 3
 ```{r}
 # Find mitochondrial genes
 is.mito <- grepl("^MT-", rownames(sce.tsang))
@@ -588,29 +729,45 @@ batch.reasons <- quickPerCellQC(qc.df, batch=sce.tsang$batch,
                                 nmads = 3)
 colSums(as.matrix(batch.reasons))
 
-# Add discard metadata to object
-sce.tsang$discard <- batch.reasons$discard
-discard <- batch.reasons$discard
-
-# Pull thresholds
+# The actual set of functions to retrieve the adaptive thresholds; matches those manually calculated above (commented out)
 sce.tsang.rna.threshold <- attr(batch.reasons$low_lib_size, "thresholds")[1]
 sce.tsang.gene.threshold <- attr(batch.reasons$low_n_features, "thresholds")[1]
 sce.tsang.mito.threshold <- attr(batch.reasons$high_subsets_Mito_percent, "thresholds")[2]
 
-# Add thresholds metadata to object
+# Add adaptive thresholds metadata to object
 sce.tsang$rna.threshold <- sce.tsang.rna.threshold
 sce.tsang$gene.threshold <- sce.tsang.gene.threshold
 sce.tsang$mito.threshold <- sce.tsang.mito.threshold
+
+# Set lib.size and n.detected thresholds, pull adaptive mito threshold
+lib.size.cutoff <- 500
+gene.det.cutoff <- 200
+qc.lib <- sce.tsang$sum < lib.size.cutoff
+qc.nexprs <- sce.tsang$detected < gene.det.cutoff
+qc.mito <- sce.tsang$subsets_Mito_percent > sce.tsang.mito.threshold
+discard <- qc.lib | qc.nexprs | qc.mito
+
+# Summarize the number of cells removed for each reason using the fixed thresholds above, not used
+DataFrame(LibSize=sum(qc.lib), NExprs=sum(qc.nexprs), MitoProp=sum(qc.mito), Total=sum(discard))
+
+# Add discard metadata to object with fixed thresholds, not used
+sce.tsang$discard <- discard
+
+#seu.sce.tsang <- as.Seurat(sce.tsang)
+#seu.sce.tsang@meta.data %>% rownames_to_column(var = "cell.id") %>% mutate(filtered.in.error = ifelse(cell.id %in% filtered.in.error, T, F)) %>% View
 ```
 
 QC plots.
 ```{r}
 plotColData(sce.tsang, x="sum", y="subsets_Mito_percent", colour_by = "discard") + scale_x_log10() +
-  geom_vline(xintercept = sce.tsang.rna.threshold, linetype = "dashed") +
+  geom_vline(xintercept = lib.size.cutoff, linetype = "dashed") +
   geom_hline(yintercept = sce.tsang.mito.threshold, linetype = "dashed")
 plotColData(sce.tsang, x="detected", y="subsets_Mito_percent", colour_by = "discard") + scale_x_log10() +
-  geom_vline(xintercept = sce.tsang.gene.threshold, linetype = "dashed") +
-  geom_hline(yintercept = sce.tsang.mito.threshold, linetype = "dashed") 
+  geom_vline(xintercept = gene.det.cutoff, linetype = "dashed") +
+  geom_hline(yintercept = sce.tsang.mito.threshold, linetype = "dashed")
+plotColData(sce.tsang, x="sum", y="detected", colour_by = "discard") + scale_x_log10() +
+  geom_vline(xintercept = lib.size.cutoff, linetype = "dashed") +
+  geom_hline(yintercept = gene.det.cutoff, linetype = "dashed") 
 ```
 
 ```{r}
@@ -663,7 +820,7 @@ tsang <- as.Seurat(filtered)
 ```
 
 Explore batch effect in tsang samples. There doesn't appear to be much of a batch effect.
-```{r}
+```{r, eval = F}
 # Should normalize and find variable features in each dataset separately
 tsang <- NormalizeData(object = tsang, normalization.method = "LogNormalize", scale.factor = 10000)
 tsang <- FindVariableFeatures(object = tsang)
@@ -674,32 +831,43 @@ DimPlot(tsang, reduction = "pca", group.by = 'orig.ident')
 DimPlot(tsang, reduction = "pca", group.by = 'biorep')
 ```
 
+```{r, eval = F, include = F}
+kc.raw <- lapply(raw.seurat[1:4], function(x) x$nCount_RNA) %>% unlist
+pr.raw <- lapply(raw.seurat[5:7], function(x) x$nCount_RNA) %>% unlist
+tsang.raw <- lapply(raw.seurat[7:13], function(x) x$nCount_RNA) %>% unlist
+
+hist(log(kc.raw[kc.raw >= 20]))
+exp(6)
+log(500)
+```
+
 ## QC stats filtering reporting
+
+Merge with cbind
 ```{r}
-# cbind because cells are on columns and genes are on rows
-sce.combined <- cbind(sce, sce.pr, sce.tsang)
-sce.combined$sample <- factor(sce.combined$ident, labels = LIBRARY.ID)
+sce <- cbind(sce.kc, sce.pr, sce.tsang)
+sce$sample <- factor(sce$ident, labels = LIBRARY.ID[1:13])
 ```
 
 Number and average number of cells QC-filtered
 ```{r}
-# 47,720 included
-sum(table(sce.combined$discard, sce.combined$sample)[1,1:13])
-# 3,670.77 per sample 
-sum(table(sce.combined$discard, sce.combined$sample)[1,1:13])/13
-# 5,636 excluded
-sum(table(sce.combined$discard, sce.combined$sample)[2,1:13])
-# 433.54 per sample
-sum(table(sce.combined$discard, sce.combined$sample)[2,1:13])/13
+# 46,991 included
+sum(table(sce$discard, sce$sample)[1,1:13])
+# 3,614.69 per sample 
+sum(table(sce$discard, sce$sample)[1,1:13])/13
+# 6,365 excluded
+sum(table(sce$discard, sce$sample)[2,1:13])
+# 489.62 per sample
+sum(table(sce$discard, sce$sample)[2,1:13])/13
 ```
 
-```{r}
+```{r, eval = F}
 sce.meta <- data.frame(
-  LIBRARY.ID = sce.combined$sample,
-  rna = sce.combined$sum,
-  genes = sce.combined$detected,
-  mito = sce.combined$subsets_Mito_percent,
-  discard = sce.combined$discard
+  LIBRARY.ID = sce$sample,
+  rna = sce$sum,
+  genes = sce$detected,
+  mito = sce$subsets_Mito_percent,
+  discard = sce$discard
 )
 
 qc.supp <- 
@@ -727,51 +895,21 @@ colnames(QC) <- c("Sample", "Fetal Sex", "Droplets Sequenced", "Total Unique RNA
 #write.table(x = QC, file = here("results", "single_cell_qc", "scrna_qc_summary.csv"), row.names = F, sep = ",")
 ```
 
-Subset to only healthy samples
-```{r}
-sce.combined$orig.ident %>% factor %>% levels
-sce.subset <- sce.combined[, !(sce.combined$orig.ident %in% c("tsang_pe1" ,"tsang_pe2", "tsang_pe3", "tsang_pe4")) ,drop=TRUE]
-```
-
 ```{r}
 base.size <- 24
 
-rna.vln <- plotColData(sce.subset, x="sample", y="sum", colour_by="discard") + 
+rna.vln <- plotColData(sce, x="sample", y="sum", colour_by="discard") + 
   scale_y_log10() + ggtitle("Total RNA molecules") + theme_bw(base_size = base.size) +
   theme(legend.position = "bottom") +
   guides(colour = guide_legend(override.aes = list(size=20), reverse = TRUE))
 #ggsave(here("results", "single_cell_qc", paste0(Sys.Date(), "rna_molecules_by_rep.png")))
 
-gene.vln <- plotColData(sce.subset, x="sample", y="detected", colour_by="discard") + 
+gene.vln <- plotColData(sce, x="sample", y="detected", colour_by="discard") + 
         scale_y_log10() + ggtitle("Detected genes") + theme_bw(base_size = base.size)
 #ggsave(here("results", "single_cell_qc", paste0(Sys.Date(), "genes_detected_by_rep.png")))
 
-mito.vln <- plotColData(sce.subset, x="sample", y="subsets_Mito_percent", 
-        colour_by="discard") + ggtitle("% Mitochondrial genes") + ylab("percentage") + theme_bw(base_size = base.size)
-#ggsave(here("results", "single_cell_qc", paste0(Sys.Date(), "percent_mito_by_rep.png")))
-
-legend <- get_legend(rna.vln)
-```
-
-Testing to add MAD threshold to each graph
-```{r}
-base.size <- 24
-
-rna.vln <- plotColData(sce.subset, x="sample", y="sum", colour_by="discard") + 
-  scale_y_log10() + ggtitle("Total RNA molecules") +
-  #annotate("text", y = 1e5, x = "1B", label = as.character(round(sce.rna.threshold, 1))) + 
-  theme_bw(base_size = base.size) +
-  theme(legend.position = "bottom") +
-  guides(colour = guide_legend(override.aes = list(size=20), reverse = TRUE))
-
-#ggsave(here("results", "single_cell_qc", paste0(Sys.Date(), "rna_molecules_by_rep.png")))
-
-gene.vln <- plotColData(sce.subset, x="sample", y="detected", colour_by="discard") + 
-  scale_y_log10() + ggtitle("Detected genes") + theme_bw(base_size = base.size)
-#ggsave(here("results", "single_cell_qc", paste0(Sys.Date(), "genes_detected_by_rep.png")))
-
-mito.vln <- plotColData(sce.subset, x="sample", y="subsets_Mito_percent", colour_by="discard") +
-  ggtitle("% Mitochondrial genes") + ylab("percentage") + theme_bw(base_size = base.size)
+mito.vln <- plotColData(sce, x="sample", y="subsets_Mito_percent", 
+        colour_by="discard") + ggtitle("Mitochondrial Gene Mapping Rate (%)") + ylab("percentage") + theme_bw(base_size = base.size)
 #ggsave(here("results", "single_cell_qc", paste0(Sys.Date(), "percent_mito_by_rep.png")))
 
 legend <- get_legend(rna.vln)
@@ -782,8 +920,17 @@ panel <- ggarrange(rna.vln, gene.vln, mito.vln, ncol = 3, nrow = 1, labels = "AU
 #ggexport(panel, filename = here("results", "single_cell_qc", paste0(Sys.Date(), "_qc_vlns.png")), width = 1980, height = 1080)
 ```
 
-# TODO
-Clean-up merged object, looks like merging causes duplicate metadata columns
+```{r}
+seu <- subset(as.Seurat(sce), subset = discard == F)
+```
+
+Proceed with updated QC thresholds for resubmit (keep mito% nmads and impose lib.size < 500 and gene < 200)
+```{r}
+#saveRDS(seu, here("data", "analytic", "post_qc", paste0("kc_pr_tsang_qc_merged_", Sys.Date(), ".rda")))
+```
+
+
+Looks like merging causes duplicate metadata columns
 ```{r}
 # Load in the fully annotated kc, pr Seurat object
 kc.pr.analyzed.seu <- readRDS(here("data", "cleaned_combined_seurat_2020-12-22.rda"))
