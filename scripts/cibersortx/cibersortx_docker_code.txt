@@ -1,3 +1,5 @@
+# NOTE A1-A3 represent the code used to generate the final results in the publication
+
 ### CibersortX Docker Powershell code ###
 # Estimate cell type fractions; KCPR single-cell input and microarray GSE75010 mixture
 # ` allows for multi-line entry into Powershell
@@ -5,6 +7,7 @@
 # Check CibersortX version and backtick multi-line
 docker `
 -v
+
 
 # A1) Deconvolute GSE75010 w KC, PR, Tsang, resubmit, 05-01-2022
 docker run `
@@ -34,6 +37,21 @@ cibersortx/fractions `
 --single_cell TRUE `
 --refsample KC_PR_Tsang_sc_signature_matrix_input_2022-05-01.txt `
 --mixture 2021-11-17_bulk_mixture_CIBERSORTx_input_fpm.txt `
+--rmbatchSmode TRUE
+
+# A3) Deconvolution validation 50-50 Train-test on all test, w/ S-mode correction, default settings 07/21/2022
+docker run `
+-v G:\My` Drive\Placenta_Cell_Types\RNA\placenta_cell_types_rna\data\cibersortx_local:/src/data/ `
+-v G:\My` Drive\Placenta_Cell_Types\RNA\placenta_cell_types_rna\results\cibersortx_local\analytic_deconvolution_validation_testing:/src/outdir `
+cibersortx/fractions `
+--username kyleac@umich.edu `
+--token 027ef63505e8202ff51c424562d3c328 `
+--verbose TRUE `
+--perm 50 `
+--fraction 0 `
+--single_cell TRUE `
+--refsample kc_pr_ts_sc_5050_train_signature_matrix_input_2022-05-10.txt `
+--mixture kc_pr_ts_sc_5050_test_mixtures_cpm_input_2022-07-21.txt `
 --rmbatchSmode TRUE
 
 # 1) Deconvolute GSE75010
