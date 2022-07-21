@@ -39,6 +39,9 @@ bcftools view 1000g.minAF-0.1.out.vcf.gz -h > minAF.header.txt
 # After manual notepad editing of header, reheader reference file
 bcftools reheader -h minAF.header.txt -o 1000g.minAF-0.1.reheader.vcf.gz 1000g.minAF-0.1.out.vcf.gz
 
+# Add relevant dependences to PATH
+PATH=$PATH:/nfs/turbo/bakulski1/People/kyleac/placenta_single_cell/dependencies
+
 # Filter .bams for all samples because so effective at speeding up pileup
 ## PR Samples
 ./filter_bam_file_for_popscle_dsc_pileup.sh \
@@ -84,3 +87,11 @@ bcftools reheader -h minAF.header.txt -o 1000g.minAF-0.1.reheader.vcf.gz 1000g.m
 /scratch/bakulski_root/bakulski1/kyleac/cellranger/run_cellranger_count/batch_kc_42_2/outs/filtered_feature_bc_matrix/barcodes.tsv \
 /nfs/turbo/bakulski1/People/kyleac/placenta_single_cell/reference/1000g.minAF-0.1.reheader.vcf \
 ./kc42.2.minAF.bam
+
+# Tsang samples
+# 1/31/22 
+/nfs/turbo/bakulski1/People/kyleac/placenta_single_cell/scripts/popscle_helper_tools-master/filter_bam_file_for_popscle_dsc_pileup.sh \
+/nfs/turbo/bakulski1/People/kyleac/placenta_single_cell/data/cellranger_count_output/tsang_pe1/outs/possorted_genome_bam.bam \
+/nfs/turbo/bakulski1/People/kyleac/placenta_single_cell/data/cellranger_count_output/tsang_pe1/outs/filtered_feature_bc_matrix/barcodes.tsv \
+/nfs/turbo/bakulski1/People/kyleac/placenta_single_cell/reference/1000g.minAF-0.1.reheader.vcf \
+/nfs/turbo/bakulski1/People/kyleac/placenta_single_cell/data/prep_popscle_pileup/tsang_pe1.minAF.bam

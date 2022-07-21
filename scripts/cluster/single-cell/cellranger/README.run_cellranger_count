@@ -1,5 +1,0 @@
-/nfs/turbo/bakulski1/People/kyleac/placenta_single_cell/cellranger/run_cell_ranger_count/
-
-Each SampleID/ folder contains full cellranger count output
-
-SampleID_cellranger_count or cellranger_count_SampleID are the slurm batch files for running cellranger
