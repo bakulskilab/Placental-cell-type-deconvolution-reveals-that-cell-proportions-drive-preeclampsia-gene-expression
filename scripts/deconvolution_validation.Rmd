@@ -382,7 +382,7 @@ sex.test.female.fetal.ids <- x.groups$female.fetal$cell.id
 sex.test.male.fetal.ids <- sample(x.groups$male.fetal$cell.id, size = 7110, replace = F)
 
 testing.ids <- list(sex.test.maternal.ids, sex.test.female.fetal.ids, sex.test.male.fetal.ids)
-#saveRDS(testing.ids, here("data", paste0(Sys.Date(), "deconvolution_sex_testing_ids.rda"))) # saved 5/10/2022
+#saveRDS(testing.ids, here("data", paste0(Sys.Date(), "deconvolution_sex_testing_ids.rda"))) # saved 5/10/2022; replaced with 7/21/2022 due to down-sample size typo; now fixed and used in final analysis
 ```
 
 Load data
