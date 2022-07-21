@@ -16,6 +16,7 @@ library(ggrepel)
 options(ggrepel.max.overlaps = Inf) # increase max.overlaps for ggrepel
 library(ggpubr)
 library(gprofiler2)
+library(ggridges)
 library(knitr)
 library(tidyverse)
 library(Seurat)
@@ -35,15 +36,6 @@ library(edgeR)
 library(scater)
 # Set seed since this pipeline includes stochastic algorithms
 set.seed(1)
-```
-
-## Load data
-
-Load cleaned Seurat data
-```{r, eval = F}
-#seu <- readRDS(here("data", "analytic", "2022-03-15_all_merged_pruned_batch_mnn.rda"))
-seu <- readRDS(here("data", "analytic", "2022-05-01_all_merged_pruned_batch_mnn.rda"))
-seu$cell.type <- factor(seu$cell.type)
 ```
 
 ## Custom functions
@@ -66,6 +58,214 @@ imp <- imp %>% rownames_to_column("cell.type")
 return(imp)
 }
 ```
+
+Function to get cell type proportions from Seurat object
+```{r}
+# https://stackoverflow.com/questions/26003574/use-dynamic-name-for-new-column-variable-in-dplyr
+# glue syntax to programmatically create name in dplyr function
+get_seu_cell_percentages <- function(seu, export_name) {
+  x <-
+    seu@meta.data %>%
+    group_by(cell.type, .drop = F) %>%
+    tally() %>%
+    dplyr::mutate("{export_name}" := (n / sum(n))) %>%
+    dplyr::select(cell.type, all_of(export_name))
+  return(x)
+}
+```
+
+Function to get cell type proportions by biological replicate
+```{r}
+get_seu_cell_percentages_by_sample <- function(seu, export_name) {
+  x <-
+    seu@meta.data %>%
+    group_by(biorep, cell.type, .drop = F) %>%
+    summarise(cnt = n(), group = "keep") %>%
+    dplyr::mutate(freq = round(cnt/sum(cnt), 3)) %>%
+    dplyr::select(biorep, cell.type, all_of(export_name))
+  return(x)
+}
+```
+
+
+## Load data
+
+Load deconvoluted microarray data and drop preeclampsia samples
+```{r}
+pheno <- readRDS(here("data", "GSE75010_with_abundances_2022-05-01.rda"))
+controls <- pheno %>%
+  filter(phenotype == "C") %>%
+  pull(sample)
+```
+
+
+```{r}
+ma <- read_tsv(here("results", "cibersortx_local", "analytic_gse75010", "CIBERSORTx_Adjusted.txt"))
+ma$Source <- "GSE75010"
+
+ma <- ma %>%
+  dplyr::select(!c(RMSE, Correlation, `P-value`)) %>%
+  filter(Mixture %in% controls) %>%
+  dplyr::select(Mixture, Source, everything()) %>%
+  pivot_longer(cols = !c(Mixture, Source), names_to = "cell.type", values_to = "freq") %>%
+  mutate(freq = round(freq, 3))
+```
+
+Verify each subgroup adds to 100%
+```{r}
+ma %>% group_by(Mixture) %>% summarise(total = sum(freq)) %>% summarise(total.total = sum(total))
+```
+
+Load deconvoluted sorted cell type data (to pull whole villous tissue samples)
+```{r}
+sort <- read_tsv(here("results", "cibersortx_local", "analytic_kc_facs_mixtures", "CIBERSORTx_Adjusted.txt"))
+sort$Source <- "Sorted"
+sort <- sort %>%
+  filter(grepl("Composite", x = Mixture))
+sort[2, 1] <- "Sorted_1A_Composite"
+sort[5, 1] <- "Sorted_1B_Composite"
+sort <- sort %>%
+  dplyr::select(!c(RMSE, Correlation, `P-value`)) %>%
+  dplyr::select(Mixture, Source, everything()) %>%
+  pivot_longer(cols = !c(Mixture, Source), names_to = "cell.type", values_to = "freq") %>%
+  mutate(freq = round(freq, 3))
+```
+
+Verify each subgroup adds to 100%
+```{r}
+sort %>% group_by(Mixture) %>% summarise(total = sum(freq))
+```
+
+Load cleaned Seurat data
+```{r}
+#seu <- readRDS(here("data", "analytic", "2022-03-15_all_merged_pruned_batch_mnn.rda"))
+seu <- readRDS(here("data", "analytic", "2022-05-01_all_merged_pruned_batch_mnn.rda"))
+seu$cell.type <- factor(seu$cell.type)
+```
+
+## Check tissue cell type proportions
+
+Get cell type proportions from sc data
+```{r}
+sc <- get_seu_cell_percentages_by_sample(seu, "freq")
+sc$Source <- "Single-cell"
+colnames(sc)[1] <- "Mixture"
+```
+
+Check that each subgroup adds to 100%
+```{r}
+sc %>% summarise(total = sum(freq))
+```
+
+```{r}
+merge <- rbind(sc, sort, ma)
+```
+
+Take averages by Source for each cell type for correlation comparison
+```{r}
+merge.summary <- 
+  merge %>%
+  group_by(cell.type, Source) %>%
+  summarise(freq.average = mean(freq))
+
+merge.summary.wide <- merge.summary %>%
+  pivot_wider(names_from = `cell.type`, values_from = `freq.average`) %>%
+  column_to_rownames(var = "Source") %>%
+  t() %>%
+  as.data.frame()
+```
+
+Check freq.averages is about ~100%
+```{r}
+colSums(merge.summary.wide)
+dim(merge.summary.wide)
+```
+
+```{r}
+stats::cor.test(x = merge.summary.wide$GSE75010, y = merge.summary.wide$Sorted)
+```
+
+```{r}
+merge.fetal <- merge %>%
+  dplyr::filter(grepl("Fetal ", cell.type))
+
+merge.maternal <- merge %>%
+  dplyr::filter(grepl("Maternal ", cell.type))
+```
+
+
+c("GSE75010", "Single-cell", "Sorted")
+```{r}
+ggplot(merge.fetal, aes(x = freq, y = cell.type, color = Source, point_color = Source, fill = Source)) +
+  geom_density_ridges(
+    jittered_points = TRUE, scale = .95, rel_min_height = .01,
+    point_shape = "|", point_size = 1, size = 0.25,
+    position = position_points_jitter(height = 0),
+    alpha = 0.25
+  ) +
+  ylab("Cell Type") +
+  scale_y_discrete(expand = c(0, 0)) +
+  scale_x_continuous(expand = c(0, 0), name = "Cell Type Proportion", labels = scales::percent_format(accuracy = 1)) +
+  coord_cartesian(clip = "off") +
+  ggtitle("Whole tissue cell type proportions - fetal cell types") +
+  theme_ridges(center = TRUE) +
+  theme(legend.title = element_blank(), legend.position = c(.75, .85), legend.text = element_text(size = 10), axis.title.x=element_blank(), plot.title = element_text(size = 12), axis.text.y = element_text(size = 8), axis.title.y = element_blank())
+
+fetal.panel <- ggplot(merge.fetal, aes(x = freq, y = cell.type, color = Source, point_color = Source, fill = Source)) +
+  geom_density_ridges(
+    jittered_points = TRUE, scale = .95, rel_min_height = .01,
+    point_shape = "|", point_size = 1, size = 0.25,
+    position = position_points_jitter(height = 0),
+    alpha = 0.25
+  ) +
+  ylab("Cell Type") +
+  scale_y_discrete(expand = c(0, 0)) +
+  scale_x_continuous(expand = c(0, 0), name = "Cell Type Proportion", labels = scales::percent_format(accuracy = 1)) +
+  coord_cartesian(clip = "off") +
+  ggtitle("Whole tissue cell type proportions - fetal cell types") +
+ theme_minimal(base_size = 20) +
+  theme(axis.text.y = element_text(color = "black"))
+```
+
+```{r}
+ggplot(merge.maternal, aes(x = freq, y = cell.type, color = Source, point_color = Source, fill = Source)) +
+  geom_density_ridges(
+    jittered_points = TRUE, scale = .95, rel_min_height = .01,
+    point_shape = "|", point_size = 1, size = 0.25,
+    position = position_points_jitter(height = 0),
+    alpha = 0.25
+  ) +
+  ylab("Cell Type") +
+  scale_y_discrete(expand = c(0, 0)) +
+  scale_x_continuous(expand = c(0, 0), name = "Cell Type Proportion", labels = scales::percent_format(accuracy = 1)) +
+  coord_cartesian(clip = "off") +
+  ggtitle("Whole tissue cell type proportions - maternal cell types") +
+  theme_ridges(center = TRUE) +
+  theme(legend.title = element_blank(), legend.position = c(.75, .85), legend.text = element_text(size = 10), axis.title.x=element_blank(), plot.title = element_text(size = 12), axis.text.y = element_text(size = 8), axis.title.y = element_blank())
+
+maternal.panel <- ggplot(merge.maternal, aes(x = freq, y = cell.type, color = Source, point_color = Source, fill = Source)) +
+  geom_density_ridges(
+    jittered_points = TRUE, scale = .95, rel_min_height = .01,
+    point_shape = "|", point_size = 1, size = 0.25,
+    position = position_points_jitter(height = 0),
+    alpha = 0.25
+  ) +
+  ylab("") +
+  scale_y_discrete(expand = c(0, 0)) +
+  scale_x_continuous(expand = c(0, 0), name = "Cell Type Proportion", labels = scales::percent_format(accuracy = 1)) +
+  coord_cartesian(clip = "off") +
+  ggtitle("Whole tissue cell type proportions - maternal cell types") +
+ theme_minimal(base_size = 20) +
+  theme(axis.text.y = element_text(color = "black"))
+```
+
+```{r}
+prop.panel <- ggarrange(fetal.panel, maternal.panel, labels = "AUTO", common.legend = TRUE, legend = "bottom", font.label = list(size = 24, face = "bold", color = "black"))
+#ggexport(prop.panel, width = 1920, height = 1080, filename = here("results", "deconvolution_validation", paste0(Sys.Date(), "_fetal_maternal_proportions.png")))
+```
+
+
+## Training/test split
 
 OUTMODED - Split 50/50 test/training dataset, randomly. Leads to significant differences due to large df
 ```{r, eval = F, include = F}
@@ -220,18 +420,6 @@ Possibly cpm() the sc-sig-matrix input? CibersortX online tutorial 1 claims it d
 
 Function to get actual cell type percentages
 ```{r}
-# https://stackoverflow.com/questions/26003574/use-dynamic-name-for-new-column-variable-in-dplyr
-# glue syntax to programmatically create name in dplyr function
-get_seu_cell_percentages <- function(seu, export_name) {
-  x <-
-    seu@meta.data %>%
-    group_by(cell.type, .drop = F) %>%
-    tally() %>%
-    dplyr::mutate("{export_name}" := (n / sum(n))) %>%
-    dplyr::select(cell.type, all_of(export_name))
-  return(x)
-}
-
 Test_5050_actual <- get_seu_cell_percentages(seu = seu.test, export_name = "Test_5050_actual")
 Fetal_5050_actual <- get_seu_cell_percentages(subset(seu.test, subset = fetal == "Fetal"), export_name = "Fetal_5050_actual")
 Maternal_5050_actual <- get_seu_cell_percentages(subset(seu.test, subset = fetal == "Maternal"), export_name = "Maternal_5050_actual")

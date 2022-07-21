@@ -579,7 +579,7 @@ panel_subplot <- function(res, threshold, base.size, geom.label.size, geom.point
 threshold = 0.05
 
 # Genes of interest to highlight
-genes.of.interest <- NULL
+genes.of.interest <- c("FLT1", "LEP", "ENG")
 
 # Text parameters
 base.size = 28
