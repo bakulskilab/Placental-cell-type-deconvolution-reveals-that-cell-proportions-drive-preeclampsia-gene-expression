@@ -1,0 +1,70 @@
+run_featureCounts.pbs
+
+All analysis parameters are based on JC's May 2018 example code, apart from single-end sequencing stipulation for Run_2245.
+
+TORQUE PBS DIRECTIVES
+
+#PBS -N names the job
+#PBS -M identifies the submitter
+#PBS -m are emailing preferences from the Torque job scheduler to the user -M. -abe sends an email notification to
+  the user when job begins, aborts, or terminates execution.
+#PBS -V imports the submitters current environmental variables when they submit the job (such as loaded modules).
+  This may be essential to proper functioning of your scripts and FLUX staff recommend always including this option
+  when submitting jobs.
+
+#PBS -q indicates to which FLUX computing resource queue you are submitting (other examples including flux or fluxm)
+  fluxm is the large memory queue
+#PBS -A is the FLUX allocation to which you are submitting (i.e., who's paying for the job)
+#PBS -l qos will always be unless you are given instructions explicitly to the contrary (as indicated by FLUX staff)
+
+Total memory requested = nodes*ppn*pmem
+Nodes represents the number of computers assigned to the task
+PPN corresponds to the number of processes, or threads, assigned to each node
+PMEM is the amount of memory allocated to each PPN thread (on the normal flux queue, this may be limited < 4GB whereas
+  in the fluxm large memory queue, each core has ~25GB of memory)
+
+Note that these memory parameters are upper limits. Torque will assign memory up until these max values as your job demand
+  load increases. Consequently, it is generally bestt to be conservative and request somewhat more memory than you think you
+  need. You can use previous successful submissions to gauge how much memory a particular job type requires. For example,
+  STAR alignment requires upwards of 34GB of memory to load large mammalian genomes AND perform read alignment. fastQC
+  of raw reads, on the other hand, requires only 2GB of memory to analyze raw reads.
+  
+Note that a large memory allocation request (based on Nodes, PPN, and PMEM) may take longer to begin job execution because
+  Torque must reserve those computing resources in full before your job may begin.
+
+Walltime is the amount of time your job may run, before you tell Torque to automatically kill the job.
+
+cat $PBS_NODEFILE is in all the example FLUX scripts online and I don't know why.
+
+SCRIPT BODY
+
+featureCounts is a function in module subread
+samtools is required for this script
+
+The path loop loops through all directories in the original datasets folder as a counter.
+  The sample ID for each sample is extracted with the basename function to extract the
+  last folder in the pathname (the sample ID). Next, the script makes an ouput directory
+  for the program's output.
+  
+For readiblity, the scripts moves to the location of the STAR aligned .sam files,
+  converts the .sam file to a compressed .bam before sorting the .bam file. featureCounts
+  is executed on this sorted bam file before the scripts remove original .sam and .bam
+  files in favor of keeping the sorted .bam.
+  
+FEATURE COUNTS (further information can be found in the subread user's manual)
+
+-T number of threads (should match nodes*ppn)
+-s Strandedness (0 = unstranded; 1 = stranded; 2 = reverse stranded) The SMARTERv2 pico
+  library prep kit produces antisense RNA as the first read
+-t <string> The feature type of interest, exons in this case, will only take features matching. Exon by deafault
+  this string in the .gtf annotation files
+-g The attribute used to group features (e.g. exons) into meta-features (e.g. genes)
+  gene_id by default (again based on the .gtf file)
+-a /path/to/an_annotation_file_of_choice.gtf
+-o program output directory
+your_sample_input.sorted.bam
+
+NOTES (for Kyle)
+Sorting by read name appears to be required for paired end reads. The user does not
+  need to do this according to subread manual; it is done automatically by the program.
+  

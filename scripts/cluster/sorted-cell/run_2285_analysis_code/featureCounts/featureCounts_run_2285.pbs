@@ -1,0 +1,52 @@
+#PBS -N featureCounts_run_2285
+#PBS -M kyleac@umich.edu
+#PBS -m abe
+#PBS -j oe
+#PBS -V
+
+#PBS -q fluxod
+#PBS -A bakulski_fluxod
+#PBS -l qos=flux
+
+#PBS -l nodes=1:ppn=9,pmem=3500mb,walltime=72:00:00
+
+cat $PBS_NODEFILE
+
+#When code was run, the default subread version on FLUX was 1.6.1
+module load subread/1.6.1
+module load samtools
+
+#For loop to control loop through all samples (uses locked-down data repository to ensure loop stability)
+for path in /nfs/turbo/bakulski1/Datasets/Placenta_Sort_RNA/ruddle.brcf.med.umich.edu/Run_2285/bakulski/Sample_105*; do
+	
+	#Variables to be used
+	SAMPLEID="$(basename "${path}")"
+	OUTPUTFILENAME=$SAMPLEID+="_featureCounts.txt"
+	
+	#Delete any featureCounts output for this sample and remake the featureCounts output directory
+	rm -r /scratch/bakulski_fluxod/kyleac/placenta_sort_RNA/run2285_output/featureCounts/$SAMPLEID/
+	mkdir /scratch/bakulski_fluxod/kyleac/placenta_sort_RNA/run2285_output/featureCounts/$SAMPLEID/
+	
+	# #Switch to $SAMPLEID's STAR output directory and convert/sort STAR aligned output files for featureCounts input; Subread's documentation indicates this step is unnecessary
+	# cd /scratch/bakulski_fluxod/kyleac/placenta_sort_RNA/run2285_output/star/$SAMPLEID/
+	# samtools view -b -S Aligned.out.sam > Aligned.out.bam
+	# samtools sort -n Aligned.out.bam Aligned.out.sorted
+	
+	#Running featureCounts with input file prepared by samtools above
+	#-T: thread number; -s: strandedness (0->unstranded; 1->sense; 2->antisense); -t feature type
+	#-p: is paired-end; -g how to group features; -o output filename
+	featureCounts \
+	-T 9 \
+	-p \
+	-s 2 \
+	-t exon \
+	-g gene_id \
+	-a /nfs/turbo/bakulski1/People/kyleac/Placenta_Sort_RNA/genomeReference/gtfAnnotation/gencode.v28.annotation.gtf \
+	-o /scratch/bakulski_fluxod/kyleac/placenta_sort_RNA/run2285_output/featureCounts/$SAMPLEID/$OUTPUTFILENAME \
+	/scratch/bakulski_fluxod/kyleac/placenta_sort_RNA/run2285_output/star/$SAMPLEID/Aligned.out.sam
+	
+	# #Delete the original unsorted STAR alignment files that are now redundant; no longer necessary since this script lets featureCounts sort the file
+	# rm Aligned.out.bam
+	# rm Aligned.out.sam
+
+done

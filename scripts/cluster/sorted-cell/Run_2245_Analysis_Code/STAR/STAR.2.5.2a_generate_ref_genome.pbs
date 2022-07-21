@@ -1,0 +1,22 @@
+#PBS -N STAR_generate_ref_genome
+#PBS -M kyleac@umich.edu
+#PBS -m abe
+#PBS -V
+
+#PBS -q fluxod
+#PBS -A bakulski_fluxod
+#PBS -l qos=flux
+
+#PBS -l nodes=4:ppn=4,pmem=3500mb,walltime=24:00:00 
+
+cat $PBS_NODEFILE
+
+module load star/2.5.2a
+
+STAR \
+--runThreadN 16 \
+--runMode genomeGenerate \
+--genomeDir /nfs/turbo/bakulski1/People/kyleac/Placenta_Sort_RNA/genomeReference/refSTARgenome \
+--genomeFastaFiles /nfs/turbo/bakulski1/People/kyleac/Placenta_Sort_RNA/genomeReference/hg38Ref/GRCh38.primary_assembly.genome.fa \
+--sjdbGTFfile /nfs/turbo/bakulski1/People/kyleac/Placenta_Sort_RNA/genomeReference/gtfAnnotation/gencode.v28.annotation.gtf \
+--sjdbOverhang 50

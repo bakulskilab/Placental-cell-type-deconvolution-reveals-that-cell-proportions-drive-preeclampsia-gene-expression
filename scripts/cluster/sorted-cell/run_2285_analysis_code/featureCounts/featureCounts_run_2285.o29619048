@@ -1,0 +1,441 @@
+nyx5571
+nyx5571
+nyx5571
+nyx5571
+nyx5571
+nyx5571
+nyx5571
+nyx5571
+nyx5571
+
+        ==========     _____ _    _ ____  _____  ______          _____  
+        =====         / ____| |  | |  _ \|  __ \|  ____|   /\   |  __ \ 
+          =====      | (___ | |  | | |_) | |__) | |__     /  \  | |  | |
+            ====      \___ \| |  | |  _ <|  _  /|  __|   / /\ \ | |  | |
+              ====    ____) | |__| | |_) | | \ \| |____ / ____ \| |__| |
+        ==========   |_____/ \____/|____/|_|  \_\______/_/    \_\_____/
+	  v1.6.1
+
+//========================== featureCounts setting ===========================\\
+||                                                                            ||
+||             Input files : 1 SAM file                                       ||
+||                           P /scratch/bakulski_fluxod/kyleac/placenta_s ... ||
+||                                                                            ||
+||             Output file : /scratch/bakulski_fluxod/kyleac/placenta_sor ... ||
+||                 Summary : /scratch/bakulski_fluxod/kyleac/placenta_sor ... ||
+||              Annotation : /nfs/turbo/bakulski1/People/kyleac/Placenta_ ... ||
+||      Dir for temp files : /scratch/bakulski_fluxod/kyleac/placenta_sor ... ||
+||                                                                            ||
+||                 Threads : 9                                                ||
+||                   Level : meta-feature level                               ||
+||              Paired-end : yes                                              ||
+||         Strand specific : reversely stranded                               ||
+||      Multimapping reads : not counted                                      ||
+|| Multi-overlapping reads : not counted                                      ||
+||   Min overlapping bases : 1                                                ||
+||                                                                            ||
+||          Chimeric reads : counted                                          ||
+||        Both ends mapped : not required                                     ||
+||                                                                            ||
+\\===================== http://subread.sourceforge.net/ ======================//
+
+//================================= Running ==================================\\
+||                                                                            ||
+|| Load annotation file /nfs/turbo/bakulski1/People/kyleac/Placenta_Sort_ ... ||
+||    Features : 1237914                                                      ||
+||    Meta-features : 58381                                                   ||
+||    Chromosomes/contigs : 25                                                ||
+||                                                                            ||
+|| Process SAM file /scratch/bakulski_fluxod/kyleac/placenta_sort_RNA/run ... ||
+||    Paired-end reads are included.                                          ||
+||    Assign fragments (read pairs) to features...                            ||
+||    Total fragments : 152355414                                             ||
+||    Successfully assigned fragments : 14622840 (9.6%)                       ||
+||    Running time : 3.18 minutes                                             ||
+||                                                                            ||
+||                         Read assignment finished.                          ||
+||                                                                            ||
+|| Summary of counting results can be found in file "/scratch/bakulski_fluxo  ||
+|| d/kyleac/placenta_sort_RNA/run2285_output/featureCounts/Sample_105812/Sam  ||
+|| ple_105812+=_featureCounts.txt.summary"                                    ||
+||                                                                            ||
+\\===================== http://subread.sourceforge.net/ ======================//
+
+
+        ==========     _____ _    _ ____  _____  ______          _____  
+        =====         / ____| |  | |  _ \|  __ \|  ____|   /\   |  __ \ 
+          =====      | (___ | |  | | |_) | |__) | |__     /  \  | |  | |
+            ====      \___ \| |  | |  _ <|  _  /|  __|   / /\ \ | |  | |
+              ====    ____) | |__| | |_) | | \ \| |____ / ____ \| |__| |
+        ==========   |_____/ \____/|____/|_|  \_\______/_/    \_\_____/
+	  v1.6.1
+
+//========================== featureCounts setting ===========================\\
+||                                                                            ||
+||             Input files : 1 SAM file                                       ||
+||                           P /scratch/bakulski_fluxod/kyleac/placenta_s ... ||
+||                                                                            ||
+||             Output file : /scratch/bakulski_fluxod/kyleac/placenta_sor ... ||
+||                 Summary : /scratch/bakulski_fluxod/kyleac/placenta_sor ... ||
+||              Annotation : /nfs/turbo/bakulski1/People/kyleac/Placenta_ ... ||
+||      Dir for temp files : /scratch/bakulski_fluxod/kyleac/placenta_sor ... ||
+||                                                                            ||
+||                 Threads : 9                                                ||
+||                   Level : meta-feature level                               ||
+||              Paired-end : yes                                              ||
+||         Strand specific : reversely stranded                               ||
+||      Multimapping reads : not counted                                      ||
+|| Multi-overlapping reads : not counted                                      ||
+||   Min overlapping bases : 1                                                ||
+||                                                                            ||
+||          Chimeric reads : counted                                          ||
+||        Both ends mapped : not required                                     ||
+||                                                                            ||
+\\===================== http://subread.sourceforge.net/ ======================//
+
+//================================= Running ==================================\\
+||                                                                            ||
+|| Load annotation file /nfs/turbo/bakulski1/People/kyleac/Placenta_Sort_ ... ||
+||    Features : 1237914                                                      ||
+||    Meta-features : 58381                                                   ||
+||    Chromosomes/contigs : 25                                                ||
+||                                                                            ||
+|| Process SAM file /scratch/bakulski_fluxod/kyleac/placenta_sort_RNA/run ... ||
+||    Paired-end reads are included.                                          ||
+||    Assign fragments (read pairs) to features...                            ||
+||    Total fragments : 134209550                                             ||
+||    Successfully assigned fragments : 15892660 (11.8%)                      ||
+||    Running time : 4.22 minutes                                             ||
+||                                                                            ||
+||                         Read assignment finished.                          ||
+||                                                                            ||
+|| Summary of counting results can be found in file "/scratch/bakulski_fluxo  ||
+|| d/kyleac/placenta_sort_RNA/run2285_output/featureCounts/Sample_105813/Sam  ||
+|| ple_105813+=_featureCounts.txt.summary"                                    ||
+||                                                                            ||
+\\===================== http://subread.sourceforge.net/ ======================//
+
+
+        ==========     _____ _    _ ____  _____  ______          _____  
+        =====         / ____| |  | |  _ \|  __ \|  ____|   /\   |  __ \ 
+          =====      | (___ | |  | | |_) | |__) | |__     /  \  | |  | |
+            ====      \___ \| |  | |  _ <|  _  /|  __|   / /\ \ | |  | |
+              ====    ____) | |__| | |_) | | \ \| |____ / ____ \| |__| |
+        ==========   |_____/ \____/|____/|_|  \_\______/_/    \_\_____/
+	  v1.6.1
+
+//========================== featureCounts setting ===========================\\
+||                                                                            ||
+||             Input files : 1 SAM file                                       ||
+||                           P /scratch/bakulski_fluxod/kyleac/placenta_s ... ||
+||                                                                            ||
+||             Output file : /scratch/bakulski_fluxod/kyleac/placenta_sor ... ||
+||                 Summary : /scratch/bakulski_fluxod/kyleac/placenta_sor ... ||
+||              Annotation : /nfs/turbo/bakulski1/People/kyleac/Placenta_ ... ||
+||      Dir for temp files : /scratch/bakulski_fluxod/kyleac/placenta_sor ... ||
+||                                                                            ||
+||                 Threads : 9                                                ||
+||                   Level : meta-feature level                               ||
+||              Paired-end : yes                                              ||
+||         Strand specific : reversely stranded                               ||
+||      Multimapping reads : not counted                                      ||
+|| Multi-overlapping reads : not counted                                      ||
+||   Min overlapping bases : 1                                                ||
+||                                                                            ||
+||          Chimeric reads : counted                                          ||
+||        Both ends mapped : not required                                     ||
+||                                                                            ||
+\\===================== http://subread.sourceforge.net/ ======================//
+
+//================================= Running ==================================\\
+||                                                                            ||
+|| Load annotation file /nfs/turbo/bakulski1/People/kyleac/Placenta_Sort_ ... ||
+||    Features : 1237914                                                      ||
+||    Meta-features : 58381                                                   ||
+||    Chromosomes/contigs : 25                                                ||
+||                                                                            ||
+|| Process SAM file /scratch/bakulski_fluxod/kyleac/placenta_sort_RNA/run ... ||
+||    Paired-end reads are included.                                          ||
+||    Assign fragments (read pairs) to features...                            ||
+||    Total fragments : 74104072                                              ||
+||    Successfully assigned fragments : 11280104 (15.2%)                      ||
+||    Running time : 2.89 minutes                                             ||
+||                                                                            ||
+||                         Read assignment finished.                          ||
+||                                                                            ||
+|| Summary of counting results can be found in file "/scratch/bakulski_fluxo  ||
+|| d/kyleac/placenta_sort_RNA/run2285_output/featureCounts/Sample_105814/Sam  ||
+|| ple_105814+=_featureCounts.txt.summary"                                    ||
+||                                                                            ||
+\\===================== http://subread.sourceforge.net/ ======================//
+
+
+        ==========     _____ _    _ ____  _____  ______          _____  
+        =====         / ____| |  | |  _ \|  __ \|  ____|   /\   |  __ \ 
+          =====      | (___ | |  | | |_) | |__) | |__     /  \  | |  | |
+            ====      \___ \| |  | |  _ <|  _  /|  __|   / /\ \ | |  | |
+              ====    ____) | |__| | |_) | | \ \| |____ / ____ \| |__| |
+        ==========   |_____/ \____/|____/|_|  \_\______/_/    \_\_____/
+	  v1.6.1
+
+//========================== featureCounts setting ===========================\\
+||                                                                            ||
+||             Input files : 1 SAM file                                       ||
+||                           P /scratch/bakulski_fluxod/kyleac/placenta_s ... ||
+||                                                                            ||
+||             Output file : /scratch/bakulski_fluxod/kyleac/placenta_sor ... ||
+||                 Summary : /scratch/bakulski_fluxod/kyleac/placenta_sor ... ||
+||              Annotation : /nfs/turbo/bakulski1/People/kyleac/Placenta_ ... ||
+||      Dir for temp files : /scratch/bakulski_fluxod/kyleac/placenta_sor ... ||
+||                                                                            ||
+||                 Threads : 9                                                ||
+||                   Level : meta-feature level                               ||
+||              Paired-end : yes                                              ||
+||         Strand specific : reversely stranded                               ||
+||      Multimapping reads : not counted                                      ||
+|| Multi-overlapping reads : not counted                                      ||
+||   Min overlapping bases : 1                                                ||
+||                                                                            ||
+||          Chimeric reads : counted                                          ||
+||        Both ends mapped : not required                                     ||
+||                                                                            ||
+\\===================== http://subread.sourceforge.net/ ======================//
+
+//================================= Running ==================================\\
+||                                                                            ||
+|| Load annotation file /nfs/turbo/bakulski1/People/kyleac/Placenta_Sort_ ... ||
+||    Features : 1237914                                                      ||
+||    Meta-features : 58381                                                   ||
+||    Chromosomes/contigs : 25                                                ||
+||                                                                            ||
+|| Process SAM file /scratch/bakulski_fluxod/kyleac/placenta_sort_RNA/run ... ||
+||    Paired-end reads are included.                                          ||
+||    Assign fragments (read pairs) to features...                            ||
+||    Total fragments : 105123803                                             ||
+||    Successfully assigned fragments : 13613891 (13.0%)                      ||
+||    Running time : 2.85 minutes                                             ||
+||                                                                            ||
+||                         Read assignment finished.                          ||
+||                                                                            ||
+|| Summary of counting results can be found in file "/scratch/bakulski_fluxo  ||
+|| d/kyleac/placenta_sort_RNA/run2285_output/featureCounts/Sample_105815/Sam  ||
+|| ple_105815+=_featureCounts.txt.summary"                                    ||
+||                                                                            ||
+\\===================== http://subread.sourceforge.net/ ======================//
+
+
+        ==========     _____ _    _ ____  _____  ______          _____  
+        =====         / ____| |  | |  _ \|  __ \|  ____|   /\   |  __ \ 
+          =====      | (___ | |  | | |_) | |__) | |__     /  \  | |  | |
+            ====      \___ \| |  | |  _ <|  _  /|  __|   / /\ \ | |  | |
+              ====    ____) | |__| | |_) | | \ \| |____ / ____ \| |__| |
+        ==========   |_____/ \____/|____/|_|  \_\______/_/    \_\_____/
+	  v1.6.1
+
+//========================== featureCounts setting ===========================\\
+||                                                                            ||
+||             Input files : 1 SAM file                                       ||
+||                           P /scratch/bakulski_fluxod/kyleac/placenta_s ... ||
+||                                                                            ||
+||             Output file : /scratch/bakulski_fluxod/kyleac/placenta_sor ... ||
+||                 Summary : /scratch/bakulski_fluxod/kyleac/placenta_sor ... ||
+||              Annotation : /nfs/turbo/bakulski1/People/kyleac/Placenta_ ... ||
+||      Dir for temp files : /scratch/bakulski_fluxod/kyleac/placenta_sor ... ||
+||                                                                            ||
+||                 Threads : 9                                                ||
+||                   Level : meta-feature level                               ||
+||              Paired-end : yes                                              ||
+||         Strand specific : reversely stranded                               ||
+||      Multimapping reads : not counted                                      ||
+|| Multi-overlapping reads : not counted                                      ||
+||   Min overlapping bases : 1                                                ||
+||                                                                            ||
+||          Chimeric reads : counted                                          ||
+||        Both ends mapped : not required                                     ||
+||                                                                            ||
+\\===================== http://subread.sourceforge.net/ ======================//
+
+//================================= Running ==================================\\
+||                                                                            ||
+|| Load annotation file /nfs/turbo/bakulski1/People/kyleac/Placenta_Sort_ ... ||
+||    Features : 1237914                                                      ||
+||    Meta-features : 58381                                                   ||
+||    Chromosomes/contigs : 25                                                ||
+||                                                                            ||
+|| Process SAM file /scratch/bakulski_fluxod/kyleac/placenta_sort_RNA/run ... ||
+||    Paired-end reads are included.                                          ||
+||    Assign fragments (read pairs) to features...                            ||
+||    Total fragments : 88810363                                              ||
+||    Successfully assigned fragments : 16644139 (18.7%)                      ||
+||    Running time : 3.24 minutes                                             ||
+||                                                                            ||
+||                         Read assignment finished.                          ||
+||                                                                            ||
+|| Summary of counting results can be found in file "/scratch/bakulski_fluxo  ||
+|| d/kyleac/placenta_sort_RNA/run2285_output/featureCounts/Sample_105816/Sam  ||
+|| ple_105816+=_featureCounts.txt.summary"                                    ||
+||                                                                            ||
+\\===================== http://subread.sourceforge.net/ ======================//
+
+
+        ==========     _____ _    _ ____  _____  ______          _____  
+        =====         / ____| |  | |  _ \|  __ \|  ____|   /\   |  __ \ 
+          =====      | (___ | |  | | |_) | |__) | |__     /  \  | |  | |
+            ====      \___ \| |  | |  _ <|  _  /|  __|   / /\ \ | |  | |
+              ====    ____) | |__| | |_) | | \ \| |____ / ____ \| |__| |
+        ==========   |_____/ \____/|____/|_|  \_\______/_/    \_\_____/
+	  v1.6.1
+
+//========================== featureCounts setting ===========================\\
+||                                                                            ||
+||             Input files : 1 SAM file                                       ||
+||                           P /scratch/bakulski_fluxod/kyleac/placenta_s ... ||
+||                                                                            ||
+||             Output file : /scratch/bakulski_fluxod/kyleac/placenta_sor ... ||
+||                 Summary : /scratch/bakulski_fluxod/kyleac/placenta_sor ... ||
+||              Annotation : /nfs/turbo/bakulski1/People/kyleac/Placenta_ ... ||
+||      Dir for temp files : /scratch/bakulski_fluxod/kyleac/placenta_sor ... ||
+||                                                                            ||
+||                 Threads : 9                                                ||
+||                   Level : meta-feature level                               ||
+||              Paired-end : yes                                              ||
+||         Strand specific : reversely stranded                               ||
+||      Multimapping reads : not counted                                      ||
+|| Multi-overlapping reads : not counted                                      ||
+||   Min overlapping bases : 1                                                ||
+||                                                                            ||
+||          Chimeric reads : counted                                          ||
+||        Both ends mapped : not required                                     ||
+||                                                                            ||
+\\===================== http://subread.sourceforge.net/ ======================//
+
+//================================= Running ==================================\\
+||                                                                            ||
+|| Load annotation file /nfs/turbo/bakulski1/People/kyleac/Placenta_Sort_ ... ||
+||    Features : 1237914                                                      ||
+||    Meta-features : 58381                                                   ||
+||    Chromosomes/contigs : 25                                                ||
+||                                                                            ||
+|| Process SAM file /scratch/bakulski_fluxod/kyleac/placenta_sort_RNA/run ... ||
+||    Paired-end reads are included.                                          ||
+||    Assign fragments (read pairs) to features...                            ||
+||    Total fragments : 96487960                                              ||
+||    Successfully assigned fragments : 13667430 (14.2%)                      ||
+||    Running time : 2.45 minutes                                             ||
+||                                                                            ||
+||                         Read assignment finished.                          ||
+||                                                                            ||
+|| Summary of counting results can be found in file "/scratch/bakulski_fluxo  ||
+|| d/kyleac/placenta_sort_RNA/run2285_output/featureCounts/Sample_105817/Sam  ||
+|| ple_105817+=_featureCounts.txt.summary"                                    ||
+||                                                                            ||
+\\===================== http://subread.sourceforge.net/ ======================//
+
+
+        ==========     _____ _    _ ____  _____  ______          _____  
+        =====         / ____| |  | |  _ \|  __ \|  ____|   /\   |  __ \ 
+          =====      | (___ | |  | | |_) | |__) | |__     /  \  | |  | |
+            ====      \___ \| |  | |  _ <|  _  /|  __|   / /\ \ | |  | |
+              ====    ____) | |__| | |_) | | \ \| |____ / ____ \| |__| |
+        ==========   |_____/ \____/|____/|_|  \_\______/_/    \_\_____/
+	  v1.6.1
+
+//========================== featureCounts setting ===========================\\
+||                                                                            ||
+||             Input files : 1 SAM file                                       ||
+||                           P /scratch/bakulski_fluxod/kyleac/placenta_s ... ||
+||                                                                            ||
+||             Output file : /scratch/bakulski_fluxod/kyleac/placenta_sor ... ||
+||                 Summary : /scratch/bakulski_fluxod/kyleac/placenta_sor ... ||
+||              Annotation : /nfs/turbo/bakulski1/People/kyleac/Placenta_ ... ||
+||      Dir for temp files : /scratch/bakulski_fluxod/kyleac/placenta_sor ... ||
+||                                                                            ||
+||                 Threads : 9                                                ||
+||                   Level : meta-feature level                               ||
+||              Paired-end : yes                                              ||
+||         Strand specific : reversely stranded                               ||
+||      Multimapping reads : not counted                                      ||
+|| Multi-overlapping reads : not counted                                      ||
+||   Min overlapping bases : 1                                                ||
+||                                                                            ||
+||          Chimeric reads : counted                                          ||
+||        Both ends mapped : not required                                     ||
+||                                                                            ||
+\\===================== http://subread.sourceforge.net/ ======================//
+
+//================================= Running ==================================\\
+||                                                                            ||
+|| Load annotation file /nfs/turbo/bakulski1/People/kyleac/Placenta_Sort_ ... ||
+||    Features : 1237914                                                      ||
+||    Meta-features : 58381                                                   ||
+||    Chromosomes/contigs : 25                                                ||
+||                                                                            ||
+|| Process SAM file /scratch/bakulski_fluxod/kyleac/placenta_sort_RNA/run ... ||
+||    Paired-end reads are included.                                          ||
+||    Assign fragments (read pairs) to features...                            ||
+||    Total fragments : 89437616                                              ||
+||    Successfully assigned fragments : 9166771 (10.2%)                       ||
+||    Running time : 2.92 minutes                                             ||
+||                                                                            ||
+||                         Read assignment finished.                          ||
+||                                                                            ||
+|| Summary of counting results can be found in file "/scratch/bakulski_fluxo  ||
+|| d/kyleac/placenta_sort_RNA/run2285_output/featureCounts/Sample_105819/Sam  ||
+|| ple_105819+=_featureCounts.txt.summary"                                    ||
+||                                                                            ||
+\\===================== http://subread.sourceforge.net/ ======================//
+
+
+        ==========     _____ _    _ ____  _____  ______          _____  
+        =====         / ____| |  | |  _ \|  __ \|  ____|   /\   |  __ \ 
+          =====      | (___ | |  | | |_) | |__) | |__     /  \  | |  | |
+            ====      \___ \| |  | |  _ <|  _  /|  __|   / /\ \ | |  | |
+              ====    ____) | |__| | |_) | | \ \| |____ / ____ \| |__| |
+        ==========   |_____/ \____/|____/|_|  \_\______/_/    \_\_____/
+	  v1.6.1
+
+//========================== featureCounts setting ===========================\\
+||                                                                            ||
+||             Input files : 1 SAM file                                       ||
+||                           P /scratch/bakulski_fluxod/kyleac/placenta_s ... ||
+||                                                                            ||
+||             Output file : /scratch/bakulski_fluxod/kyleac/placenta_sor ... ||
+||                 Summary : /scratch/bakulski_fluxod/kyleac/placenta_sor ... ||
+||              Annotation : /nfs/turbo/bakulski1/People/kyleac/Placenta_ ... ||
+||      Dir for temp files : /scratch/bakulski_fluxod/kyleac/placenta_sor ... ||
+||                                                                            ||
+||                 Threads : 9                                                ||
+||                   Level : meta-feature level                               ||
+||              Paired-end : yes                                              ||
+||         Strand specific : reversely stranded                               ||
+||      Multimapping reads : not counted                                      ||
+|| Multi-overlapping reads : not counted                                      ||
+||   Min overlapping bases : 1                                                ||
+||                                                                            ||
+||          Chimeric reads : counted                                          ||
+||        Both ends mapped : not required                                     ||
+||                                                                            ||
+\\===================== http://subread.sourceforge.net/ ======================//
+
+//================================= Running ==================================\\
+||                                                                            ||
+|| Load annotation file /nfs/turbo/bakulski1/People/kyleac/Placenta_Sort_ ... ||
+||    Features : 1237914                                                      ||
+||    Meta-features : 58381                                                   ||
+||    Chromosomes/contigs : 25                                                ||
+||                                                                            ||
+|| Process SAM file /scratch/bakulski_fluxod/kyleac/placenta_sort_RNA/run ... ||
+||    Paired-end reads are included.                                          ||
+||    Assign fragments (read pairs) to features...                            ||
+||    Total fragments : 102586614                                             ||
+||    Successfully assigned fragments : 10022519 (9.8%)                       ||
+||    Running time : 2.35 minutes                                             ||
+||                                                                            ||
+||                         Read assignment finished.                          ||
+||                                                                            ||
+|| Summary of counting results can be found in file "/scratch/bakulski_fluxo  ||
+|| d/kyleac/placenta_sort_RNA/run2285_output/featureCounts/Sample_105820/Sam  ||
+|| ple_105820+=_featureCounts.txt.summary"                                    ||
+||                                                                            ||
+\\===================== http://subread.sourceforge.net/ ======================//
+

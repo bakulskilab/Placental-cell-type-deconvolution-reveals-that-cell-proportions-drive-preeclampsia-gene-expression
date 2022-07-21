@@ -1,0 +1,39 @@
+#PBS -N featureCount_Sample_103983-103916
+#PBS -M kyleac@umich.edu
+#PBS -m abe
+#PBS -V
+
+#PBS -q fluxod
+#PBS -A bakulski_fluxod
+#PBS -l qos=flux
+
+#PBS -l nodes=3:ppn=3,pmem=3500mb,walltime=72:00:00
+
+cat $PBS_NODEFILE
+
+module load subread/1.6.1
+module load samtools
+
+for path in /nfs/turbo/bakulski1/Datasets/Placenta_Sort_RNA/ruddle.brcf.med.umich.edu/Run_2245/colacino/Sample_103*; do
+	
+	SAMPLEID="$(basename "${path}")"
+	
+	mkdir /nfs/turbo/bakulski1/People/kyleac/Placenta_Sort_RNA/Run_2245_output/$SAMPLEID/featureCount_out/
+	
+	cd /nfs/turbo/bakulski1/People/kyleac/Placenta_Sort_RNA/Run_2245_output/$SAMPLEID/STAR_out/
+	samtools view -b -S Aligned.out.sam > Aligned.out.bam
+	samtools sort -n Aligned.out.bam Aligned.out.sorted
+	
+	featureCounts \
+	-T 9 \
+	-s 2 \
+	-t exon \
+	-g gene_id \
+	-a /nfs/turbo/bakulski1/People/kyleac/Placenta_Sort_RNA/genomeReference/gtfAnnotation/gencode.v28.annotation.gtf \
+	-o /nfs/turbo/bakulski1/People/kyleac/Placenta_Sort_RNA/Run_2245_output/$SAMPLEID/featureCount_out/feature_counts \
+	Aligned.out.sorted.bam
+	
+	rm Aligned.out.bam
+	rm Aligned.out.sam
+	
+done
