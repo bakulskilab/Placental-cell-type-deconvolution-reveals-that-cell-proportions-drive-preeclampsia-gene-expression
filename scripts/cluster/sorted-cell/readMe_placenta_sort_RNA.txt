@@ -6,6 +6,8 @@ the STAR folder in run2245 analysis code
 
 The four Run22xx folders contain RNA-Seq analysis code and output for the sorted cell types of the placentae.
 
+DESeq2_featureCount_import was used to format featureCount output for input into DESeq2 for local analysis.
+
 JC's simple, original example scripts that form the basis of default parameters in the analysis code are also located here.
 The scripts found in the analysis code folders are a bit more sophisticated and portable, though careful attention must be paid to directory pathnames.
 
