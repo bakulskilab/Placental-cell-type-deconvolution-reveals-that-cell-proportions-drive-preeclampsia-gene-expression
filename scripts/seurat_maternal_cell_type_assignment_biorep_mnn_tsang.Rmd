@@ -59,6 +59,8 @@ This document had trouble compiling via knitr and pandoc. The following thread f
 ## Load Normal Placenta Data
 ```{r}
 seu <- readRDS(here("data", "2022-02-20_seu_normal_mnn.rda"))
+# Use tsang data with updated thresholds (gene 200, nmadQC mito w/o PE samples)
+#seu <- readRDS(here("data", "analytic", "post_anno", "2022-04-25_resubmit_annotated_seu_normal_mnn.rda"))
 seu <- pipe.fast.mnn(seu, "batch")
 ```
 
@@ -95,6 +97,8 @@ maternal <- pipe.fast.mnn(maternal, "batch")
 
 ```{r}
 DimPlot(maternal, group.by = "cell.type", label = T, repel = T, pt.size =.25) + NoLegend()
+DimPlot(maternal, group.by = "orig.ident", repel = T, pt.size =.25)
+table(maternal$orig.ident)
 ```
 
 ```{r}
@@ -105,7 +109,6 @@ DimPlot(maternal, group.by = "cell.type", label = T, repel = T, pt.size =.25) + 
 
 ```{r}
 tsang <- subset(maternal, subset = batch == "tsang")
-#tsang <- subset(seu, subset = batch == "tsang")
 ```
 
 ```{r}
@@ -127,14 +130,12 @@ tsang.sce$cluster <- fastcluster(tsang.sce)
 tsang.sce$cluster <- as.factor(tsang.sce$cluster)
 #scater::plotUMAP(tsang.sce, colour_by= "cluster", label = T)
 tsang.dbl <- scDblFinder(tsang.sce, samples = tsang$orig.ident, clusters = "cluster", dbr.sd = 0.15*2)
-#tsang.dbl <- scDblFinder(tsang.sce, samples = tsang$orig.ident, dbr.sd = 0.15*2)
 # scDblFinder might not work well with very low numbers of cells. 3x warning message on maternal Tsang subset
 ```
 
 ```{r}
 table(tsang.sce$orig.ident)
 ```
-
 
 ```{r}
 plotUMAP(tsang.dbl, colour_by="scDblFinder.score")
@@ -159,14 +160,17 @@ dbl.score.plot <- FeaturePlot(tsang, features = "scDblFinder.score")
 ## Algorithmic cell type assignment of Tsang samples using KC and PR carefully annotated samples with SingleR
 Subset to already annotated KC/PR fetals cells and convert to SingleCellExperiment and log-normalize
 ```{r}
-maternal.kc.pr.seu <- subset(maternal, subset = batch %in% c("kc", "pr"))
+#Load the initial Tsang analytic dataset
+seu.ini <- readRDS(here("data", "analytic", "2022-04-18_all_merged_pruned_batch_mnn.rda"))
+maternal.kc.pr.seu <- subset(seu.ini, subset = batch %in% c("kc", "pr") & fetal == "Maternal")
 maternal.kc.pr.sce <- as.SingleCellExperiment(maternal.kc.pr.seu)
 maternal.kc.pr.sce <- logNormCounts(maternal.kc.pr.sce)
 ```
 
 Convert SeuratObject to SingleCellExperiment and log-normalize
 ```{r}
-tsang.sce <- logNormCounts(tsang.dbl)
+tsang.dbl.filtered <- subset(tsang, subset = scDblFinder.class == "singlet")
+tsang.sce <- logNormCounts(as.SingleCellExperiment(tsang.dbl.filtered))
 ```
 
 Run SingleR with "wilcox" de.method because single-cell test and reference datasets
@@ -194,17 +198,36 @@ summary(is.na(pred$pruned.labels))
 ```
 
 ```{r}
-tsang$labels <- pred$labels
-tsang$pruned.labels <- pred$pruned.labels
-tsang$cell.type <- pred$pruned.labels
-tsang$pruned <- is.na(tsang$pruned.labels)
+tsang.dbl.filtered$labels <- pred$labels
+tsang.dbl.filtered$pruned.labels <- pred$pruned.labels
+tsang.dbl.filtered$cell.type <- pred$pruned.labels
+tsang.dbl.filtered$pruned <- is.na(tsang.dbl.filtered$pruned.labels)
 ```
 
+Get pruned cell IDs and doublet IDs
 ```{r}
-DimPlot(tsang, group.by = "cell.type", label = T, repel = T) + NoLegend()
-tsang.cell.selector.plot <- DimPlot(tsang, group.by = "cell.type", label = T, repel = T) + NoLegend()
-DimPlot(tsang, group.by = "pruned")
-DimPlot(tsang, group.by = "scDblFinder.class")
+tsang.maternal.doublet.ids <- tsang@meta.data %>% filter(scDblFinder.class == "doublet") %>% rownames
+tsang.maternal.pruned.ids <- tsang.dbl.filtered@meta.data %>% filter(pruned == T) %>% rownames
+
+tsang.maternal.putative.doublets <- union(tsang.maternal.doublet.ids, tsang.maternal.pruned.ids)
+
+tsang.df <- tsang@meta.data %>% rownames_to_column(var = "cell.id") %>% mutate(putative.doublet = cell.id %in% tsang.maternal.putative.doublets)
+
+# Tsang maternal qc
+table(tsang.df$orig.ident, tsang.df$putative.doublet)
+```
+
+
+```{r}
+DimPlot(tsang.dbl.filtered, group.by = "cell.type", label = T, repel = T) + NoLegend()
+#tsang.cell.selector.plot <- DimPlot(tsang, group.by = "cell.type", label = T, repel = T) + NoLegend()
+DimPlot(tsang.dbl.filtered, group.by = "pruned")
+DimPlot(tsang.dbl.filtered, group.by = "scDblFinder.class")
+```
+
+Subset out putative doublets
+```{r}
+tsang <- subset(tsang.dbl.filtered, cells = tsang.maternal.putative.doublets, invert = T)
 ```
 
 ```{r}
@@ -284,8 +307,6 @@ mono.sub.markers %>%
   filter(cluster == 5)
 ```
 
-
-
 Grab clusters 0, 2, 6, 7, 8 sans B cells for removal
 ```{r}
 #subcluster <- CellSelector(cell.selector.plot)
@@ -329,22 +350,24 @@ markers.sub %>%
 ```
 
 ```{r}
-scDblFinder.cell.ids <- rownames(tsang@meta.data)[tsang$scDblFinder.class == "doublet"]
-pruned.cell.ids <- rownames(tsang@meta.data)[tsang$pruned == T]
-cell.ids.to.drop <- union(subcluster, c(cluster.4, scDblFinder.cell.ids, pruned.cell.ids))
+#scDblFinder.cell.ids <- rownames(tsang@meta.data)[tsang$scDblFinder.class == "doublet"]
+#pruned.cell.ids <- rownames(tsang@meta.data)[tsang$pruned == T]
+cell.ids.to.drop <- union(union(subcluster, cluster.4), tsang.maternal.putative.doublets)
 length(cell.ids.to.drop)
+#saveRDS(cell.ids.to.drop, here("data", "analytic", "post_cell_type", paste0(Sys.Date(), "_tsang_maternal_putative_doublet_ids.rda")))
+#cell.ids.to.drop <- readRDS(here("data", "analytic", "post_anno", "2022-04-29_tsang_maternal_putative_doublet_ids.rda"))
 ```
 
 ```{r}
-tsang.dbl.filtered <- subset(x = tsang, cells = cell.ids.to.drop, invert = T)
+tsang.filtered <- subset(x = tsang.dbl.filtered, cells = cell.ids.to.drop, invert = T)
 ```
 
 ```{r}
-DimPlot(tsang.dbl.filtered, group.by = "cell.type", label = T, repel = T) + NoLegend()
+DimPlot(tsang.filtered, group.by = "cell.type", label = T, repel = T) + NoLegend()
 ```
 
 ```{r}
-merged <- merge(maternal.kc.pr.seu, tsang.dbl.filtered)
+merged <- merge(maternal.kc.pr.seu, tsang.filtered)
 ```
 
 ```{r}
@@ -357,6 +380,149 @@ DimPlot(merged, group.by = "cell.type", label = T, repel = T) + NoLegend() + ggt
 
 ```{r}
 #ggsave(here("results", "seurat", paste0("maternal_pruned_merged", Sys.Date(), ".png")))
+```
+
+# KC/PR maternal doublet
+
+Load the WIP resubmit analysis
+```{r}
+seu <- readRDS(here("data", "analytic", "post_anno", "2022-04-25_resubmit_annotated_seu_normal_mnn.rda"))
+seu <- subset(seu, subset = fetal == "Maternal")
+# 8,302 maternal cells
+seu
+
+# Split by v1 vs. v2 10x chemistry
+seu.kc.pr <- subset(seu, subset = batch %in% c("kc", "pr"))
+seu.kc.pr <- pipe.fast.mnn(seu.kc.pr, batch = "batch")
+```
+
+### Doublet simulation
+https://www.nature.com/articles/ncomms14049#MOESM828 ; original 10x paper
+Double the doublet rate for 10x v1 chemistry, the most important hyperparameter for doublet calling
+```{r}
+set.seed(1)
+sce <- as.SingleCellExperiment(seu.kc.pr)
+sce$cluster <- fastcluster(sce)
+sce$cluster <- as.factor(sce$cluster)
+sce.dbl <- scDblFinder(sce, samples = sce$orig.ident, clusters = "cluster", dbr.sd = 0.15)
+```
+
+```{r}
+plotUMAP(sce.dbl, colour_by="scDblFinder.score")
+```
+
+```{r}
+table(sce.dbl$scDblFinder.class)
+```
+
+```{r}
+table(sce.dbl$scDblFinder.class, sce.dbl$orig.ident)
+```
+
+```{r}
+plotUMAP(sce.dbl, colour_by="scDblFinder.class")
+```
+
+```{r}
+seu.kc.pr$scDblFinder.score <- sce.dbl$scDblFinder.score
+seu.kc.pr$scDblFinder.class <- sce.dbl$scDblFinder.class
+seu.kc.pr$cluster <- sce.dbl$cluster
+```
+
+```{r}
+FeaturePlot(seu.kc.pr, features = "scDblFinder.score")
+DimPlot(seu.kc.pr, group.by = "scDblFinder.class")
+DimPlot(seu.kc.pr, group.by = "cluster", label = T, repel = T)
+dbl.score.plot <- FeaturePlot(seu.kc.pr, features = "scDblFinder.score")
+```
+
+```{r}
+#Load the initial Tsang analytic dataset
+seu.ini <- readRDS(here("data", "analytic", "2022-04-18_all_merged_pruned_batch_mnn.rda"))
+```
+
+
+scDblFinder performs well on KC/PR, captures most of the manually annotated doublets, add additional 24 manually annotated doublets from nRBC/pDC rare populations initial kc/pr analysis
+```{r}
+# Pull doublet IDs
+kc.pr.maternal.sc.dbl.finder.ids <- seu.kc.pr@meta.data %>% filter(scDblFinder.class == "doublet") %>% rownames
+
+# Identify if additional cell add due to slightly relaxed QC requirement; 388 maternal kc cells add with relaxed QC requirement
+seu.kc.pr$annotated <- rownames(seu.kc.pr@meta.data) %in% rownames(seu.ini@meta.data)
+table(seu.kc.pr$doublet, seu.kc.pr$annotated)
+
+table(seu.kc.pr$scDblFinder.class, seu.kc.pr$annotated)
+
+# Get keep IDs (non-doublets); does not include SingleR considerations; will need to update pruned as also being doublets
+seu.kc.pr.doublet.ids <- seu.kc.pr@meta.data %>% filter(doublet == F) %>% rownames
+```
+
+### SingleR annotation of newly added KC cells
+
+```{r}
+# Subset to unannotated, non-doublets
+seu.kc.pr.maternal.dbl.filtered <- subset(seu.kc.pr, subset = (doublet == F & annotated == F))
+# 388 cells are not annotated and not doublets with the updated QC thresholds of lib.size = 500, genes.detected = 200
+seu.kc.pr.maternal.dbl.filtered
+```
+
+```{r}
+sce.ini <- as.SingleCellExperiment(subset(seu.ini, subset = fetal == "Maternal" & batch %in% c("kc", "pr")))
+sce.ini <- logNormCounts(sce.ini)
+```
+
+Convert SeuratObject to SingleCellExperiment and log-normalize, subset to only non-annotated cells
+```{r}
+seu <- subset(seu.kc.pr.maternal.dbl.filtered)
+sce <- logNormCounts(as.SingleCellExperiment(seu))
+```
+
+Run SingleR with "wilcox" de.method because single-cell test and reference datasets
+```{r}
+pred <- SingleR(test = sce,
+                ref = sce.ini,
+                labels = sce.ini$cell.type,
+                de.method = "wilcox")
+```
+
+```{r}
+table(pred$labels)
+```
+
+```{r}
+plotScoreHeatmap(pred)
+```
+
+```{r}
+plotDeltaDistribution(pred, ncol = 3)
+```
+
+```{r}
+summary(is.na(pred$pruned.labels))
+```
+
+```{r}
+seu$labels <- pred$labels
+seu$pruned.labels <- pred$pruned.labels
+seu$cell.type <- pred$pruned.labels
+seu$pruned <- is.na(seu$pruned.labels)
+```
+
+```{r}
+DimPlot(seu, group.by = "cell.type", label = T, repel = T) + NoLegend()
+DimPlot(seu, group.by = "pruned")
+table(seu$cell.type, seu$orig.ident)
+```
+
+### DROP additional 3 outliers from SingleR notation
+
+```{r}
+seu.kc.maternal.pruned.ids <- seu@meta.data %>% filter(pruned == T) %>% rownames
+table(seu$pruned)
+seu.pruned <- subset(seu, subset = pruned == T, invert = T)
+#saveRDS(seu.pruned, here("data", "analytic", "post_cell_type", paste0(Sys.Date(), "_seu_kc_maternal_add.Rda")))
+seu.kc.pr.maternal.putative.doublets.ids <- union(seu.kc.maternal.pruned.ids, kc.pr.maternal.sc.dbl.finder.ids)
+#saveRDS(seu.kc.pr.maternal.putative.doublets.ids, here("data", "analytic", "post_cell_type", paste0(Sys.Date(), "_kc_pr_maternal_putative_doublet_ids.rda")))
 ```
 
 ##Fetal data
@@ -483,7 +649,7 @@ wrangle.neg.5 <- CellSelector(wrangle)
 ```
 
 ```{r}
-wrangled.ids <- c(wrangle.right.half, wrangle.top, wrangle.neg.10, wrangle.neg.5)
+#wrangled.ids <- c(wrangle.right.half, wrangle.top, wrangle.neg.10, wrangle.neg.5)
 #saveRDS(wrangled.ids, here("data", paste0(Sys.Date(), "_wrangled_maternal_doublets_all_merged_batch_mnn.rda")))
 wrangled.ids <- readRDS(here("data", "2022-03-15_wrangled_maternal_doublets_all_merged_batch_mnn.rda"))
 ```
@@ -531,15 +697,316 @@ https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4075346/
 IGFBP3 (highly specific, like in publication), HAPLN1, CDH11, COL1A1, GJA1, PAPSS2 higher in MSC
 MYH9 discordant (but lowly expressed in this dataset and less delta in publication)
 
-## Save/load fully merged Seurat object
+## Add in newly added Tsang IDs
+
+Load resubmit Tsang QC'd cells
 ```{r}
-Idents(all.merged) <- "cell.type"
+seu.resubmit.post.anno <- readRDS(here("data", "analytic", "post_anno", "2022-04-25_resubmit_annotated_seu_normal_mnn.rda"))
+
+```
+
+A few Tsang cells were also added with same adaptive mito% threhsold w/ exclusion of PE samples
+```{r}
+tsang.add.ids <- readRDS(here("data", "analytic", "post_cell_type", "2022-04-29tsang_add_ids.rda"))
+seu.resubmit.post.anno$tsang.add <- rownames(seu.resubmit.post.anno@meta.data) %in% tsang.add.ids
+```
+
+```{r}
+seu.tsang.fetal <- subset(seu.resubmit.post.anno, subset = batch == "tsang" & fetal == "Fetal")
+seu.tsang.maternal <- subset(seu.resubmit.post.anno, subset = batch == "tsang" & fetal == "Maternal")
+```
+
+### Doublet simulation - Fetal
+```{r}
+set.seed(1)
+tsang.sce <- as.SingleCellExperiment(seu.tsang.fetal)
+tsang.sce$cluster <- fastcluster(tsang.sce)
+tsang.sce$cluster <- as.factor(tsang.sce$cluster)
+#scater::plotUMAP(tsang.sce, colour_by= "cluster", label = T)
+tsang.dbl <- scDblFinder(tsang.sce, samples = tsang.sce$orig.ident, clusters = "cluster", dbr.sd = 0.15*2)
+# scDblFinder might not work well with very low numbers of cells. 3x warning message on maternal Tsang subset
+```
+
+```{r}
+table(tsang.sce$orig.ident)
+```
+
+```{r}
+plotUMAP(tsang.dbl, colour_by="scDblFinder.score")
+table(tsang.dbl$scDblFinder.class)
+table(tsang.dbl$scDblFinder.class, tsang.dbl$cluster)
+plotUMAP(tsang.dbl, colour_by="scDblFinder.class")
+```
+
+```{r}
+seu.tsang.fetal$scDblFinder.score <- tsang.dbl$scDblFinder.score
+seu.tsang.fetal$scDblFinder.class <- tsang.dbl$scDblFinder.class
+seu.tsang.fetal$cluster <- tsang.dbl$cluster
+```
+
+```{r}
+FeaturePlot(seu.tsang.fetal, features = "scDblFinder.score")
+DimPlot(seu.tsang.fetal, group.by = "scDblFinder.class")
+DimPlot(seu.tsang.fetal, group.by = "cluster", label = T, repel = T)
+dbl.score.plot <- FeaturePlot(seu.tsang.fetal, features = "scDblFinder.score")
+```
+
+### Doublet simulation - Maternal 
+```{r}
+set.seed(1)
+tsang.sce <- as.SingleCellExperiment(seu.tsang.maternal)
+tsang.sce$cluster <- fastcluster(tsang.sce)
+tsang.sce$cluster <- as.factor(tsang.sce$cluster)
+#scater::plotUMAP(tsang.sce, colour_by= "cluster", label = T)
+tsang.dbl <- scDblFinder(tsang.sce, samples = tsang.sce$orig.ident, clusters = "cluster", dbr.sd = 0.15*2)
+# scDblFinder might not work well with very low numbers of cells. 3x warning message on maternal Tsang subset
+```
+
+```{r}
+table(tsang.sce$orig.ident)
+```
+
+```{r}
+plotUMAP(tsang.dbl, colour_by="scDblFinder.score")
+table(tsang.dbl$scDblFinder.class)
+table(tsang.dbl$scDblFinder.class, tsang.dbl$cluster)
+plotUMAP(tsang.dbl, colour_by="scDblFinder.class")
+```
+
+```{r}
+seu.tsang.maternal$scDblFinder.score <- tsang.dbl$scDblFinder.score
+seu.tsang.maternal$scDblFinder.class <- tsang.dbl$scDblFinder.class
+seu.tsang.maternal$cluster <- tsang.dbl$cluster
+```
+
+```{r}
+FeaturePlot(seu.tsang.maternal, features = "scDblFinder.score")
+DimPlot(seu.tsang.maternal, group.by = "scDblFinder.class")
+DimPlot(seu.tsang.maternal, group.by = "cluster", label = T, repel = T)
+dbl.score.plot <- FeaturePlot(seu.tsang.maternal, features = "scDblFinder.score")
+```
+
+### SingleR labelling with fetal Tsang add
+
+Subset to previously unannotated Tsang cells
+```{r}
+# No doublets in fetal Tsang add
+seu.tsang.add.fetal <- subset(seu.tsang.fetal, subset = tsang.add == T)
+# Get doublets from maternal Tsang add
+seu.tsang.add.maternal <- subset(seu.tsang.maternal, subset = tsang.add == T)
+tsang.maternal.add.scDblFinder.doublet.ids <- seu.tsang.add.maternal@meta.data %>% filter(scDblFinder.class == "doublet") %>% rownames
+```
+
+```{r}
+#Load the initial Tsang analytic dataset
+seu.ini <- readRDS(here("data", "analytic", "2022-04-18_all_merged_pruned_batch_mnn.rda"))
+```
+
+```{r}
+fetal.kc.pr.seu <- subset(seu.ini, subset = batch %in% c("kc", "pr") & fetal == "Fetal")
+fetal.kc.pr.sce <- as.SingleCellExperiment(fetal.kc.pr.seu)
+fetal.kc.pr.sce <- logNormCounts(fetal.kc.pr.sce)
+```
+
+Convert SeuratObject to SingleCellExperiment and log-normalize
+```{r}
+seu.tsang.add.fetal.dbl.filtered <- subset(seu.tsang.add.fetal, subset = scDblFinder.class == "singlet")
+tsang.sce <- logNormCounts(as.SingleCellExperiment(seu.tsang.add.fetal.dbl.filtered))
+```
+
+Run SingleR with "wilcox" de.method because single-cell test and reference datasets
+```{r}
+pred <- SingleR(test = tsang.sce,
+                ref = fetal.kc.pr.sce,
+                labels = fetal.kc.pr.sce$cell.type,
+                de.method = "wilcox")
+```
+
+```{r}
+table(pred$labels)
+```
+
+```{r}
+seu.tsang.add.fetal.dbl.filtered$labels <- pred$labels
+seu.tsang.add.fetal.dbl.filtered$pruned.labels <- pred$pruned.labels
+seu.tsang.add.fetal.dbl.filtered$cell.type <- pred$pruned.labels
+seu.tsang.add.fetal.dbl.filtered$pruned <- is.na(seu.tsang.add.fetal.dbl.filtered$pruned.labels)
+```
+
+### SingleR labelling with maternal Tsang add
+
+```{r}
+maternal.kc.pr.seu <- subset(seu.ini, subset = batch %in% c("kc", "pr") & fetal == "Maternal")
+maternal.kc.pr.sce <- as.SingleCellExperiment(maternal.kc.pr.seu)
+maternal.kc.pr.sce <- logNormCounts(maternal.kc.pr.sce)
+```
+
+Convert SeuratObject to SingleCellExperiment and log-normalize
+```{r}
+seu.tsang.add.maternal.dbl.filtered <- subset(seu.tsang.add.maternal, subset = scDblFinder.class == "singlet")
+tsang.sce <- logNormCounts(as.SingleCellExperiment(seu.tsang.add.maternal.dbl.filtered))
+```
+
+Run SingleR with "wilcox" de.method because single-cell test and reference datasets
+```{r}
+pred <- SingleR(test = tsang.sce,
+                ref = maternal.kc.pr.sce,
+                labels = maternal.kc.pr.sce$cell.type,
+                de.method = "wilcox")
+```
+
+```{r}
+table(pred$labels)
+```
+
+```{r}
+seu.tsang.add.maternal.dbl.filtered$labels <- pred$labels
+seu.tsang.add.maternal.dbl.filtered$pruned.labels <- pred$pruned.labels
+seu.tsang.add.maternal.dbl.filtered$cell.type <- pred$pruned.labels
+seu.tsang.add.maternal.dbl.filtered$pruned <- is.na(seu.tsang.add.maternal.dbl.filtered$pruned.labels)
+```
+
+```{r}
+seu.tsang.add.maternal.dbl.filtered.pruned.ids <- seu.tsang.add.maternal.dbl.filtered@meta.data %>% filter(pruned == T) %>% rownames
+```
+
+```{r}
+tsang.add.putative.doublets <- c(tsang.maternal.add.scDblFinder.doublet.ids, seu.tsang.add.maternal.dbl.filtered.pruned.ids)
+#saveRDS(tsang.add.putative.doublets, here("data", "analytic", "post_cell_type", paste0(Sys.Date(), "_tsang_add_putative_doublet_ids.rda")))
+```
+
+Save dbl filtered and pruned tsang maternal add
+```{r}
+seu.tsang.add.maternal.dbl.filtered.pruned <- subset(seu.tsang.add.maternal.dbl.filtered, subset = pruned == F)
+#saveRDS(seu.tsang.add.maternal.dbl.filtered.pruned, here("data", "analytic", "post_cell_type", paste0(Sys.Date(), "_seu_tsang_maternal_add.rda")))
+```
+
+Save dbl filtered and pruned tsang fetal add (none dropped)
+```{r}
+#saveRDS(seu.tsang.add.fetal.dbl.filtered, here("data", "analytic", "post_cell_type", paste0(Sys.Date(), "_seu_tsang_fetal_add.rda")))
+```
+
+## Merge newly added KC cells and Final post cell type assignment QC (putative doublets and final analytic sample size)
+
+```{r}
+is.15.ids <- all.merged@meta.data %>% filter(is.15 == T) %>% rownames
+```
+
+```{r}
+kc.pr.fetal.putative.doublets <- readRDS(here("data", "analytic", "post_cell_type", "2022-04-29_kc_pr_putative_doublet_ids.rda"))
+kc.pr.maternal.putative.doublets <- readRDS(here("data", "analytic", "post_cell_type", "2022-04-29_kc_pr_maternal_putative_doublet_ids.rda"))
+tsang.fetal.putative.doublets <- readRDS(here("data", "analytic", "post_cell_type", "2022-04-26.tsang.putative.doublets.rda"))
+tsang.maternal.putative.doublets <- readRDS(here("data", "analytic", "post_cell_type", "2022-04-29_tsang_maternal_putative_doublet_ids.rda"))
+tsang.add.putative.doublets <- readRDS(here("data", "analytic", "post_cell_type", "2022-04-30_tsang_add_putative_doublet_ids.rda"))
+
+all.putative.doublets <- union(tsang.add.putative.doublets, union(is.15.ids, union(kc.pr.fetal.putative.doublets, union(kc.pr.maternal.putative.doublets, union(tsang.fetal.putative.doublets, union(tsang.maternal.putative.doublets, wrangled.ids))))))
+
+#saveRDS(all.putative.doublets, here("data", "analytic", "post_cell_type", paste0(Sys.Date(), "_all_putative_doublets.rda")))
+
+#old.all.p.d <- readRDS(here("data", "analytic", "post_cell_type", "2022-04-29_all_putative_doublets.rda"))
+```
+
+```{r}
+seu.kc.add.fetal <- readRDS(here("data", "analytic", "post_cell_type", "2022-04-28_seu_kc_add.Rda"))
+seu.kc.add.maternal <- readRDS(here("data", "analytic", "post_cell_type", "2022-04-29_seu_kc_maternal_add.Rda"))
+seu.tsang.add.fetal <- readRDS(here("data", "analytic", "post_cell_type", "2022-04-30_seu_tsang_fetal_add.rda"))
+seu.tsang.add.maternal <- readRDS(here("data", "analytic", "post_cell_type", "2022-04-30_seu_tsang_maternal_add.rda"))
+seu.resubmit.merged <- merge(seu.ini, merge(seu.kc.add.fetal, merge(seu.kc.add.maternal, merge(seu.tsang.add.fetal, seu.tsang.add.maternal))))
+```
+
+Some kind of rounding error or the like around %mito threshold resulted in different numbers of cells; interestingly, this happened with the post_qc Tsang samples only; need to go check the QC file? Was it a less than/greater than, invert = T? should we just get a list of qc ids and use that to subset initial analysis object (may have already been done, see data/analytic/post_anno/ folder)
+
+```{r}
+seu.resubmit.merged$putative.doublet <- rownames(seu.resubmit.merged@meta.data) %in% all.putative.doublets
+seu.resubmit.merged.filtered <- subset(seu.resubmit.merged, subset = putative.doublet == F)
+seu.resubmit.merged.filtered <- subset(seu.resubmit.merged.filtered, subset = nFeature_RNA < 200, invert = T)
+#seu.resubmit.merged.filtered <- subset(seu.resubmit.merged.filtered, subset = nCount_RNA < 500, invert = T)
+seu.resubmit.merged.filtered.tsang <- subset(seu.resubmit.merged.filtered, batch == "tsang") %>% subset(subset = (subsets_Mito_percent > sce.tsang.mito.threshold), invert = T)
+seu.resubmit.merged.filtered.kc.pr <- subset(seu.resubmit.merged.filtered, subset = batch %in% c("kc", "pr"))
+
+seu.resubmit.merged.filtered <- merge(seu.resubmit.merged.filtered.kc.pr, seu.resubmit.merged.filtered.tsang)
+
+
+#qc.resubmit.dropped.ids <- readRDS(here("data", "analytic", "post_anno", "2022-04-25_resubmit_qc_dropped_ids.rda"))
+#subsets_Mito_percent
+#sce.tsang.mito.threshold
+```
+
+```{r}
+table(seu.resubmit.merged.filtered$orig.ident)
+```
+
+
+```{r}
+seu.resubmit.post.anno$putative.doublet <- rownames(seu.resubmit.post.anno@meta.data) %in% all.putative.doublets
+table(seu.resubmit.post.anno$orig.ident, seu.resubmit.post.anno$putative.doublet)
+seu.resubmit.post.anno.filtered <- subset(seu.resubmit.post.anno, subset = putative.doublet == F)
+#seu.resubmit.post.anno.filtered.tsang <- subset(seu.resubmit.merged.filtered, subset = (subsets_Mito_percent < sce.tsang.mito.threshold) & (batch == "tsang"))
+#seu.resubmit.post.anno.filtered.kc.pr <- subset(seu.resubmit.merged.filtered, subset = batch %in% c("kc", "pr"))
+
+#seu.resubmit.post.anno.filtered <- merge(seu.resubmit.merged.filtered.kc.pr, seu.resubmit.merged.filtered.tsang)
+
+```
+
+QC Stats for Supplementary Table
+```{r}
+#t(table(seu.resubmit.post.anno@meta.data$putative.doublet, seu.resubmit.post.anno@meta.data$orig.ident)) %>% as.data.frame() %>% filter(Var2 == TRUE) %>% pull(Freq) %>% write.csv(file = here("data", "analytic", "post_cell_type", "putative.doublets.per.orig.ident.csv"))
+```
+
+
+```{r}
+table(seu.resubmit.merged$orig.ident)
+table(seu.resubmit.post.anno$orig.ident)
+table(seu.resubmit.post.anno$orig.ident, seu.resubmit.post.anno$putative.doublet)
+```
+
+```{r}
+table(seu.resubmit.merged.filtered$orig.ident)
+table(seu.resubmit.post.anno.filtered$orig.ident)
+```
+
+Used to identify newly added Tsang IDs
+```{r, eval = F}
+filtered.in.error <- rownames(seu.resubmit.post.anno.filtered@meta.data)[!((seu.resubmit.post.anno.filtered@meta.data %>% rownames) %in% (seu.resubmit.merged.filtered@meta.data %>% rownames))]
+#saveRDS(filtered.in.error, here("data", "analytic", "post_cell_type", paste0(Sys.Date(), "tsang_add_ids.rda")))
+```
+
+Tsang QC %mito cutoff slightly different, resulted in newly added Tsang IDs
+```{r}
+mean(seu.resubmit.merged.filtered$subsets_Mito_percent)
+mean(seu.resubmit.post.anno.filtered$subsets_Mito_percent)
+```
+
+
+```{r}
+done <- pipe.fast.mnn(seu.resubmit.merged.filtered, batch = "batch")
+```
+
+```{r}
+DimPlot(done, label = T, repel = T, group.by = "cell.type") + NoLegend()
+DimPlot(done, label = T, repel = T, group.by = "cell.type", split.by = "fetal") + NoLegend()
+```
+
+```{r}
+#saveRDS(done, here("data", "analytic", "post_cell_type", paste0(Sys.Date(), "_seu_done.rda")))
+```
+
+
+## Save/load fully merged Seurat object
+Going to be dropping doublets from kc/pr;
+Dropping gene < 200 for pr/tsang
+Add 37 kc and tsang unannotated;
+
+pulled qc stats from doublet/singleR pipeline
+```{r}
 #saveRDS(all.merged, here("data", "analytic", paste0(Sys.Date(), "_all_merged_pruned_batch_mnn.rda")))
 #all.merged <- readRDS(here("data", "analytic", "2022-03-15_all_merged_pruned_batch_mnn.rda"))
+all.merged <- readRDS(here("data", "analytic", "post_cell_type", "2022-04-30_seu_done.rda"))
 
 # Relabel CD8+ Cytotoxic as CD8+ activated for clarity
 all.merged$cell.type[all.merged$cell.type == "Fetal CD8+ Cytotoxic T Cells"] <- "Fetal CD8+ Activated T Cells"
 all.merged$cell.type[all.merged$cell.type == "Maternal CD8+ Cytotoxic T Cells"] <- "Maternal CD8+ Activated T Cells"
 all.merged$cell.type %>% factor %>% levels
+all.merged <- SetIdent(all.merged, value = "cell.type")
 #saveRDS(all.merged, here("data", "analytic", paste0(Sys.Date(), "_all_merged_pruned_batch_mnn.rda")))
 ```

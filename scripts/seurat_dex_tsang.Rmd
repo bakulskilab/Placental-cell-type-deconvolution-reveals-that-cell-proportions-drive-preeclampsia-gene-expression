@@ -9,6 +9,7 @@ output: html_document
 library(here)
 library(ggrepel)
 library(gprofiler2)
+library(openxlsx)
 library(psych)
 library(Seurat)
 library(tidyverse)
@@ -23,29 +24,31 @@ Straightforward approach is to simply use the default Wilcoxon Rank Sum test in 
 
 Load cleaned Seurat data
 ```{r, eval = F}
-seu <- readRDS(here("data", "analytic", "2022-04-18_all_merged_pruned_batch_mnn.rda"))
+seu <- readRDS(here("data", "analytic", "2022-05-01_all_merged_pruned_batch_mnn.rda"))
 ```
 
 ```{r, eval = F}
 #all.markers <- FindAllMarkers(seu)
-#saveRDS(object = all.markers, file = here("data", "all_markers_cleaned_combined_tsang_seurat_2022-04-18.rda"))
+#saveRDS(object = all.markers, file = here("data", "all_markers_cleaned_combined_tsang_seurat_2022-05-01.rda"))
 ```
 
-```{r}
+```{r, eval = F}
 DimPlot(seu, repel = T, label = T) + NoLegend()
-```
-
-
-```{r}
-markers %>% filter(cluster %in% "Fetal Naive CD8+ T Cells") %>% View
-markers %>% filter(cluster %in% "Fetal CD8+ Cytotoxic T Cells") %>% View
-markers %>% filter(cluster %in% "Fetal Naive CD4+ T Cells") %>% View
 ```
 
 
 Load dex results
 ```{r}
-markers <- readRDS(here("data", "all_markers_cleaned_combined_tsang_seurat_2022-03-31.rda"))
+# Initial Tsang analysis
+#markers <- readRDS(here("data", "all_markers_cleaned_combined_tsang_seurat_2022-03-31.rda"))
+# Analytic final Tsang resubmit analysis
+markers <- readRDS(file = here("data", "all_markers_cleaned_combined_tsang_seurat_2022-05-01.rda"))
+```
+
+```{r}
+markers %>% filter(cluster %in% "Fetal Naive CD8+ T Cells")
+markers %>% filter(cluster %in% "Fetal CD8+ Activated T Cells")
+markers %>% filter(cluster %in% "Fetal Naive CD4+ T Cells")
 ```
 
 ```{r}
@@ -64,11 +67,15 @@ Save marker gene results
 ```
 
 ```{r}
+colnames(markers)[2] <- "avg_logFC"
+
 all.cluster.markers <- markers %>%
-  #filter(avg_logFC > 0) %>%
-  #filter(p_val_adj < p_val_adj_threshold) %>%
+  # Only upregulated genes
+  filter(avg_logFC > 0) %>%
+  filter(p_val_adj < p_val_adj_threshold) %>%
   group_by(cluster) %>%
-  arrange(desc(avg_logFC)) %>%
+  arrange(cluster) %>%
+  #arrange(desc(avg_logFC)) %>%
   #slice_head(n=10) %>%  # Formatting after this line
   mutate(p_val = if_else(p_val == 0, 2.23e-308, p_val)) %>%
   mutate(p_val_adj = if_else(p_val_adj == 0, 2.23e-308, p_val_adj)) %>%
@@ -78,37 +85,26 @@ all.cluster.markers <- markers %>%
   mutate(avg_logFC = format(avg_logFC, digits = 3)) %>%
   mutate('p-value' = if_else(p_val == 2.23e-308, "< 2.23E-308", as.character(p_val))) %>%
   mutate('adjusted p-value' = if_else(p_val_adj == 2.23e-308, "< 2.23E-308", as.character(p_val_adj))) %>%
-  dplyr::select(-c(p_val, p_val_adj))
-all.cluster.markers.colnames <- c("Cell type cluster", "Gene", "log2 Fold-change", "Percentage cluster cells expressing gene", "Percentage other cells expressing gene", "P-value", "Bonferroni-adjusted p-value")
+  dplyr::select(-c(p_val, p_val_adj)) %>%
+  # Somewhere in this code block, avg_logFC is converted to a non-numeric data type
+  mutate(avg_logFC = as.numeric(avg_logFC))
 
+# Label column headers
+all.cluster.markers.colnames <- c("Cell type cluster", "Gene", "Average log2 Fold-change", "Percentage cluster cells expressing gene", "Percentage other cells expressing gene", "P-value", "Bonferroni-adjusted p-value")
 colnames(all.cluster.markers) <- all.cluster.markers.colnames
+cell.type.levels <- c("Fetal B Cells", "Fetal CD14+ Monocytes", "Fetal CD8+ Activated T Cells", "Fetal Cytotrophoblasts", "Fetal Endothelial Cells", "Fetal Extravillous Trophoblasts", "Fetal Fibroblasts", "Fetal GZMB+ Natural Killer", "Fetal GZMK+ Natural Killer", "Fetal Hofbauer Cells", "Fetal Memory CD4+ T Cells", "Fetal Mesenchymal Stem Cells", "Fetal Naive CD4+ T Cells", "Fetal Naive CD8+ T Cells", "Fetal Natural Killer T Cells", "Fetal Nucleated Red Blood Cells", "Fetal Plasmacytoid Dendritic Cells", "Fetal Proliferative Cytotrophoblasts", "Fetal Syncytiotrophoblast", "Maternal B Cells", "Maternal CD14+ Monocytes", "Maternal CD8+ Activated T Cells", "Maternal FCGR3A+ Monocytes", "Maternal Naive CD4+ T Cells", "Maternal Naive CD8+ T Cells", "Maternal Natural Killer Cells", "Maternal Plasma Cells")
+all.cluster.markers$`Cell type cluster` <- factor(all.cluster.markers$`Cell type cluster`, cell.type.levels)
+
+cluster.markers <- all.cluster.markers %>% group_split()
+names(cluster.markers) <- cell.type.levels
+names(cluster.markers)[names(cluster.markers) == "Fetal Plasmacytoid Dendritic Cells"] <- "Fetal Plasmacytoid Dendritic"
+names(cluster.markers)[names(cluster.markers) == "Fetal Proliferative Cytotrophoblasts"] <- "Fetal Prolif. Cytotrophoblasts"
+
+# Write to multiple sheets
+write.xlsx(as.list(cluster.markers), file = here("results", "seurat", paste0(Sys.Date(), "_findallmakers_res.xlsx")))
 
 # Write to .csv
 #write.csv(all.cluster.markers, here("results", "seurat", paste0("all_markers_cleaned_combined_seurat_", Sys.Date(), ".csv")), row.names = FALSE)
-```
-
-```{r}
-top.10.per <- markers %>%
-  filter(avg_logFC > 0) %>%
-  filter(p_val_adj < p_val_adj_threshold) %>%
-  group_by(cluster) %>%
-  arrange(desc(avg_logFC)) %>%
-  slice_head(n=10) %>%  # Formatting after this line
-  mutate(p_val = if_else(p_val == 0, 2.23e-308, p_val)) %>%
-  mutate(p_val_adj = if_else(p_val_adj == 0, 2.23e-308, p_val_adj)) %>%
-  dplyr::select(cluster, gene, avg_logFC, pct.1, pct.2, p_val, p_val_adj) %>%
-  mutate(p_val = format(p_val, scientific = TRUE, digits = 3)) %>%
-  mutate(p_val_adj = format(p_val_adj, scientific = TRUE, digits = 3)) %>%
-  mutate(avg_logFC = format(avg_logFC, digits = 3)) %>%
-  mutate('p-value' = if_else(p_val == 2.23e-308, "< 2.23E-308", as.character(p_val))) %>%
-  mutate('adjusted p-value' = if_else(p_val_adj == 2.23e-308, "< 2.23E-308", as.character(p_val_adj))) %>%
-  select(-c(p_val, p_val_adj))
-top10.colnames <- c("Cell type cluster", "Gene", "log2 Fold-change", "Percentage cluster cells expressing gene", "Percentage other cells expressing gene", "P-value", "Bonferroni-adjusted p-value")
-
-colnames(top.10.per) <- top10.colnames
-
-# Top 10 per cluster
-#write.csv(top.10.per, here("results", "seurat", paste0("top_10_overexpressed_q0.05_markers_cleaned_combined_seurat_", Sys.Date(), ".csv")), row.names = FALSE)
 ```
 
 Number differentially expressed genes per cluster, q < .05
@@ -241,7 +237,8 @@ names(list.gProfiler) <- cluster.names
 
 Perform the enrichment test using all ranked gene lists, excluding automatically generated terms, using only annotated genes as the gene universe background.
 ```{r}
-gostres <- readRDS(here("results", "seurat", "seurat_all_markers_gost_results_2021-01-05.rda"))
+gostres <- readRDS(here("results", "seurat", "seurat_all_markers_gost_results_2022-05-08.rda"))
+#gostres <- readRDS(here("results", "seurat", "seurat_all_markers_gost_results_2021-01-05.rda"))
 #gostres <- gost(query = list.gProfiler,
 #                organism = "hsapiens", ordered_query = TRUE, 
 #                multi_query = FALSE, significant = TRUE, exclude_iea = TRUE, 
@@ -249,8 +246,11 @@ gostres <- readRDS(here("results", "seurat", "seurat_all_markers_gost_results_20
 #                user_threshold = 0.05, correction_method = "g_SCS", 
 #                domain_scope = "annotated", custom_bg = NULL, 
 #                numeric_ns = "", sources = NULL, as_short_link = FALSE)
-#saveRDS(gostres, here("results", "seurat", "seurat_all_markers_gost_results_", Sys.Date(), ".rda"))
+#saveRDS(gostres, here("results", "seurat", paste0("seurat_all_markers_gost_results_", Sys.Date(), ".rda")))
+```
 
+Exporting results; unsurprisingly, "Fetal Plasmacytoid Dendritic Cells" had no significant enrichment pathways and Fetal Nucleated Red Blood cells had no enriched pathways when term sizes are limited
+```{r}
 # Drop parent column list for .csv save of all results
 gostres.table <- gostres$result
 gostres.table$parents <- NULL
@@ -260,9 +260,10 @@ gostres.table <-
   relocate(term_name, .after = significant)
 #write.csv(gostres.table, here("results", "seurat", paste0("seurat_all_markers_gost_results_table_", Sys.Date(), ".csv")), row.names = FALSE)
 
-# Limit term sizes to 200 or less
+# Limit term sizes to <1000
 gostres.small <- gostres
-gostres.small$result <- gostres$result %>% filter(term_size < 201)
+#gostres.small$result <- gostres$result %>% filter(term_size < 1000)
+gostres.small.table$query %>% factor %>% levels
 
 # Drop parent column list for .csv save of filtered GO:BP results
 gostres.small.table <- gostres.small$result
@@ -272,9 +273,14 @@ gostres.small.table <- gostres.small.table %>%
   dplyr::filter(source == "GO:BP") %>%
   dplyr::relocate(term_name, .after=query) %>%
   dplyr::select(!significant) %>%
-  group_by(query) %>%
-  slice_head(n = 10)
-  
+  group_by(query)
+
+#gostres.small.table.top.10 <- gostres.small.table %>%
+  #filter(term_size < 1500) %>%
+  #arrange(p_value) %>%
+  #group_by(query) #%>%
+  #slice_head(n=20)
+
 # View a couple cell types individually
 #gostres.small.table %>% filter(query %in% c("Fetal Cytotrophoblasts", "Fetal Proliferative Cytotrophoblasts")) %>% View
 #gostres.small.table %>% filter(query == "Fetal Hofbauer Cells") %>% View
@@ -284,18 +290,28 @@ gostres.small.table <- gostres.small.table %>%
 
 Loop over all single-cell clusters, print Manhattan plots, and save.
 ```{r}
-for(idx in 1:length(cluster.names)) {
+cell.type.levels.loop <- cell.type.levels[-c(17)]
+for(idx in 1:length(cell.type.levels.loop)) {
   g <- gostres.small
-  g$result <- gostres.small$result %>% filter(query %in% cluster.names[idx])
+  g$result <- gostres.small$result %>% filter(query %in% cell.type.levels.loop[idx])
   print(gostplot(g, capped = FALSE, interactive = FALSE))
   #ggsave(here("data", "gProfiler", "sc_clusters", paste0(cluster.names[idx], "_gost_plot_200_term_size_", Sys.Date(), ".png")), device = "png")
 }
 ```
 
 ```{r}
-res <- gostres.small$result
-top.20 <- res %>% group_by(query) %>%
-  filter(source == "GO:BP") %>%
-  slice_head(n = 20)
+cluster.ontologies <- gostres.small.table %>%
+  dplyr::select(query, term_name, p_value, term_size, query_size, intersection_size, term_id)
+colnames(cluster.ontologies) <- c("Cell type cluster", "Term name", "Adjusted P-value", "Term size", "Query size", "Intersection size", "Term ID")
+  cluster.ontologies <- cluster.ontologies %>%
+  group_by(`Cell type cluster`) %>%
+  group_split()
+names(cluster.ontologies) <- cell.type.levels.loop
+
+#names(cluster.ontologies)[names(cluster.ontologies) == "Fetal Plasmacytoid Dendritic Cells"] <- "Fetal Plasmacytoid Dendritic"
+names(cluster.ontologies)[names(cluster.ontologies) == "Fetal Proliferative Cytotrophoblasts"] <- "Fetal Prolif. Cytotrophoblasts"
+
+# Write to multiple sheets
+#write.xlsx(as.list(cluster.ontologies), file = here("results", "seurat", paste0(Sys.Date(), "_findallmarkers_gprofiler2_ontologies_res.xlsx")))
 ```
 

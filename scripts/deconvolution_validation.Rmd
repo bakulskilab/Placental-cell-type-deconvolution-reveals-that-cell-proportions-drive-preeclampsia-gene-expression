@@ -40,8 +40,9 @@ set.seed(1)
 ## Load data
 
 Load cleaned Seurat data
-```{r}
-seu <- readRDS(here("data", "analytic", "2022-03-15_all_merged_pruned_batch_mnn.rda"))
+```{r, eval = F}
+#seu <- readRDS(here("data", "analytic", "2022-03-15_all_merged_pruned_batch_mnn.rda"))
+seu <- readRDS(here("data", "analytic", "2022-05-01_all_merged_pruned_batch_mnn.rda"))
 seu$cell.type <- factor(seu$cell.type)
 ```
 
@@ -54,6 +55,17 @@ rmse <- function(actual, predicted) {
 }
 ```
 
+Function to format ~/CIBERSORT_Adjusted.txt CIBERSORTx output
+```{r}
+get_imputed_matrix <- function(res) {
+  imp <- res %>%
+  dplyr::select(!c("P-value", "Correlation", "RMSE")) %>%
+  t() %>%
+  as.data.frame()
+imp <- imp %>% rownames_to_column("cell.type")
+return(imp)
+}
+```
 
 OUTMODED - Split 50/50 test/training dataset, randomly. Leads to significant differences due to large df
 ```{r, eval = F, include = F}
@@ -69,12 +81,12 @@ seu.test <- subset(seu, cells = subsample.train, invert = T)
 ```
 
 Split 50/50 forcing equal proportions by cell type; when cell type count is odd, the extra cell goes to training
-```{r}
+```{r, eval = F}
 set.seed(1)
 # Split seu@meta.data into cell.type groups
 x.groups <-seu@meta.data %>%
   rownames_to_column(var = "cell.id") %>%
-  select(cell.id, cell.type) %>%
+  dplyr::select(cell.id, cell.type) %>%
   group_by(cell.type) %>%
   group_split()
 # Sample at 50% from those groups w/o replacement
@@ -86,6 +98,14 @@ seu.test <- subset(seu, cells = cell.ids.sample, invert = T)
 # Save training IDs for reproducibility
 #saveRDS(cell.ids.sample, here("data", paste0(Sys.Date(), "deconvolution_validation_training_cell_ids.Rda")))
 ```
+
+Load data
+```{r}
+cell.ids.sample <- readRDS(here("data", "2022-05-10deconvolution_validation_training_cell_ids.Rda"))
+seu.train <- subset(seu, cells = cell.ids.sample)
+seu.test <- subset(seu, cells = cell.ids.sample, invert = T)
+```
+
 
 UMAP plots of training and test data are visually identical
 ```{r}
@@ -111,8 +131,6 @@ cell.type.counts <- left_join(train.celltypes, test.celltypes) %>%
   mutate(test5050.proportions = test/sum(test))
 ```
 
-
-
 ```{r}
 # Human-readable percentage formatting
 #mutate("Percentage" = round(test/sum(test)*100, digits = 2))
@@ -127,7 +145,7 @@ rmse(actual =  cell.type.counts$test, predicted = cell.type.counts$train) # note
 Save seu object of training cell ids
 ```{r}
 #saveRDS(seu.train, here("data", "seurat", paste0(Sys.Date(), "_kc_pr_ts_5050_train_sig_input.rda")))
-```
+```   
 
 Format test data for export to CibersortX; start with the whole training sample, 100% fetal and 100% maternal
 ```{r}
@@ -153,7 +171,7 @@ set.seed(1)
 # Split seu.test into sex,fetal groups for three unique groups maternal female, fetal male, and fetal female
 x.groups <-seu.test@meta.data %>%
   rownames_to_column(var = "cell.id") %>%
-  select(cell.id, cell.type, fetal, sex) %>%
+  dplyr::select(cell.id, cell.type, fetal, sex) %>%
   group_by(sex) %>%
   group_by(fetal, .add = T) %>%
   group_split()
@@ -164,10 +182,16 @@ sex.test.female.fetal.ids <- x.groups$female.fetal$cell.id
 sex.test.male.fetal.ids <- sample(x.groups$male.fetal$cell.id, size = 7277, replace = F)
 
 testing.ids <- list(sex.test.maternal.ids, sex.test.female.fetal.ids, sex.test.male.fetal.ids)
-#saveRDS("data", paste0(Sys.Date(), "deconvolution_sex_testing_ids.rda")), saved 4/5/2022
+saveRDS(testing.ids, here("data", paste0(Sys.Date(), "deconvolution_sex_testing_ids.rda"))) # saved 5/10/2022
 ```
 
+Load data
 ```{r}
+testing.ids <- readRDS(here("data", "2022-05-21deconvolution_sex_testing_ids.rda"))
+```
+
+
+```{r, eval = F}
 sex.test.female <- format_seu_for_cibersortx_mixture(subset(seu.test, cells = c(sex.test.female.fetal.ids, sex.test.maternal.ids)), export_name = "sex.test.female")
 sex.test.male <- format_seu_for_cibersortx_mixture(subset(seu.test, cells = c(sex.test.male.fetal.ids, sex.test.maternal.ids)), export_name= "sex.test.male")
 ```
@@ -191,7 +215,6 @@ Possibly cpm() the sc-sig-matrix input? CibersortX online tutorial 1 claims it d
 ```{r}
 #read.table(kc_pr_ts_sc_5050_train_signature_matrix_input_2022-03-25.txt
 ```
-
 
 ## Get test pseudobulk mixture percentages
 
@@ -232,16 +255,8 @@ res.noS <- read_tsv(file = here("results", "cibersortx_local", "test_train_5050_
 ```
 
 Function to drop CibersortX deconvolution statistics and reformat with cell type as a column 
-```{r}
-get_imputed_matrix <- function(res) {
-  imp <- res %>%
-  dplyr::select(!c("P-value", "Correlation", "RMSE")) %>%
-  t() %>%
-  as.data.frame()
-imp <- imp %>% rownames_to_column("cell.type")
-return(imp)
-}
 
+```{r}
 res.df.S <- get_imputed_matrix(res.S)
 res.df.noS <- get_imputed_matrix(res.noS)
 ```
@@ -314,60 +329,170 @@ ggplot(data = ggplot.dat,
 
 ## {-}
 
-## test data w/ default g-max (300min to 500max) {.tabset}
+## Analytic test data w/ default g-max (300min to 500max) {.tabset}
 Verify deconvolution results
 ```{r}
-res.S <- read_tsv(file = here("results", "cibersortx_local", "testing_gmax_default_perm_50_S", "CIBERSORTx_Adjusted.txt")) %>%
+#res.S <- read_tsv(file = here("results", "cibersortx_local", "testing_gmax_default_perm_50_S", "CIBERSORTx_Adjusted.txt")) %>%
+#  column_to_rownames("Mixture")
+
+# Updated analysis
+res.S <- read_tsv(file = here("results", "cibersortx_local", "analytic_deconvolution_validation_testing", "CIBERSORTx_Adjusted.txt")) %>%
   column_to_rownames("Mixture")
+
+# Reformat for analysis
 res.df.S <- get_imputed_matrix(res.S)
 ```
 
 ### All cell types at natural rates
 
 ```{r}
-cor.test(x = res.df.S$Test_5050, y = Test$Test_5050_actual)
-rmse(actual = res.df.S$Test_5050, predicted = Test$Test_5050_actual)
+predicted = res.df.S$Test_5050
+actual = Test$Test_5050_actual
+
+gg.data <- data.frame(
+  predicted = predicted,
+  actual = actual
+)
+
+cor.test(x = actual, y = predicted)
+pearson <- round(cor(x = actual, y = predicted), 3)
+pearson
+rmse.deconvolution = round(rmse(actual = actual, predicted = predicted), 3)
+rmse.deconvolution
+
+plot <- ggplot(gg.data, aes(x = predicted, y = actual)) + geom_point() + labs(subtitle = paste0("Correlation = ", pearson, ", Root mean square error = ", rmse.deconvolution)) + xlab("Predicted cell type proportions") + ylab("Actual cell type proportions") + ggtitle("Deconvolution validation - 50/50 split") + theme_bw(base_size = 16) + geom_smooth(method='lm', formula= y~x)
+
+# Store plot for gg panel later
+plot.test.5050 <- plot
+
+plot
+
 plot(x = res.df.S$Test_5050, y = Test$Test_5050_actual)
 ```
 
 ### Test data includes only fetal cells
 
 ```{r}
-cor.test(x = res.df.S$Fetal_5050, y = Test$Fetal_5050_actual)
-rmse(predicted = res.df.S$Fetal_5050, actual = Test$Fetal_5050_actual)
+predicted = res.df.S$Fetal_5050
+actual = Test$Fetal_5050_actual
+
+gg.data <- data.frame(
+  predicted = predicted,
+  actual = actual
+)
+
+cor.test(x = actual, y = predicted)
+pearson <- round(cor(x = actual, y = predicted), 3)
+pearson
+rmse.deconvolution = round(rmse(actual = actual, predicted = predicted), 3)
+rmse.deconvolution
+
+plot <- ggplot(gg.data, aes(x = predicted, y = actual)) + geom_point() + labs(subtitle = paste0("Correlation = ", pearson, ", Root mean square error = ", rmse.deconvolution)) + xlab("Predicted cell type proportions") + ylab("Actual cell type proportions") + ggtitle("Only fetal cells present") + theme_bw(base_size = 16) + geom_smooth(method='lm', formula= y~x)
+
+# Store plot for gg panel later
+plot.fetal.5050 <- plot
+
+plot
+
 plot(x = res.df.S$Fetal_5050, y = Test$Fetal_5050_actual)
 ```
 
 ### Test data includes only maternal cells
 
 ```{r}
-cor.test(x = res.df.S$Maternal_5050, y = Test$Maternal_5050_actual)
-rmse(predicted = res.df.S$Maternal_5050, actual = Test$Maternal_5050_actual)
+predicted = res.df.S$Maternal_5050
+actual = Test$Maternal_5050_actual
+
+gg.data <- data.frame(
+  predicted = predicted,
+  actual = actual
+)
+
+cor.test(x = actual, y = predicted)
+pearson <- round(cor(x = actual, y = predicted), 3)
+pearson
+rmse.deconvolution = round(rmse(actual = actual, predicted = predicted), 3)
+rmse.deconvolution
+
+plot <- ggplot(gg.data, aes(x = predicted, y = actual)) + geom_point() + labs(subtitle = paste0("Correlation = ", pearson, ", Root mean square error = ", rmse.deconvolution)) + xlab("Predicted cell type proportions") + ylab("Actual cell type proportions") + ggtitle("Only maternal cells present") + theme_bw(base_size = 16) + geom_smooth(method='lm', formula= y~x)
+
+# Store plot for gg panel later
+plot.maternal.5050 <- plot
+
+plot
+
 plot(x = res.df.S$Maternal_5050, y = Test$Maternal_5050_actual)
 ```
 
 ### Test data only female fetal cells
 
 ```{r}
-cor.test(x = res.df.S$sex.test.female, y = Test$sex.test.female_actual)
-rmse(predicted = res.df.S$sex.test.female, actual = Test$sex.test.female_actual)
+predicted = res.df.S$sex.test.female
+actual = Test$sex.test.female_actual
+
+gg.data <- data.frame(
+  predicted = res.df.S$Test_5050,
+  actual = Test$Test_5050_actual
+)
+
+cor.test(x = actual, y = predicted)
+pearson <- round(cor(x = actual, y = predicted), 3)
+pearson
+rmse.deconvolution = round(rmse(actual = actual, predicted = predicted), 3)
+rmse.deconvolution
+
+plot <- ggplot(gg.data, aes(x = predicted, y = actual)) + geom_point() + labs(subtitle = paste0("Correlation = ", pearson, ", Root mean square error = ", rmse.deconvolution)) + xlab("Predicted cell type proportions") + ylab("Actual cell type proportions") + ggtitle("Only female fetal cells present") + theme_bw(base_size = 16) + geom_smooth(method='lm', formula= y~x)
+
+# Store plot for gg panel later
+plot.sex.test.female <- plot
+
+plot
+
 plot(x = res.df.S$sex.test.female, y = Test$sex.test.female_actual)
 ```
 
 ### Test data only male fetal cells
 
 ```{r}
-cor.test(x = res.df.S$sex.test.male, y = Test$sex.test.male_actual)
-rmse(predicted = res.df.S$sex.test.male, actual = Test$sex.test.male_actual)
+predicted = res.df.S$sex.test.male
+actual = Test$sex.test.male_actual
+
+gg.data <- data.frame(
+  predicted = res.df.S$Test_5050,
+  actual = Test$Test_5050_actual
+)
+
+cor.test(x = actual, y = predicted)
+pearson <- round(cor(x = actual, y = predicted), 3)
+pearson
+rmse.deconvolution = round(rmse(actual = actual, predicted = predicted), 3)
+rmse.deconvolution
+
+plot <- ggplot(gg.data, aes(x = predicted, y = actual)) + geom_point() + labs(subtitle = paste0("Correlation = ", pearson, ", Root mean square error = ", rmse.deconvolution)) + xlab("Predicted cell type proportions") + ylab("Actual cell type proportions") + ggtitle("Only male fetal cells present") + theme_bw(base_size = 16) + geom_smooth(method='lm', formula= y~x)
+
+# Store plot for gg panel later
+plot.sex.test.male <- plot
+
+plot
+
 plot(x = res.df.S$sex.test.male, y = Test$sex.test.male_actual)
 ```
 
 ## { - }
 
+Optimal file export settings are much different from display in R
+```{r}
+panel <- ggarrange(plot.test.5050, plot.fetal.5050, plot.maternal.5050, plot.sex.test.female, plot.sex.test.male, ncol = 3, nrow = 2, labels = "AUTO", font.label = list(size = 24, face = "bold", color = "black"))
+print(panel)
+# Works okay with theme_bw(base_size = 20) and font.label size = 24 in ggarrange
+#ggexport(panel, filename = here("results", "deconvolution_validation", paste0(Sys.Date(), "_deconvolution_validation_multipanel.png")), width = 1920, height = 1080)
+```
+
+
 ## test data w/ g-max = 1000 {.tabset}
 
 Verify deconvolution results
-```{r}
+```{r, eval = F, include = F}
 res.S <- read_tsv(file = here("results", "cibersortx_local", "testing_gmax_1000_perm_50_S", "CIBERSORTx_Adjusted.txt")) %>%
   column_to_rownames("Mixture")
 res.df.S <- get_imputed_matrix(res.S)
@@ -375,7 +500,7 @@ res.df.S <- get_imputed_matrix(res.S)
 
 ### All cell types at natural rates
 
-```{r}
+```{r, eval = F, include = F}
 cor.test(x = res.df.S$Test_5050, y = Test$Test_5050_actual)
 rmse(actual = res.df.S$Test_5050, predicted = Test$Test_5050_actual)
 plot(x = res.df.S$Test_5050, y = Test$Test_5050_actual)
@@ -383,7 +508,7 @@ plot(x = res.df.S$Test_5050, y = Test$Test_5050_actual)
 
 ### Test data includes only fetal cells
 
-```{r}
+```{r, eval = F, include = F}
 cor.test(x = res.df.S$Fetal_5050, y = Test$Fetal_5050_actual)
 rmse(predicted = res.df.S$Fetal_5050, actual = Test$Fetal_5050_actual)
 plot(x = res.df.S$Fetal_5050, y = Test$Fetal_5050_actual)
@@ -391,7 +516,7 @@ plot(x = res.df.S$Fetal_5050, y = Test$Fetal_5050_actual)
 
 ### Test data includes only maternal cells
 
-```{r}
+```{r, eval = F, include = F}
 cor.test(x = res.df.S$Maternal_5050, y = Test$Maternal_5050_actual)
 rmse(predicted = res.df.S$Maternal_5050, actual = Test$Maternal_5050_actual)
 plot(x = res.df.S$Maternal_5050, y = Test$Maternal_5050_actual)
@@ -399,7 +524,7 @@ plot(x = res.df.S$Maternal_5050, y = Test$Maternal_5050_actual)
 
 ### Test data only female fetal cells
 
-```{r}
+```{r, eval = F, include = F}
 cor.test(x = res.df.S$sex.test.female, y = Test$sex.test.female_actual)
 rmse(predicted = res.df.S$sex.test.female, actual = Test$sex.test.female_actual)
 plot(x = res.df.S$sex.test.female, y = Test$sex.test.female_actual)
@@ -407,7 +532,7 @@ plot(x = res.df.S$sex.test.female, y = Test$sex.test.female_actual)
 
 ### Test data only male fetal cells
 
-```{r}
+```{r, eval = F, include = F}
 cor.test(x = res.df.S$sex.test.male, y = Test$sex.test.male_actual)
 rmse(predicted = res.df.S$sex.test.male, actual = Test$sex.test.male_actual)
 plot(x = res.df.S$sex.test.male, y = Test$sex.test.male_actual)

@@ -60,3 +60,10 @@ Deconvolution and Secondary Data Analysis of GSE75010
 5. GSE75010_mediation
 	Mediation analysis with preeclampsia as the exposure, cell type composition as the mediator, and gene expression as the outcome
 	input: (2), (3)
+
+Deconvolution validation analyses
+1. deconvolution_validation
+	In silico testing of deconvolution reference and comparision of healthy whole tissue cell type proportions
+
+2. facs_mixtures_deconvolution_analysis
+	Various analyses of the Sorted cell type samples

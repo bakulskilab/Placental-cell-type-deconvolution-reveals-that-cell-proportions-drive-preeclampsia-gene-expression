@@ -5,6 +5,9 @@
 desktop.ini
 data/*
 results/*
+scripts/*html
 scripts/archive/*html
 scripts/archive/teaching/*html
 scripts/archive/unpursued/*html
+*png
+*pptx

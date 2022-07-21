@@ -37,8 +37,8 @@ Based on Bioconductor workflow http://www.bioconductor.org/packages/release/work
 ## Load and format data
 Load normalized expression data and cleaned metadata from script "GSE75010_preprocess.Rmd".
 ```{r}
-expr <- read.csv(paste0(here("data", "/"), "GSE75010_complete_dataset.csv.gz"))
-meta <- readRDS(paste0(here("data", "/"), "GSE75010_with_abundances_2022-04-12.rda"))
+expr <- read.csv(paste0(here("data", "GSE75010_complete_dataset.csv.gz")))
+meta <- readRDS(paste0(here("data", "GSE75010_with_abundances_2022-05-01.rda")))
 
 #gse <- getGEO("GSE75010", GSEMatrix = TRUE)
 ```
@@ -107,15 +107,21 @@ rownames(annotation_col) <- meta$sample
 
 ## Defining and fitting the model
 
-Custom function to run limma model, print results, and output Volcano plot and model results for further analysis.
+Custom function to run limma model, print results, and output Volcano plot and model results for further analysis. https://support.bioconductor.org/p/98367/ brief discussion of logFC cutoffs
+
+Limma paper:
+"When one has a particular cut-off for log-fold-change in mind, the treat function can be used to test whether the log2-fold-change is greater than a threshold rather than merely different to zero (45). This can be effective for prioritizing results that are biologically as well as statistically significant."
+
 ```{r}
 run_limma_model <-
   function(d,
            covariates,
            threshold,
+           logFC.cutoff,
            genes.of.interest,
            gg.title,
            ...) {
+    
     # Create the design formula and use to make the model matrix
     design.formula <-
       as.formula(paste0("~ ", paste(covariates, collapse = " + ")))
@@ -125,7 +131,6 @@ run_limma_model <-
     fit <- lmFit(d, design)
     fit <- eBayes(fit)
 
-    
     #Extract model results.
     #hits <- topTable(fit, coef = "phenotypePE", number = Inf)
     hits <- topTable(fit, coef = "phenotypePreeclampsia", number = Inf, confint=TRUE)
@@ -137,6 +142,7 @@ run_limma_model <-
       main = "Pre-eclamptic patients vs. controls",
       xlab = "P-values"
     )
+    
     #Histogram of FDR-adjusted p-values.
     hist(
       hits$adj.P.Val,
@@ -144,37 +150,46 @@ run_limma_model <-
       main = "Pre-eclamptic patients vs. controls",
       xlab = "FDR-adjusted p-values"
     )
+    
     # Print summary of hits
-    hits$sig <- hits$adj.P.Val < threshold
+    hits$sig <- (hits$adj.P.Val < threshold) & (abs(hits$logFC) > logFC.cutoff)
     print(paste0(
       length(which(hits$sig)),
       " significant hits at FDR-adjusted cutoff of ",
-      threshold
+      threshold,
+      " and logFC cutoff of ",
+      logFC.cutoff
     ))
     
     # Label factor levels for legend purposes
     hits$sig <- factor(hits$sig,
                     levels = c(FALSE, TRUE),
-                    labels = c("FDR-adjusted p-value > 0.05", "FDR-adjusted p-value < 0.05"))
+                    labels = c("Does not meet p-value and logFC criteria", paste0("FDR-adjusted p-value < ", threshold, " & log2FC > ", logFC.cutoff)))
     
     # Move gene symbols to column
     res <- rownames_to_column(hits, "gene_symbol")
+    
     # Get the top downregulated hits
     downreg <- res %>%
       filter(adj.P.Val < .05) %>%
       filter(logFC < 0) %>%
+      filter(abs(logFC) > logFC.cutoff) %>%
       arrange(logFC)
+    
     #Get the top upregulated hits.
     upreg <- res %>%
       filter(adj.P.Val < .05) %>%
       filter(logFC > 0) %>%
+      filter(abs(logFC) > logFC.cutoff) %>%
       arrange(desc(logFC))
+    
     #Label genes of interest by name, the top 10 upregulated and downregulated hits and hand-chosen genes of interest.
     num.to.plot <- 10
     top.upreg <- upreg$gene_symbol[1:num.to.plot]
     top.downreg <- downreg$gene_symbol[1:num.to.plot]
     genes.to.plot <- c(top.upreg, top.downreg, genes.of.interest)
     res$label[(res$gene_symbol %in% genes.to.plot)] <- T
+    
     # Volcano plot
     plot <- ggplot(res) +
       geom_point(aes(
@@ -188,6 +203,10 @@ run_limma_model <-
         label = ifelse(label, gene_symbol, "")
       )) +
       geom_hline(yintercept = -log10(threshold),
+                 linetype = "dotted") +
+      geom_vline(xintercept = logFC.cutoff,
+                 linetype = "dotted") +
+            geom_vline(xintercept = -logFC.cutoff,
                  linetype = "dotted") +
       ggtitle(paste0("Pre-eclamptic cases vs controls - ", gg.title)) +
       xlab("log2 fold change") +
@@ -246,7 +265,7 @@ pData(d) <- p.data
 
 Retrieve cell type proportion PCA results from beta regression .Rmd, merge with meta data, and reset the phenotype data in the ExpressionSet object.
 ```{r}
-pca <-readRDS(paste0(here("data", "/"), "GSE75010_cell_type_proportions_pca_2021-02-15.rda"))
+pca <-readRDS(paste0(here("data", "/"), "GSE75010_cell_type_proportions_pca_2022-05-03.rda"))
 pca.ind <- get_pca_ind(pca)
 pca.coordinates <- as.data.frame(pca.ind$coord)
 pca.coordinates$sample <- rownames(pca.coordinates)
@@ -257,11 +276,20 @@ pData(d) <- meta.total
 ```
 # Differential Expression Models in Limma {.tabset}
 
+```{r}
+# p-value-adj threshold
+threshold = 0.05
+# logFC threshold
+logFC.cutoff = 0.1
+```
+
+
 ## Naive Model
 ```{r}
 naive.model <- run_limma_model(d = d,
                                covariates = "phenotype",
-                               threshold = .05,
+                               threshold = threshold,
+                               logFC.cutoff = logFC.cutoff,
                                genes.of.interest = NULL,
                                gg.title = "Naive")
 ```
@@ -269,7 +297,8 @@ naive.model <- run_limma_model(d = d,
 ```{r}
 base.model <- run_limma_model(d = d,
                               covariates = c("phenotype", "sex", "ga", "batch"),
-                              threshold = .05,
+                              threshold = threshold,
+                              logFC.cutoff = logFC.cutoff,
                               genes.of.interest = NULL,
                               gg.title = "Base")
 ```
@@ -282,7 +311,7 @@ res <- base.model$res
 
 # Get ranked list
 ranked.list <- res %>%
-  filter(adj.P.Val < .05) %>%
+  filter(adj.P.Val < threshold) %>%
   arrange(desc(abs(logFC)))
 # Subset to just gene names
 unadj.ranked.genes <- ranked.list$gene_symbol
@@ -297,7 +326,8 @@ unadj.ranked.genes <- ranked.list$gene_symbol
 ```{r}
 base.model <- run_limma_model(d = d,
                               covariates = c("phenotype", "sex", "batch"),
-                              threshold = .05,
+                              threshold = threshold,
+                              logFC.cutoff = logFC.cutoff,
                               genes.of.interest = NULL,
                               gg.title = "Adjusted for sex and batch")
 ```
@@ -322,7 +352,8 @@ cell.types.sig <- c("Maternal.Plasma.Cells", "Fetal.Mesenchymal.Stem.Cells", "Fe
 ```{r}
 type.model <- run_limma_model(d = d,
                               covariates = c("phenotype", "sex", "ga", "batch", cell.types.sig),
-                              threshold = .05,
+                              threshold = threshold,
+                              logFC.cutoff = logFC.cutoff,
                               genes.of.interest = "FLT1",
                               gg.title = "Sig. Cell Types")
 ```
@@ -337,7 +368,8 @@ covariates <- c("phenotype", "sex", "ga", "batch", PCs)
 pc.model <- run_limma_model(
   d = d,
   covariates = covariates,
-  threshold = 0.05,
+  threshold = threshold,
+  logFC.cutoff = logFC.cutoff,
   genes.of.interest = c("FLT1", "LEP"),
   gg.title = "5 PCs of Cell Types",
   nudge_y = 50
@@ -345,13 +377,15 @@ pc.model <- run_limma_model(
 ```
 
 ## PC3 Only
-Reducing the cell composition adjustment to just PC3 still completely attenuates DEX results.
+Reducing the cell composition adjustment to just PC3 does not completely attenuate DEX results.
 ```{r}
 covariates <- c("phenotype", "sex", "ga", "batch", "Dim.3")
 pc3.model <- run_limma_model(d = d,
-                              covariates = covariates,
-                              threshold = .05, genes.of.interest = c("FLT1"),
-                              gg.title = "Cell type PC3 + Base")
+                            covariates = covariates,
+                            threshold = threshold,
+                            logFC.cutoff = logFC.cutoff,
+                            genes.of.interest = c("FLT1"),
+                            gg.title = "Cell type PC3 + Base")
 ```
 
 ## Plot all 4 models
@@ -389,7 +423,7 @@ ggplot(res) +
     y = -log10(adj.P.Val),
     label = ifelse(label, gene_symbol, "")
   )) +
-  geom_hline(yintercept = -log10(.05),
+  geom_hline(yintercept = -log10(threshold),
              linetype = "dotted") +
   ggtitle("Compare Limma Models") +
   xlab("log2 fold change") +
@@ -452,12 +486,12 @@ Create and save multipanel Volcano plot figure comparing cell type naive base mo
 panel_subplot <- function(res, threshold, base.size, geom.label.size, geom.point.size, geom.text.repel.size, geom.hline.size, genes.of.interest, ...) {
   # Get the top downregulated hits
     downreg <- res %>%
-      filter(adj.P.Val < .05) %>%
+      filter(adj.P.Val < threshold) %>%
       filter(logFC < 0) %>%
       arrange(logFC)
     #Get the top upregulated hits.
     upreg <- res %>%
-      filter(adj.P.Val < .05) %>%
+      filter(adj.P.Val < threshold) %>%
       filter(logFC > 0) %>%
       arrange(desc(logFC))
     #Label genes of interest by name, the top 10 unregulated and downregulated hits and hand-chosen genes of interest.
@@ -487,6 +521,14 @@ panel_subplot <- function(res, threshold, base.size, geom.label.size, geom.point
                  linetype = "dotted",
                  size = geom.hline.size) +
       
+      geom_vline(xintercept = -logFC.cutoff,
+                 linetype = "dotted",
+                 size = geom.hline.size) +
+      
+      geom_vline(xintercept = logFC.cutoff,
+                 linetype = "dotted",
+                 size = geom.hline.size) +
+      
       theme_minimal(base_size = base.size) +
       xlab("log2 fold change") +
       ylab("-log10 adjusted p-value") +
@@ -505,7 +547,7 @@ panel_subplot <- function(res, threshold, base.size, geom.label.size, geom.point
         paste0(dim(downreg)[1], " downregulated genes")
       ),
       x = Inf,
-      y = Inf,
+      y = 0.7, # previous graph was Inf
       hjustvar = 1,
       vjustvar = 1
     )
@@ -618,7 +660,7 @@ t.test(case$Dim.3, control$Dim.5)
 ```{r, eval = F}
 model1 <- run_limma_model(d = d,
                               covariates = c("phenotype", "sex", "ga", "batch", "Fetal.Extravillous.Trophoblasts"),
-                              threshold = .05,
+                              threshold = threshold,
                               genes.of.interest = "FLT1",
                               gg.title = "Replicate PC3 - add EVT")
 ```
@@ -626,7 +668,7 @@ model1 <- run_limma_model(d = d,
 ```{r, eval = F}
 model2 <- run_limma_model(d = d,
                               covariates = c("phenotype", "sex", "ga", "batch", "Fetal.Extravillous.Trophoblasts", "Fetal.Hofbauer.Cells"),
-                              threshold = .05,
+                              threshold = threshold,
                               genes.of.interest = "FLT1",
                               gg.title = "Replicate PC3 - add Hofbauer")
 ```
@@ -634,7 +676,7 @@ model2 <- run_limma_model(d = d,
 ```{r, eval = F}
 model3 <- run_limma_model(d = d,
                               covariates = c("phenotype", "sex", "ga", "batch", "Fetal.Extravillous.Trophoblasts", "Fetal.Hofbauer.Cells", "Fetal.Mesenchymal.Stem.Cells"),
-                              threshold = .05,
+                              threshold = threshold,
                               genes.of.interest = "FLT1",
                               gg.title = "Replicate PC3 - add MSCs")
 ```
@@ -642,7 +684,7 @@ model3 <- run_limma_model(d = d,
 ```{r, eval = F}
 model4 <- run_limma_model(d = d,
                               covariates = c("phenotype", "sex", "ga", "batch", "Fetal.Extravillous.Trophoblasts", "Fetal.Hofbauer.Cells", "Fetal.Mesenchymal.Stem.Cells", "Maternal.FCGR3A..Monocytes"),
-                              threshold = .05,
+                              threshold = threshold,
                               genes.of.interest = "FLT1",
                               gg.title = "Replicate PC3")
 ```
@@ -651,7 +693,7 @@ model4 <- run_limma_model(d = d,
 ```{r, eval = F}
 model5 <- run_limma_model(d = d,
                               covariates = c("phenotype", "sex", "ga", "batch", "Fetal.Extravillous.Trophoblasts", "Fetal.Hofbauer.Cells", "Fetal.Mesenchymal.Stem.Cells", "Maternal.FCGR3A..Monocytes", "Fetal.Syncytiotrophoblast"),
-                              threshold = .05,
+                              threshold = threshold,
                               genes.of.interest = "FLT1",
                               gg.title = "Replicate PC3")
 ```
@@ -659,7 +701,7 @@ model5 <- run_limma_model(d = d,
 ```{r, eval = F}
 model6 <- run_limma_model(d = d,
                               covariates = c("phenotype", "sex", "ga", "batch", "Fetal.Extravillous.Trophoblasts", "Fetal.Hofbauer.Cells", "Fetal.Mesenchymal.Stem.Cells", "Maternal.FCGR3A..Monocytes", "Fetal.Syncytiotrophoblast", "Fetal.Proliferative.Cytotrophoblasts"),
-                              threshold = .05,
+                              threshold = threshold,
                               genes.of.interest = "FLT1",
                               gg.title = "Replicate PC3")
 ```
@@ -668,7 +710,7 @@ model6 <- run_limma_model(d = d,
 Prepare differential expression results for Preranked gene list analysis in GSEA Desktop v4.1.0. Input file format should be .rnk tab-delimited text file, first column is gene symbol and second is ranking metric (does not need to be sorted, CANNOT have TIES).
 
 ```{r}
-#pc.res
+pc.res
 ```
 
 GSEA Preranked uses HGNC official gene symbols are the preferred input and a ranking metric. Different ranking metrics are available, but recommended ranks take into account the magnitude of effect (mean of each treatment), direction of effect (upregulated or downregulated), and the variance of the estimation of the magnitude of effect. Signal2Noise is the default, which does not take into account sample size. T-test statistic is the second-listed ranking metric that is identical to S2N but also takes into account sample size. Will use Limma's moderated t-statistic.
@@ -678,7 +720,7 @@ gsea.input.pc <- pc.res %>% dplyr::select(gene_symbol, t) %>% arrange(desc(t))
 # Check for duplicated t-statistics, there are none
 summary(duplicated(gsea.input.pc$t))
 # Write  .rnk file
-#write_tsv(gsea.input.pc, here("results", "GSE75010", "GSEA_pc_preranked_input.rnk"), col_names = FALSE)
+#write_tsv(gsea.input.pc, here("results", "GSE75010", paste0(Sys.Date(), "_GSEA_pc_preranked_input.rnk")), col_names = FALSE)
 ```
 
 "The GSEA analysis report highlights enrichment gene sets with an FDR of less than 25% as those most likely to generate interesting hypotheses and drive further research, but provides analysis results for all analyzed gene sets. In general, given the lack of coherence in most expression datasets and the relatively small number of gene sets being analyzed, an FDR cutoff of 25% is appropriate. However, if you have a small number of samples and use gene_set permutation (rather than phenotype permutation) for your analysis, you are using a less stringent assessment of significance and would then want to use a more stringent FDR cutoff, such as 5%." The GSEA Preranked analysis, which we are using, uses gene_set permutation and we have a sample size of 330. Not sure where that puts the FDR threshold.
@@ -689,10 +731,10 @@ gsea.input.base <- base.res %>% dplyr::select(gene_symbol, t) %>% arrange(desc(t
 # Check for duplicated t-statistics, there are none
 summary(duplicated(gsea.input.base$t))
 # Write  .rnk file
-#write_tsv(gsea.input.base, here("results", "GSE75010", "GSEA_base_preranked_input.rnk"), col_names = FALSE)
+#write_tsv(gsea.input.base, here("results", "GSE75010", paste0(Sys.Date(), "_GSEA_base_preranked_input.rnk")), col_names = FALSE)
 ```
 
-## Explore correlation and interaction relationships
+## Prep mediation data and explore correlation and interaction relationships
 
 ```{r}
 expression_data <- as.data.frame(t(d@assayData$exprs))
@@ -714,11 +756,11 @@ numeric.data <- numeric.data[, keep]
 # Compute a correlation matrix
 corr <- round(cor(numeric.data), 1)
 
-#dev.new()
-#pdf(paste0(here("results", "GSE75010", "/"), "numeric_data_corrplot_", Sys.Date(), ".pdf"))
+dev.new()
+pdf(paste0(here("results", "GSE75010", "/"), "numeric_data_corrplot_", Sys.Date(), ".pdf"))
 #corrplot.mixed(corr, lower = "ellipse", tl.cex = .7, upper = "number") #tl.cex control axis label size
 corrplot(corr, method = "ellipse", tl.cex = .7) #tl.cex control axis label size
-#dev.off()
+dev.off()
 
 # Alternative options
 #corrplot(corr, method = "ellipse", order = "hclust")
@@ -773,6 +815,18 @@ print(res.flt1)
 
 PC3 continous effect
 ```{r}
+interaction <- topTable(fit, coef = "Dim.1", number = Inf)
+interaction <- rownames_to_column(interaction, var = "gene_symbol")
+res.flt1 <- interaction %>%
+  filter(gene_symbol == "FLT1")
+print(res.flt1)
+
+interaction <- topTable(fit, coef = "Dim.2", number = Inf)
+interaction <- rownames_to_column(interaction, var = "gene_symbol")
+res.flt1 <- interaction %>%
+  filter(gene_symbol == "FLT1")
+print(res.flt1)
+
 interaction <- topTable(fit, coef = "Dim.3", number = Inf)
 interaction <- rownames_to_column(interaction, var = "gene_symbol")
 res.flt1 <- interaction %>%
@@ -798,7 +852,7 @@ print(res.flt1)
 #covariates <- c("sex", "ga", "batch", "Dim.1", "Dim.2", "phenotype*Dim.3", "Dim.4", "Dim.5")
 #limma.interaction <- run_limma_interaction_model(d = d,
 #                              covariates = covariates,
-#                              threshold = .05,
+#                              threshold = threshold,
 #                              genes.of.interest = "FLT1",
 #                              gg.title = "Sig. Cell Types")
 #

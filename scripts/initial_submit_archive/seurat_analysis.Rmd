@@ -1,0 +1,568 @@
+---
+title: "single-cell-analysis"
+author: "Kyle Campbell"
+date: "1/13/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::knit_engines$set(python = reticulate::eng_python)
+
+#install.packages("package_name",  repos="http://cran.us.r-project.org") # Only this mirror worked for multiple packages
+library(devtools)
+library(here)
+library(ggrepel)
+library(ggpubr)
+library(gprofiler2)
+library(knitr)
+library(tidyverse)
+library(Seurat)
+#remotes::install_github('satijalab/seurat-wrappers')
+library(SeuratWrappers)
+library(cowplot)
+library(rgl)
+library(EnvStats)
+library(reticulate)
+library(clustree)
+library(Matrix)
+
+# Bioconductor packages
+#remotes::install_github('chris-mcginnis-ucsf/DoubletFinder') #Install DoubletFinder and depends
+library(batchelor)
+library(edgeR)
+library(scater)
+# Set seed since this pipeline includes stochastic algorithms
+set.seed(1)
+```
+
+```{r dir, include=FALSE}
+# Set default working directory
+data_dir <- "G:/My Drive/Placenta_Cell_Types/RNA/placenta_rna/data/"
+results_dir <- "G:/My Drive/Placenta_Cell_Types/RNA/placenta_rna/results/seurat/"
+```
+
+Load cleaned Seurat data
+```{r}
+seu <- readRDS(paste0(data_dir,"cleaned_combined_seurat_2020-12-22.rda"))
+```
+
+Format and export Seurat processed data
+```{r}
+seu.kc <- subset(seu, subset = batch == "kc")
+#saveRDS(seu.kc, here("data", paste0(Sys.Date(), "processed_single_cell_Seurat_object.rda")))
+```
+
+
+QC metrics by replicate, TODO: relabel orig.ident for nicer graphs
+```{r}
+VlnPlot(seu, features = "subsets_Mito_percent", pt.size = .1, group.by = "orig.ident") + NoLegend() + 
+  theme(axis.text.x = element_text(size = 8)
+        ) +
+  ggtitle("Percentage of Reads Mapping to Mitochondrial Genes by Replicate")
+#ggsave(paste0(results_dir, "qc_replicate_mito_", Sys.Date(), ".png"))
+
+VlnPlot(seu, features = "nCount_RNA", pt.size = .1, group.by = "orig.ident") + NoLegend() + 
+  theme(axis.text.x = element_text(size = 8)
+        ) +
+  ggtitle("Total RNA Molecules Per Cell by Replicate")
+#ggsave(paste0(results_dir, "qc_replicate_total_RNA_", Sys.Date(), ".png"))
+
+VlnPlot(seu, features = "nFeature_RNA", pt.size = .1, group.by = "orig.ident") + NoLegend() + 
+  theme(axis.text.x = element_text(size = 8)
+        ) +
+  ggtitle("Detected Genes Per Cell by Replicate")
+#ggsave(paste0(results_dir, "qc_replicate_total_genes_", Sys.Date(), ".png"))
+```
+
+QC metrics by cluster
+```{r}
+base.size <- 24
+x.lab.size <- 20
+x.lab.hjust <- 0.75
+
+cluster.rna <- VlnPlot(seu, features = "nCount_RNA", pt.size = .1) + theme_bw(base_size = base.size) + NoLegend() + coord_flip() + 
+  theme(axis.text.y = element_blank(), axis.title.y = element_blank(), plot.title = element_text(hjust = 0.5), axis.text.x = element_text(size = x.lab.size, hjust = x.lab.hjust)) + 
+  ggtitle("Total RNA molecules") 
+
+cluster.rna.legend <- VlnPlot(seu, features = "nCount_RNA", pt.size = .1) + theme_bw(base_size = base.size) + coord_flip() + 
+  theme(legend.text = element_text(size = 32, hjust = 1), legend.spacing = unit(1, "npc")) + 
+  ggtitle("Total RNA molecules") +  guides(fill = guide_legend(ncol = 1, keyheight = 2.5, reverse = T))
+legend <- get_legend(cluster.rna.legend)
+#as_ggplot(legend)
+
+cluster.gene <- VlnPlot(seu, features = "nFeature_RNA", pt.size = .1) + theme_bw(base_size = base.size) + NoLegend() + 
+  theme(axis.text.y = element_blank(),  axis.title.y = element_blank(), plot.title = element_text(hjust = 0.5), axis.text.x = element_text(size = x.lab.size, hjust = x.lab.hjust)) +
+  ggtitle("Detected genes") + coord_flip()
+
+cluster.mito <- VlnPlot(seu, features = "subsets_Mito_percent", pt.size = .1) + theme_bw(base_size = base.size) + NoLegend() + 
+  theme(axis.text.y = element_blank(), axis.title.y = element_blank(), plot.title = element_text(hjust = 0.5), axis.text.x = element_text(size = x.lab.size, hjust = x.lab.hjust)) +
+  ggtitle("% Mitochondrial genes") + coord_flip()
+```
+
+```{r}
+panel <- ggarrange(cluster.rna, cluster.gene, cluster.mito, ncol = 3, nrow = 1, labels = "AUTO", font.label = list(size = 30, face = "bold", color = "black"), legend = "left", legend.grob = legend)
+#ggexport(panel, filename = here("results", "seurat", paste0(Sys.Date(), "_cluster_qc_vlns.png")), width = 1980, height = 1080)
+```
+
+Seurat's built-in version that I didn't use.
+```{r, eval = F}
+seurat.cluster.qc.plot <- VlnPlot(
+  seu,
+  features = c("nCount_RNA", "nFeature_RNA", "subsets_Mito_percent"),
+  cols = NULL,
+  pt.size = NULL,
+  idents = NULL,
+  sort = FALSE,
+  assay = NULL,
+  group.by = NULL,
+  split.by = NULL,
+  adjust = 1,
+  y.max = NULL,
+  same.y.lims = FALSE,
+  log = FALSE,
+  ncol = NULL,
+  slot = "data",
+  split.plot = FALSE,
+  stack = FALSE,
+  combine = FALSE,
+  fill.by = "ident",
+  flip = FALSE
+) + NoLegend() + theme(axis.title.y = element_blank(), axis.title.x = element_blank())
+#ggsave(plot = seurat.cluster.qc.plot, filename = here("results", "seurat", paste0(Sys.Date(), "_seurat_cluster_qc_vlns.png")))
+```
+
+Fetal sex check using XIST as a biomarker for female sex.
+```{r}
+seu$fetal <- seu$fetal %>% as.factor()
+fetal <- subset(seu, subset = fetal == "Fetal")
+
+biorep.expr <- AverageExpression(fetal, group.by = c("fetal", "biorep"))
+biorep.expr <- biorep.expr$RNA %>% t() %>% as.data.frame()
+biorep.expr <- rownames_to_column(biorep.expr, var = "biorep")
+#View(head(biorep.expr))
+
+biorep.expr$biorep <- factor(biorep.expr$biorep)
+levels(biorep.expr$biorep)
+levels(biorep.expr$biorep) <- c("Sample 1", "Sample 2", "Sample 3", "Sample 4", "Sample 5")
+
+ggplot(data = biorep.expr, aes(x = biorep, y = XIST)) + geom_point() + labs(x = "Biological Replicate") + ggtitle("Average XIST expression in fetal cells by biological replicate") + theme_minimal()
+
+#ggsave(here("results", "seurat", paste0(Sys.Date(), "xist_sex_expression.png")))
+```
+
+UMAP plots for Figure 1
+```{r}
+# Set label size for Seurat DimPlots
+label.size <- 9
+
+all.umap <- DimPlot(seu, label = T, label.size = label.size, repel = T) + NoLegend()
+fetal.umap <- subset(seu, subset = fetal == "Fetal") %>% DimPlot(label = T, label.size = label.size, repel = T) + NoLegend()
+maternal.umap <- subset(seu, subset = fetal == "Maternal") %>% DimPlot(label = T, label.size = label.size, repel = T) + NoLegend()
+
+umap.panel <- ggarrange(
+  all.umap,
+  ggarrange(
+    fetal.umap,
+    maternal.umap,
+    ncol = 2,
+    labels = c("B", "C"),
+    font.label = list(size = 36, face = "bold", color = "black")
+  ),
+  nrow = 2,
+  labels = "A",
+  font.label = list(size = 36, face = "bold", color = "black")
+)
+
+#ggexport(umap.panel, filename = here("results", "seurat", "umap", paste0(Sys.Date(), "_umap_multipanel.png")), width = 1920, height = 1080)
+```
+
+VEGFR Receptor expression by cluster
+```{r}
+VlnPlot(seu, features = "KDR") + NoLegend()
+VlnPlot(seu, features = "FLT1") + NoLegend()
+```
+
+Looking at Preeclampsia-related genes from "Hypoxia in the pathogenesis of preeclampsia" by Keiichi Matsubara
+```{r}
+VlnPlot(seu, features = "ENG") + NoLegend()
+VlnPlot(seu, features = "LEP") + NoLegend()
+
+VlnPlot(seu, features = "HIF1A") + NoLegend()
+#VlnPlot(seu, features = "HIF1B") + NoLegend()
+VlnPlot(seu, features = "TGFB3") + NoLegend()
+
+FeaturePlot(seu, features = "HIF1A") + NoLegend()
+
+hif <- grepl("HIF", rownames(seu))
+hifs <- rownames(seu)[hif]
+  
+VlnPlot(seu, features = "CD9") + NoLegend()
+#ggsave(paste0(results_dir, "FLT1_expr_by_cluster_", Sys.Date(), ".png"))
+```
+
+Percentage of fetal cells
+```{r}
+mf <- seu$fetal %>% as.factor() %>% summary()
+percent.fetal <- mf[1]/(mf[1]+mf[2])
+```
+
+Paint by fetal/maternal status
+```{r}
+legend.text.size <- 24
+umap.pt.size <- 1.1
+umap.mf <- DimPlot(seu, group.by = 'fetal', pt.size = umap.pt.size) + ggtitle("") + theme(legend.text = element_text(size = legend.text.size))
+DimPlot(seu, group.by = 'fetal') + NoLegend() + ggtitle("")
+#ggsave(paste0(results_dir, "seu_group_by_fetal_status_", Sys.Date(), ".png"))
+```
+
+```{r}
+DimPlot(seu, group.by = 'fetal') + ggtitle("")
+#ggsave(paste0(results_dir, "seu_group_by_fetal_status_legend_", Sys.Date(), ".png"))
+```
+
+```{r}
+seu$batch <- factor(seu$batch, labels = c("KC", "PR"))
+```
+
+Paint by batch
+```{r}
+DimPlot(seu, group.by = 'batch') + ggtitle("")
+#ggsave(paste0(results_dir, "seu_group_by_batch_", Sys.Date(), ".png"))
+```
+
+```{r}
+DimPlot(seu, group.by = 'batch')
+#ggsave(paste0(results_dir, "seu_group_by_batch_legend_", Sys.Date(), ".png"))
+```
+
+```{r}
+seu.graph <- seu
+seu.graph$biorep <- factor(seu.graph$biorep, labels = c("Sample 1" , "Sample 2" , "Sample 3", "Sample 4", "Sample 5"))
+
+umap.biorep <- DimPlot(seu.graph, group.by = 'biorep', pt.size = umap.pt.size) + ggtitle("") + theme(legend.text = element_text(size = legend.text.size))
+
+DimPlot(seu.graph, group.by = 'biorep') + ggtitle("")
+#ggsave(here("results", "seurat", paste0(Sys.Date(), "seu_group_by_biorep.png")))
+rm(seu.graph)
+```
+
+Subset to and paint by technical replicates
+```{r}
+kc.40 <- subset(seu, subset = biorep == "kc.40")
+Idents(kc.40) %>% levels
+kc.40$orig.ident <- factor(kc.40$orig.ident, labels = c("Sample 1A", "Sample 1B"))
+
+
+umap.sample1 <- DimPlot(kc.40, group.by = "orig.ident", pt.size = umap.pt.size) + ggtitle("") + theme(legend.text = element_text(size = legend.text.size))
+
+DimPlot(kc.40, group.by = "orig.ident")
+#ggsave(paste0(results_dir, "seu_group_by_kc40_technical_legend_", Sys.Date(), ".png"))
+rm(kc.40)
+```
+
+Average expression by cell type cluster and run corrtest.
+```{r}
+# Subset to the technical replicate
+kc.40.1 <- subset(seu, subset = orig.ident == "kc.40.1")
+# Average expression by cell type
+expr.1a <- AverageExpression(kc.40.1, group.by = "cell.type")
+# Clean-up the returned object
+a1 <- expr.1a$RNA %>% as.data.frame()
+
+kc.40.2 <- subset(seu, subset = orig.ident == "kc.40.2")
+#cluster.expr.40.2 <- flatten(AverageExpression(kc.40.2)) %>% as.numeric
+expr.1b <- AverageExpression(kc.40.2, group.by = "cell.type")
+b1 <- expr.1b$RNA %>% as.data.frame()
+
+corr.test.res <- map2(a1,
+                      b1,
+                      ~ cor.test(.x, .y, method = "spearman"))
+
+corr.test.pvals <- map(corr.test.res,
+                   ~ .x['p.value'])
+
+pvals <- flatten(corr.test.pvals) %>% flatten
+
+corr.res <- map2(a1,
+     b1,
+     ~ cor(.x, .y))
+
+cor.df <- corr.res %>% data.frame %>% t
+colnames(cor.df) <- "correlation"
+cor.df <- as.data.frame(cor.df)
+
+cor.df$cell.type <- rownames(cor.df)
+```
+
+```{r}
+sample1.avg.cor <- cor.df$correlation %>% mean()
+sample1.avg.cor.sd <- cor.df$correlation %>% sd()
+print(paste0("Sample 1 Average Correlation : ", sample1.avg.cor, " +- ", sample1.avg.cor.sd))
+```
+
+```{r}
+ggplot(cor.df, aes(x = correlation)) +
+  geom_dotplot(binwidth = .01) +
+  labs(title = "Sample 1 Cluster Averages Technical Replication", y = element_blank(), x = "Spearman Correlation") +
+  coord_flip() +
+  geom_text_repel(aes(y = .001, x = correlation, label=ifelse(correlation < .9, cell.type, '')), label.padding = 5, force = 2) 
+```
+
+```{r}
+#ggsave(paste0(results_dir, "kc_40_technical_cluster_cor_", Sys.Date(), ".png"))
+```
+
+```{r}
+kc.42 <- subset(seu, subset = biorep == "kc.42")
+kc.42$orig.ident <- factor(kc.42$orig.ident, labels = c("Sample 2A", "Sample 2B"))
+
+umap.sample2 <- DimPlot(kc.42, group.by = "orig.ident", pt.size = umap.pt.size) + ggtitle("") + theme(legend.text = element_text(size = legend.text.size))
+
+DimPlot(kc.42, group.by = "orig.ident")
+#ggsave(paste0(results_dir, "seu_group_by_kc42_technical_legend_", Sys.Date(), ".png"))
+rm(kc.42)
+```
+
+```{r}
+# Subset to the technical replicate
+kc.42.1 <- subset(seu, subset = orig.ident == "kc.42.1")
+# Average expression by cell type
+expr.1a <- AverageExpression(kc.42.1, group.by = "cell.type")
+# Clean-up the returned object
+a2 <- expr.1a$RNA %>% as.data.frame()
+a2$`Fetal Cytotrophoblasts` <- NULL
+
+kc.42.2 <- subset(seu, subset = orig.ident == "kc.42.2")
+expr.1b <- AverageExpression(kc.42.2, group.by = "cell.type")
+b2 <- expr.1b$RNA %>% as.data.frame()
+
+corr.test.res <- map2(a2,
+                      b2,
+                      ~ cor.test(.x, .y, method = "spearman"))
+
+corr.test.pvals <- map(corr.test.res,
+                   ~ .x['p.value'])
+
+pvals <- flatten(corr.test.pvals) %>% flatten
+
+corr.res <- map2(a2,
+     b2,
+     ~ cor(.x, .y))
+
+cor.df <- corr.res %>% data.frame %>% t
+colnames(cor.df) <- "correlation"
+cor.df <- as.data.frame(cor.df)
+
+cor.df$cell.type <- rownames(cor.df)
+```
+
+```{r}
+sample2.avg.cor <- cor.df$correlation %>% mean()
+sample2.avg.cor.sd <- cor.df$correlation %>% sd()
+print(paste0("Sample 2 Average Correlation : ", sample2.avg.cor, " +- ", sample2.avg.cor.sd))
+```
+
+```{r}
+ggplot(cor.df, aes(x = correlation)) +
+  geom_dotplot(binwidth = .01) +
+  labs(title = "Sample 2 Cluster Averages Technical Replication", y = element_blank(), x = "Spearman Correlation") +
+  coord_flip() +
+  geom_text_repel(aes(y = .001, x = correlation, label=ifelse(correlation < .9, cell.type, '')), label.padding = 5, force = 2) 
+```
+
+```{r}
+#ggsave(paste0(results_dir, "kc_42_technical_cluster_cor_", Sys.Date(), ".png"))
+```
+
+
+```{r}
+panel <- ggarrange(umap.sample1, umap.sample2, umap.mf, umap.biorep, ncol = 2, nrow = 2, labels = "AUTO", font.label = list(size = 30, face = "bold", color = "black"))
+#ggexport(panel, filename = here("results", "seurat", "umap", paste0(Sys.Date(), "_umaps_var.png")), width = 1980, height = 1080)
+```
+
+```{r}
+seu$cell.type %>% factor %>% levels
+```
+
+```{r}
+table <- table(Idents(seu), seu$ident)
+samples <- c("1A", "1B", "2A", "2B", "3", "4", "5")
+colnames(table) <- samples
+table.df <- as.data.frame(table)
+
+total <- sum(table.df$Freq) %>% as.numeric
+
+#write.csv(table, file = here("results", "seurat", paste0(Sys.Date(), "_cell_counts.csv")))
+```
+
+Compare proliferative and cytotrophoblasts.
+```{r}
+prolif.genes <- FindMarkers(seu, ident.1 = "Fetal Proliferative Cytotrophoblasts", "Fetal Cytotrophoblasts")
+```
+
+Full list of genes, formatted for publication
+```{r}
+prolif.markers <- prolif.genes %>%
+  rownames_to_column(var = "gene") %>%
+  #filter(avg_log2FC > 0) %>%
+  #filter(p_val_adj < p_val_adj_threshold) %>%
+  #group_by(cluster) %>%
+  arrange(desc(avg_log2FC)) %>%
+  #slice_head(n=10) %>%  # Formatting after this line
+  mutate(p_val = if_else(p_val == 0, 2.23e-308, p_val)) %>%
+  mutate(p_val_adj = if_else(p_val_adj == 0, 2.23e-308, p_val_adj)) %>%
+  dplyr::select(gene, avg_log2FC, pct.1, pct.2, p_val, p_val_adj) %>%
+  mutate(p_val = format(p_val, scientific = TRUE, digits = 3)) %>%
+  mutate(p_val_adj = format(p_val_adj, scientific = TRUE, digits = 3)) %>%
+  mutate(avg_log2FC = format(avg_log2FC, digits = 3)) %>%
+  mutate('p-value' = if_else(p_val == 2.23e-308, "< 2.23E-308", as.character(p_val))) %>%
+  mutate('adjusted p-value' = if_else(p_val_adj == 2.23e-308, "< 2.23E-308", as.character(p_val_adj))) %>%
+  dplyr::select(-c(p_val, p_val_adj))
+
+prolif.markers.colnames <- c("Gene", "log2 Fold-change", "Percentage cluster cells expressing gene", "Percentage other cells expressing gene", "P-value", "Bonferroni-adjusted p-value")
+colnames(prolif.markers) <- prolif.markers.colnames
+
+# Write to .csv
+#write.csv(prolif.markers, paste0(here("results", "seurat", paste0("/", Sys.Date(),  "prolif_ct_markers.csv"))), row.names = FALSE)
+```
+
+```{r}
+prolif.markers$Gene %>% length
+```
+
+```{r}
+# Function to select the gene column in each sublist
+marker_Volcano <- function(res, names, num.to.plot, genes.of.interest, threshold, output_dir) {
+  
+  # Indicator variable as to whether significant
+  res$sig <- (res$p_val_adj < threshold)
+  
+  res <- rownames_to_column(res, var = "gene")
+  
+  # Get the top downregulated hits
+  downreg <- res %>%
+    filter(p_val_adj < threshold) %>%
+    filter(avg_log2FC < 0) %>%
+    arrange(avg_log2FC)
+  #Get the top upregulated hits.
+  upreg <- res %>%
+    filter(p_val_adj < threshold) %>%
+    filter(avg_log2FC > 0) %>%
+    arrange(desc(avg_log2FC))
+  
+  top.upreg <- upreg$gene[1:num.to.plot]
+  print(top.upreg)
+  top.downreg <- downreg$gene[1:num.to.plot]
+  genes.to.plot <- c(top.upreg, top.downreg, genes.of.interest)
+  print(top.downreg)
+  res$label <- F
+  res$label[(res$gene %in% genes.to.plot)] <- T
+  
+  p <- ggplot(res) +
+    geom_point(aes(
+      x = avg_log2FC,
+      y = -log10(p_val_adj),
+      colour = sig
+    )) +
+    geom_text_repel(aes(
+      x = avg_log2FC,
+      y = -log10(p_val_adj),
+      label = ifelse(label, gene, "")
+    )) +
+    geom_hline(yintercept = -log10(threshold),
+               linetype = "dotted") +
+    ggtitle(names) +
+    xlab("log2 fold change") +
+    ylab("-log10 adjusted p-value") +
+    theme(
+      legend.position = "none",
+      plot.title = element_text(size = rel(1.5), hjust = 0.5),
+      axis.title = element_text(size = rel(1.25))
+    )
+  print(p)
+  ggsave(plot = p, filename = paste0(output_dir, names, "_", Sys.Date(), ".png"), device = "png")
+}
+```
+
+```{r}
+marker_Volcano(prolif.genes, "Proliferative vs. Non-Proliferative Cytotrophoblasts", num.to.plot = 10, genes.of.interest = NULL, threshold = 0.05, output_dir = here("results", "seurat"))
+```
+
+```{r}
+list.gProfiler <- prolif.genes %>% rownames_to_column(var = "gene") %>% arrange(desc(avg_log2FC)) %>% dplyr::select(gene) 
+list.gProfiler <- list.gProfiler$gene
+gostres <- gost(query = list.gProfiler,
+               organism = "hsapiens", ordered_query = TRUE,
+               multi_query = FALSE, significant = TRUE, exclude_iea = TRUE,
+               measure_underrepresentation = FALSE, evcodes = FALSE,
+               user_threshold = 0.05, correction_method = "g_SCS",
+               domain_scope = "annotated", custom_bg = NULL,
+               numeric_ns = "", sources = NULL, as_short_link = FALSE)
+```
+
+Get full enrichment results
+```{r}
+# Drop parent column list for .csv save of all results
+gostres.table <- gostres$result
+gostres.table$parents <- NULL
+
+gostres.table <- 
+  gostres.table %>%
+  relocate(term_name, .after = significant) %>%
+  dplyr::select(-c(query))
+#write.csv(gostres.table, here("results", "seurat", paste0("prolif_ct_vs_ct_markers_gost_results_table_", Sys.Date(), ".csv")), row.names = FALSE)
+```
+
+```{r}
+p <- gostplot(gostres, capped = FALSE, interactive = FALSE) + ggtitle("Proliferative vs. Non-Proliferative Cytotrophoblasts")
+p
+```
+
+```{r}
+terms.to.plot <- gostres$result %>% arrange(p_value)
+terms.to.plot <- terms.to.plot$term_id[1:10]
+```
+
+```{r}
+#pp <- publish_gostplot(p, highlight_terms = terms.to.plot, filename = here("results", "seurat", paste0(Sys.Date(), "_prolif_ct_enriched_gost_plot.png")))
+```
+
+Compare mesenchymal stem cells and fibroblasts
+```{r}
+prolif.genes <- FindMarkers(seu, ident.1 = "Fetal Mesenchymal Stem Cells", ident.2 = "Fetal Fibroblasts")
+```
+
+```{r}
+View(prolif.genes %>% rownames_to_column(var = "gene"))
+```
+
+```{r}
+marker_Volcano(prolif.genes, "Mesenchymal Stem Cells vs. Fibroblasts", num.to.plot = 10, genes.of.interest = NULL, threshold = 0.05, output_dir = here("results", "seurat"))
+```
+
+```{r}
+list.gProfiler <- prolif.genes %>% rownames_to_column(var = "gene") %>% arrange(desc(avg_log2FC)) %>% dplyr::select(gene) 
+list.gProfiler <- list.gProfiler$gene
+gostres <- gost(query = list.gProfiler,
+               organism = "hsapiens", ordered_query = TRUE,
+               multi_query = FALSE, significant = TRUE, exclude_iea = TRUE,
+               measure_underrepresentation = FALSE, evcodes = FALSE,
+               user_threshold = 0.05, correction_method = "g_SCS",
+               domain_scope = "annotated", custom_bg = NULL,
+               numeric_ns = "", sources = NULL, as_short_link = FALSE)
+```
+
+```{r}
+p <- gostplot(gostres, capped = FALSE, interactive = TRUE) #+ ggtitle("Mesenchymal Stem Cells vs. Fibroblasts")
+p
+```
+
+```{r}
+terms.to.plot <- gostres$result %>% arrange(p_value)
+terms.to.plot <- terms.to.plot$term_id[1:10]
+```
+
+```{r}
+#pp <- publish_gostplot(p, highlight_terms = terms.to.plot, filename = here("results", "seurat", paste0(Sys.Date(), "_mesenchymal_stem_vs_fibroblast_enriched_gost_plot.png")))
+```

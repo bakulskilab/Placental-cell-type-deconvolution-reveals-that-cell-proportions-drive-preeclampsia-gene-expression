@@ -1,0 +1,65 @@
+---
+title: "cibersortx_sig_mat_heatmap_viz"
+author: "Kyle Abraham Campbell"
+date: "11/30/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(here)
+library(pheatmap)
+library(tidyverse)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Load CIBERSORTx signature matrix output
+```{r}
+dat <- read_tsv(here("results", "cibersortx_local", "analytic_gse75010", "kc_pr_tsang_sig_matrix.txt"))
+dat.mat <- column_to_rownames(dat, var = "NAME")
+dat.mat.log <- log(dat.mat)
+```
+
+```{r}
+dat %>%
+  filter(`Fetal Syncytiotrophoblast` > 1000) %>%
+  select(NAME,  `Fetal Syncytiotrophoblast`)
+```
+
+
+```{r}
+maxes <- apply(X = dat.mat, MARGIN = 2, FUN = max)
+maxes
+
+maxes.log <- apply(X = dat.mat.log, MARGIN = 2, FUN = max)
+maxes.log
+```
+
+
+pheatmap tips, https://slowkow.com/notes/pheatmap-tutorial/
+```{r}
+pheatmap(dat.mat, kmeans_k = 50, show_rownames = FALSE, main = "Raw counts - 50 gene clusters")
+pheatmap(dat.mat.log, show_rownames = FALSE, main = "CIBERSORTx signature gene matrix - log library size-normalized counts", cluster_rows = F)
+```
+
+
+```{r}
+heatmap.log <- pheatmap(dat.mat.log, show_rownames = FALSE, main = "CIBERSORTx signature gene matrix - log library size-normalized counts", cluster_rows = F, fontsize = 24)
+heatmap.log
+```
+
+https://stackoverflow.com/questions/43051525/how-to-draw-pheatmap-plot-to-screen-and-also-save-to-file
+```{r}
+save_pheatmap_png <- function(x, filename, width=1920, height=1080) {
+   stopifnot(!missing(x))
+   stopifnot(!missing(filename))
+   png(filename, width=width, height=height)
+   grid::grid.newpage()
+   grid::grid.draw(x$gtable)
+   dev.off()
+}
+```
+
+```{r}
+#save_pheatmap_png(heatmap.log, here("results", "cibersortx_local", "analytic_GSE75010", paste0(Sys.Date(), "_signature_gene_matrix_heatmap_log_transormed.png")))
+```
+

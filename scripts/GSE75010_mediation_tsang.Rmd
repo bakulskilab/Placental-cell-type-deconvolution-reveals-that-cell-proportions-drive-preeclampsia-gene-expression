@@ -19,13 +19,16 @@ knitr::opts_chunk$set(echo = TRUE)
 
 Load files from GSE75010_dex_analysis.Rmd
 ```{r}
-df <- readRDS(file = here("data", "2022-04-12_med_data.rda"))
-df.all <- readRDS(file = here("data", "2022-04-12_all_med_data.rda"))
+# Outdated datasets
+#df <- readRDS(file = here("data", "2022-04-12_med_data.rda"))
+#df.all <- readRDS(file = here("data", "2022-04-12_all_med_data.rda"))
+
+df <- readRDS(file = here("data", "2022-05-19_med_data.rda"))
+df.all <- readRDS(file = here("data", "2022-05-19_all_med_data.rda"))
 ```
 
 # g-formula Mediation in CMAVerse {.tabset}
 
-Trying the CMAVerse approach for simplicity and to double-check proper specification of mediation models
 ```{r}
 # Determining value of m for controlled effect
 m.mean.control <- df %>%
@@ -37,6 +40,31 @@ m.mean.preeclampsia <- df %>%
   dplyr::filter(phenotype == "Preeclampsia") %>%
   dplyr::summarise(mean = mean(Dim.3)) %>%
   as.numeric()
+
+find_m <- function(var) {
+  
+  m.mean.control <- df %>%
+  dplyr::filter(phenotype == "Control") %>%
+  dplyr::summarise(mean = mean(.data[[var]])) %>%
+  as.numeric()
+
+  m.mean.preeclampsia <- df %>%
+  dplyr::filter(phenotype == "Preeclampsia") %>%
+  dplyr::summarise(mean = mean(.data[[var]])) %>%
+  as.numeric(m.mean.preeclampsia)
+
+  return(c(m.mean.control, m.mean.preeclampsia))
+}
+
+find_m("Dim.1")
+find_m("Dim.2")
+find_m("Dim.3")
+find_m("Dim.4")
+find_m("Dim.5")
+
+m.mean.control <- find_m("Dim.3")[1]
+m.mean.preeclampsia <- find_m("Dim.3")[2]
+
 ```
 
 ## PC3 Interaction, m = mean(control)
@@ -93,6 +121,9 @@ summary(res_gformula.m.a.noint)
 ```
 
 ## Each PC in one model with interaction
+
+### FLT1
+Analytic model with interaction
 ```{r, results='hide'}
 res_gformula.m.a <- cmest(data = df, model = "gformula", outcome = "FLT1", exposure = "phenotype",
                       mediator = c("Dim.1", "Dim.2", "Dim.3", "Dim.4", "Dim.5"), basec = c("sex", "batch"), postc = "ga", EMint = TRUE,
@@ -104,7 +135,35 @@ res_gformula.m.a <- cmest(data = df, model = "gformula", outcome = "FLT1", expos
 summary(res_gformula.m.a)
 ```
 
+### LEP
+Analytic model with interaction
+```{r, results='hide'}
+res_gformula.m.a <- cmest(data = df.all, model = "gformula", outcome = "LEP", exposure = "phenotype",
+                      mediator = c("Dim.1", "Dim.2", "Dim.3", "Dim.4", "Dim.5"), basec = c("sex", "batch"), postc = "ga", EMint = TRUE,
+                      mreg = list("linear", "linear", "linear", "linear", "linear"), yreg = "linear", postcreg = list("linear"),
+                      astar = 0, a = 1, mval = list(0, 0, 0, 0, 0), estimation = "imputation", inference = "bootstrap", nboot = 1000)
+```
+
+```{r}
+summary(res_gformula.m.a)
+```
+
+### ENG
+Analytic model with interaction
+```{r, results='hide'}
+res_gformula.m.a <- cmest(data = df.all, model = "gformula", outcome = "ENG", exposure = "phenotype",
+                      mediator = c("Dim.1", "Dim.2", "Dim.3", "Dim.4", "Dim.5"), basec = c("sex", "batch"), postc = "ga", EMint = TRUE,
+                      mreg = list("linear", "linear", "linear", "linear", "linear"), yreg = "linear", postcreg = list("linear"),
+                      astar = 0, a = 1, mval = list(0, 0, 0, 0, 0), estimation = "imputation", inference = "bootstrap", nboot = 1000)
+```
+
+```{r}
+summary(res_gformula.m.a)
+```
+
 ## Each PC in one model without interaction
+### FLT1
+Final model without interaction
 ```{r, results='hide'}
 res_gformula.m.a <- cmest(data = df, model = "gformula", outcome = "FLT1", exposure = "phenotype",
                       mediator = c("Dim.1", "Dim.2", "Dim.3", "Dim.4", "Dim.5"), basec = c("sex", "batch"), postc = "ga", EMint = FALSE,
@@ -116,10 +175,38 @@ res_gformula.m.a <- cmest(data = df, model = "gformula", outcome = "FLT1", expos
 ```{r}
 summary(res_gformula.m.a)
 ```
+### LEP
+Final model without interaction
+```{r, results='hide'}
+res_gformula.m.a <- cmest(data = df.all, model = "gformula", outcome = "LEP", exposure = "phenotype",
+                      mediator = c("Dim.1", "Dim.2", "Dim.3", "Dim.4", "Dim.5"), basec = c("sex", "batch"), postc = "ga", EMint = FALSE,
+                      mreg = list("linear", "linear", "linear", "linear", "linear"), yreg = "linear", postcreg = list("linear"),
+                      astar = 0, a = 1, mval = list(0, 0, 0, 0, 0), 
+                      estimation = "imputation", inference = "bootstrap", nboot = 1000)
+```
+
+```{r}
+summary(res_gformula.m.a)
+```
+
+### ENG
+Final model without interaction
+```{r, results='hide'}
+res_gformula.m.a <- cmest(data = df.all, model = "gformula", outcome = "ENG", exposure = "phenotype",
+                      mediator = c("Dim.1", "Dim.2", "Dim.3", "Dim.4", "Dim.5"), basec = c("sex", "batch"), postc = "ga", EMint = FALSE,
+                      mreg = list("linear", "linear", "linear", "linear", "linear"), yreg = "linear", postcreg = list("linear"),
+                      astar = 0, a = 1, mval = list(0, 0, 0, 0, 0), 
+                      estimation = "imputation", inference = "bootstrap", nboot = 1000)
+```
+
+```{r}
+summary(res_gformula.m.a)
+```
+
 # {-}
 
 ## Imai Mediation Approach
-Using the mediation package approach
+Using the mediation package approach; not used
 
 Mediator model (PC3 in this case)
 ```{r}

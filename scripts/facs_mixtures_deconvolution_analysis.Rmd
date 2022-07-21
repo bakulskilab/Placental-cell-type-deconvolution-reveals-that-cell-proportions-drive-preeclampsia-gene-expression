@@ -1,0 +1,112 @@
+---
+title: "facs_sort_deconvolution"
+author: "Kyle Abraham Campbell"
+date: "4/12/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(here)
+library(factoextra)
+library(tidyverse)
+library(betareg)
+library(boot)
+library(psych)
+library(readxl)
+```
+
+Import CIBERSORT cell type fraction imputation data.
+```{r}
+frac <- read_tsv(here("results", "cibersortx_local", "analytic_kc_facs_mixtures", "CIBERSORTx_Adjusted.txt"))
+colnames(frac)[1] <- "sample"
+head(frac)
+dim(frac)
+```
+
+```{r}
+levels(factor(frac$sample))
+colnames(frac[2:28])
+```
+
+Summary stats
+```{r}
+describe(frac$`P-value`)
+describe(frac$Correlation)
+describe(frac$RMSE)
+```
+
+```{r}
+describe(frac$`Fetal Cytotrophoblasts`)
+describe(frac$`Fetal Syncytiotrophoblast`)
+describe(frac$`Fetal Naive CD8+ T Cells`)
+```
+
+```{r}
+describe(frac$`Maternal Naive CD8+ T Cells`)
+describe(frac$`Maternal Natural Killer Cells`)
+describe(frac$`Maternal Plasma Cells`)
+```
+
+```{r}
+facs.cats <-
+  frac %>%
+  mutate(Cytotrophoblast = round(rowSums(across((matches("Cytotrophoblast")))), 2)) %>%
+  mutate(Fibroblast = round(rowSums(across((matches("Fibroblast|Mesenchymal")))), 2)) %>%
+  mutate(Leukocyte = round(rowSums(across((matches("T Cells|Monocytes|Natural Killer|B Cells|Dendritic Cells|Plasma Cells")))), 2)) %>%
+  mutate(cell.type = substr(sample, start = 10, stop = 99)) %>%
+  mutate(`Fetal Endothelial Cells` = round(`Fetal Endothelial Cells`, 2)) %>%
+  mutate(`Fetal Extravillous Trophoblasts` = round(`Fetal Extravillous Trophoblasts`, 2)) %>%
+  mutate(`Fetal Hofbauer Cells` = round(`Fetal Hofbauer Cells`, 2)) %>%
+  mutate(`Fetal Syncytiotrophoblast` = round(`Fetal Syncytiotrophoblast`, 2)) %>%
+  mutate(`P-value` = round(`P-value`, 2)) %>%
+  mutate(`Correlation` = round(`Correlation`, 2)) %>%
+  mutate(`RMSE` = round(`RMSE`, 2)) %>%
+  dplyr::select(sample, cell.type, Cytotrophoblast, `Fetal Endothelial Cells`, `Fetal Extravillous Trophoblasts`, `Fetal Hofbauer Cells`, Fibroblast, Leukocyte, `Fetal Syncytiotrophoblast`) %>%
+  arrange(cell.type)
+colnames(facs.cats)[1] <- "Sample"
+colnames(facs.cats)[2] <- "Cell Type"
+```
+
+```{r}
+list <- list(
+  "Deconvoluted sorted cell type" = facs.cats,
+  "Deconvolution Results" = frac
+  )
+
+write.xlsx(list, file = here("results", "bulk", paste0(Sys.Date(), "_sorted_deconvolution_res.xlsx")))
+#write_csv(facs.cats, file = here("data", paste0(Sys.Date(), "_facs_mixtures_deconvoluted.csv")))
+```
+
+Notes for 05-01-2022 results, which had apparent sample swap:
+
+The 105xxx samples look alright-ish, can make a reasonable argument for enrichment on most of them (but still rough), though Syncytiotrophoblast was still predicted at 0% for that sample
+
+Sample 7 looks fine for the most part (KC39), failure to distinguish between Hofbauer and leukocyte, same issue with syncytiotrophoblast
+
+Looks like Sample 6 may have a LK/HB swap, which is reasonable considering they are sorted right next to each other
+Have the same LK/HB swap in Sample 1 
+
+Next step is to check the transcriptomic data to see if reasonable.
+Can also check FACS-sorting records to see if Samples 6 and 1 were sorted or RNA extractd on the same day whereas the other 2 samples were not
+
+Cite dissociation and freezing bias issues
+Cite previous paper that describes CT as being unamenable to sorting; scRNA-seq results are much stronger 
+
+```{r}
+fb <- facs.cats %>% filter(`Cell Type` == "Fibroblast") %>% pull(Fibroblast)
+mean(fb)
+sd(fb)
+```
+
+```{r}
+lk <- facs.cats %>% filter(`Cell Type` == "Leukocyte") %>% pull(Leukocyte)
+mean(lk)
+sd(lk)
+```
+```{r}
+hb <- facs.cats %>% filter(`Cell Type` == "Hofbauer") %>% pull(Leukocyte)
+mean(hb)
+sd(hb)
+```
+

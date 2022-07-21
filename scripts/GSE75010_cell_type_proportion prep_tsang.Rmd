@@ -8,6 +8,7 @@ output: html_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 library(here)
+library(Hmisc)
 library(factoextra)
 library(tidyverse)
 library(betareg)
@@ -127,7 +128,10 @@ colnames(merged)[colnames(merged)=="Maternal CD14+ Monotyes"] <- "Maternal CD14+
 head(merged)
 dim(merged)
 #saveRDS(merged, paste0(data_dir, "GSE75010_with_abundances_2022-04-12.rda"))
-#merged <- readRDS(paste0(data_dir, "GSE75010_with_abundances_2022-04-05.rda"))
+
+# Updated Tsang resubmit
+#saveRDS(merged, paste0(data_dir, "GSE75010_with_abundances_2022-05-01.rda"))
+merged <- readRDS(paste0(data_dir, "GSE75010_with_abundances_2022-05-01.rda"))
 ```
 
 Summary stats
@@ -138,14 +142,28 @@ describe(merged$RMSE)
 ```
 
 ```{r}
-describe(merged$`Fetal Cytotrophoblasts`)
-describe(merged$`Fetal Syncytiotrophoblast`)
-describe(merged$`Fetal Naive CD8+ T Cells`)
+Hmisc::describe(merged$`Fetal Cytotrophoblasts`)
+sd(merged$`Fetal Cytotrophoblasts`)
+Hmisc::describe(merged$`Fetal Syncytiotrophoblast`)
+sd(merged$`Fetal Syncytiotrophoblast`)
+Hmisc::describe(merged$`Fetal Mesenchymal Stem Cells`)
+sd(merged$`Fetal Mesenchymal Stem Cells`)
+Hmisc::describe(merged$`Fetal Naive CD8+ T Cells`)
+sd(merged$`Fetal Naive CD8+ T Cells`)
 ```
 
 ```{r}
-describe(merged$`Maternal Naive CD8+ T Cells`)
-describe(merged$`Maternal Natural Killer Cells`)
-describe(merged$`Maternal Plasma Cells`)
+Hmisc::describe(merged$`Maternal Naive CD8+ T Cells`)
+sd(merged$`Maternal Naive CD8+ T Cells`)
+Hmisc::describe(merged$`Maternal Natural Killer Cells`)
+sd(merged$`Maternal Natural Killer Cells`)
+Hmisc::describe(merged$`Maternal Plasma Cells`)
+sd(merged$`Maternal Plasma Cells`)
+Hmisc::describe(merged$`Maternal B Cells`)
+sd(merged$`Maternal B Cells`)
+```
+
+```{r}
+colSums(merged[,6:33])
 ```
 

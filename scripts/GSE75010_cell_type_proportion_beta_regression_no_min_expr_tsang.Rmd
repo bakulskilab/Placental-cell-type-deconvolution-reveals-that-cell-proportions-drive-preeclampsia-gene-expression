@@ -27,12 +27,15 @@ library(readxl)
 library(table1)
 library(tidymodels)
 
+data_dir <- paste0(here("data"), "/")
+results_dir <- paste0(here("results", "GSE75010"), "/")
+
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
 Using default max signature genes per class and no min expr, P-value error, increase permutations
 ```{r}
-merged <- readRDS(here("data", "GSE75010_with_abundances_2022-04-12.rda"))
+merged <- readRDS(here("data", "GSE75010_with_abundances_2022-05-01.rda"))
 ```
 
 Summary stats about the correlation measurement
@@ -131,13 +134,14 @@ label(t1$batch) <- "Batch"
 
 Code based on http://www.sthda.com/english/articles/31-principal-component-methods-in-r-practical-guide/118-principal-component-analysis-in-r-prcomp-vs-princomp/.
 
-Prep data for PCA - extract only the active variables and drop Fetal Naive CD4+ T Cells and Fetal B cells because 0% predicted for each observation.
+Prep data for PCA - extract only the active variables and drop Fetal Naive CD4+ T Cells and Fetal B cells (for initial Tsang analysis) because 0% predicted for each observation.
 ```{r}
-# Select only the cell type proportions
+# Select only the cell type proportions, and those that are non-zero, the following for the Tsang resubmit analysis
 active <- 
   merged %>%
-  dplyr::select(!c(sample, phenotype, batch, ga, sex, "P-value", RMSE, Correlation, "Fetal Naive CD4+ T Cells", "Fetal B Cells"))
-# Assign sample IDs to rownames of cell type proportions
+  dplyr::select(!c(sample, phenotype, batch, ga, sex, "P-value", RMSE, Correlation, "Fetal Naive CD4+ T Cells", "Fetal GZMB+ Natural Killer"))
+
+  # Assign sample IDs to rownames of cell type proportions
 rownames(active) <- merged$sample
 ```
 
@@ -149,7 +153,7 @@ pca.summary <- summary(res.pca)
 
 prop.var <- as.data.frame(pca.summary$importance)
 
-# The first 5 components provide almost 78% of the variance explained.
+# The first 5 components provide ~87% of the variance explained.
 sum(prop.var[2,1:5])
 ```
 
@@ -164,6 +168,19 @@ fviz_eig(res.pca)
 colSums(res.pca$rotation)
 #View(res.pca$center)
 ```
+
+```{r}
+fviz_contrib(res.pca, choice = "var", axes = 1:2, top = 10)
+```
+
+```{r}
+fviz_contrib(res.pca, choice = "var", axes = 1:3, top = 10)
+```
+
+```{r}
+fviz_contrib(res.pca, choice = "var", axes = 3, top = 10)
+```
+
 
 Graph of individuals. Individuals with a similar profile are grouped together.
 ```{r}
@@ -208,6 +225,21 @@ pc.1.3 <- fviz_pca_var(res.pca,
 pc.1.3
 #ggsave(paste0(results_dir, "variables_pca_1_3_", Sys.Date(), ".png"))
 ```
+
+```{r}
+pc.2.3 <- fviz_pca_var(res.pca,
+             axes = c(3,2),
+             col.var = "contrib", # Color by contributions to the PC
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             legend.title = "Contribution",
+             # Default labelsize = 4
+             labelsize = 2*4,
+             repel = TRUE,     # Avoid text overlapping 
+             ) + 
+  theme(legend.position = "none")
+pc.2.3
+```
+
 
 ```{r}
 groups <- t1$phenotype
@@ -255,11 +287,19 @@ ggarrange(pc_inds$`12`, pc_inds$`13`,
 
 Make presentable graphs
 ```{r}
+#pc.plots <- list(
+#  "loadings.1.2" = pc.1.2 + ggtitle("Loadings Plot - PC1xPC2"),
+#  "loadings.1.3" = pc.1.3 + ggtitle("Loadings Plot - PC1xPC3"),
+#  "observations.1.2" = pc_inds$`12` + ggtitle("PCA Plot - PC1xPC2"),
+#  "observations.1.3" = pc_inds$`13` + ggtitle("PCA Plot - PC1xPC3")
+#)
+
+# Try Dim 2 by Dim 3 instead of Dim 1 by Dim 3 as second graph
 pc.plots <- list(
   "loadings.1.2" = pc.1.2 + ggtitle("Loadings Plot - PC1xPC2"),
-  "loadings.1.3" = pc.1.3 + ggtitle("Loadings Plot - PC1xPC3"),
+  "loadings.2.3" = pc.2.3 + coord_flip() + ggtitle("Loadings Plot - PC3xPC2"),
   "observations.1.2" = pc_inds$`12` + ggtitle("PCA Plot - PC1xPC2"),
-  "observations.1.3" = pc_inds$`13` + ggtitle("PCA Plot - PC1xPC3")
+  "observations.2.3" = (pc_inds$`23` +  coord_flip() + ggtitle("PCA Plot - PC3xPC2")) # need to re-flip again after coord_cartesian set
 )
 
 # Input ggplot to get x and y limits for graph
@@ -328,6 +368,7 @@ y_min <- min(y_limits)
 y_max <- max(y_limits)
 
 plots.observations <- map(pc.plots[3:4], ~.x + coord_cartesian(xlim = c(x_min, x_max), ylim = c(y_min, y_max)))
+plots.observations$observations.2.3 <- plots.observations$observations.2.3 + coord_flip()
 
 pc.plots <- c(plots.loadings, plots.observations)
 pc.plots <- map(pc.plots, ~ .x + theme_minimal(base_size = 20))
@@ -338,14 +379,18 @@ pc.plots[1:2] <- map(pc.plots[1:2], ~ .x + theme(legend.position = "none"))
 ```{r}
 pc.plots$loadings.1.2
 pc.plots$loadings.1.3
+pc.plots$loadings.2.3
 pc.plots$observations.1.2
 pc.plots$observations.1.3
+pc.plots$observations.2.3
 ```
 
 Common legends
 ```{r}
-loadings <- ggarrange(pc.plots$loadings.1.2, pc.plots$loadings.1.3, labels = c("A", "B"), common.legend = TRUE, legend = "bottom", font.label = list(size = 24, face = "bold", color = "black"))
-observations <- ggarrange(pc.plots$observations.1.2, pc.plots$observations.1.3, labels = c("C", "D"), common.legend = TRUE, legend = "bottom", font.label = list(size = 24, face = "bold", color = "black"))
+#loadings <- ggarrange(pc.plots$loadings.1.2, pc.plots$loadings.1.3, labels = c("A", "B"), common.legend = TRUE, legend = "bottom", font.label = list(size = 24, face = "bold", color = "black"))
+loadings <- ggarrange(pc.plots$loadings.1.2, pc.plots$loadings.2.3, labels = c("A", "B"), common.legend = TRUE, legend = "bottom", font.label = list(size = 24, face = "bold", color = "black"))
+#observations <- ggarrange(pc.plots$observations.1.2, pc.plots$observations.1.3, labels = c("C", "D"), common.legend = TRUE, legend = "bottom", font.label = list(size = 24, face = "bold", color = "black"))
+observations <- ggarrange(pc.plots$observations.1.2, pc.plots$observations.2.3, labels = c("C", "D"), common.legend = TRUE, legend = "bottom", font.label = list(size = 24, face = "bold", color = "black"))
 ```
 
 Summary and graph of PCA results.
@@ -424,7 +469,7 @@ var.cos2 <- var.coord^2
 head(var.cos2[, 1:4])
 ```
 
-PC1 is predominately placental types, PCs 2:5 are primarily immune cells, PC 6 is primarily placental
+Top PCs are predominately placental types, PC 5 is primarily influenced by immune cells
 ```{r}
 # Compute contributions
 #::::::::::::::::::::::::::::::::::::::::
@@ -433,6 +478,24 @@ contrib <- function(var.cos2, comp.cos2){var.cos2*100/comp.cos2}
 var.contrib <- t(apply(var.cos2,1, contrib, comp.cos2))
 head(var.contrib[, 1:4])
 #View(var.contrib)
+```
+
+```{r}
+colSums(var.contrib)
+```
+
+```{r}
+(var.contrib["Fetal Syncytiotrophoblast", "PC1"] + var.contrib["Fetal Syncytiotrophoblast", "PC2"])/200
+(var.contrib["Fetal Extravillous Trophoblasts", "PC1"] + var.contrib["Fetal Extravillous Trophoblasts", "PC2"])/200
+(var.contrib["Fetal Cytotrophoblasts", "PC1"] + var.contrib["Fetal Cytotrophoblasts", "PC2"])/200
+```
+
+
+```{r}
+var.contrib["Fetal Cytotrophoblasts", "PC3"]
+var.contrib["Fetal Syncytiotrophoblast", "PC3"] 
+var.contrib["Fetal Mesenchymal Stem Cells", "PC3"]
+var.contrib["Fetal Extravillous Trophoblasts", "PC3"]
 ```
 
 Interesting way to visualize the relative abundance of each cell type
@@ -589,6 +652,7 @@ fetal
 
 #ggsave(paste0(results_dir, "fetal_bivariate_cell_type_proportion_distribution_", Sys.Date(), ".png"))
 ```
+
 ```{r}
 fetal <- ggplot(long.fetal, aes(x = Proportion, y = Cell.Type, color = sex, point_color = sex, fill = sex)) +
   geom_density_ridges(
@@ -622,7 +686,6 @@ fetal
 ```{r}
 colnames(long.fetal)
 ```
-
 
 ```{r}
 long.fetal %>% group_by(phenotype, Cell.Type) %>% summarise(median = median(Proportion)) #%>% View
@@ -713,7 +776,7 @@ maternal
 ```
 
 ```{r}
-long.maternal %>% group_by(phenotype, Cell.Type) %>% summarise(median = median(Proportion))
+long.maternal %>% group_by(phenotype, Cell.Type) %>% summarise(median = median(Proportion))# %>% View
 ```
 
 ```{r}
@@ -788,8 +851,11 @@ outcomes <- colnames(merged)[cell.types]
 merged %>%
   dplyr::select(outcomes) %>%
   colSums()
-# Exclude Fetal Naive CD4+ T Cells and Fetal B Cells; no longer necessary with the Tsang data integration
+# Exclude Fetal Naive CD4+ T Cells and Fetal B Cells; no longer necessary in initial analysis with the Tsang data integration
 #outcomes <- outcomes[!(outcomes %in% c("Fetal.Naive.CD4..T.Cells", "Fetal.B.Cells"))]
+
+# Tsang resubmit has the following cell types as all zero
+outcomes <- outcomes[!(outcomes %in% c("Fetal.Naive.CD4..T.Cells", "Fetal.GZMB..Natural.Killer"))]
 
 models <- beta_reg_models(outcomes, covariates, merged)
 fits <- beta_reg_model_fits(outcomes , covariates, merged)

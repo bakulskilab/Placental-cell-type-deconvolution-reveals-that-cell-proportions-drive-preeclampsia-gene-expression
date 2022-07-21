@@ -41,6 +41,18 @@ Orchestrating Single-cell Analysis
 ### Compiling Issues
 This document had trouble compiling via knitr and pandoc. The following thread fixed the issue (https://github.com/rstudio/rstudio/issues/3661).
 
+Custom function to run fastMNN pipe with 
+```{r}
+pipe.fast.mnn <- function(seu, batch) {
+  seu <- RunFastMNN(object.list = SplitObject(seu, split.by = batch), verbose = T)
+  seu@tools$RunFastMNN$merge.info$lost.var %>% print
+  seu <- RunUMAP(seu, reduction = "mnn", dims = 1:30)
+  seu <- FindNeighbors(seu, reduction = "mnn", dims = 1:30)
+  seu <- FindClusters(seu, res = 0.2)
+  return(seu)
+}
+```
+
 ## Load QC'd Data
 ```{r}
 seu <- readRDS(here("data", "kcprfinal_tsang_qc_merged_2022-02-15.rda"))
@@ -191,6 +203,7 @@ rm(kc)
 rm(pr)
 rm(tsang)
 ```
+
 Add maternal/fetal assignment and sex
 ```{r}
 meta <- seu@meta.data
@@ -373,5 +386,129 @@ normal.samples.mnn
 
 ```{r}
 #saveRDS(seu, here("data", paste0(Sys.Date(), "_seu_normal_mnn.rda")))
+```
+
+# Updated QC thresholds for resubmit
+seu.initial.analysis describes the original Tsang addition
+seu here is with updated QC threshold for resubmission (same NMADs %mito [3 for pr/tsang and 4 for kc samples], lib.size < 500, genes < 200)
+```{r}
+seu.initial.analysis <- readRDS(here("data", "analytic", "2022-04-18_all_merged_pruned_batch_mnn.rda"))
+seu <- readRDS(here("data", "analytic", "post_qc", "kc_pr_tsang_qc_merged_2022-04-22.rda"))
+```
+
+```{r}
+seu <- pipe.fast.mnn(seu, batch = "batch")
+```
+
+```{r}
+DimPlot(seu, label = T, repel = T, pt.size = 0.25) + NoLegend()
+DimPlot(seu.initial.analysis, label = T, repel = T, pt.size = 0.25) + NoLegend()
+```
+
+```{r}
+colnames(seu) %in% colnames(seu.initial.analysis) %>% summary
+seu$annotated <- rownames(seu@meta.data) %in% rownames(seu.initial.analysis@meta.data)
+seu$discard %>% summary
+```
+
+All non-kc samples here that are unannotated should be doublets, singleR pruned, or lasso-removed. Should only have to annotate kc that don't fall in those categories
+```{r}
+table(seu$orig.ident, seu$annotated)
+
+seu
+seu.initial.analysis
+```
+
+Add maternal/fetal assignment and sex
+```{r}
+meta <- seu@meta.data
+barcode <- rownames(meta)
+df <- as_tibble(cbind(barcode, meta))
+meta.new <- df %>%
+  mutate(fetal = case_when(
+    grepl("pr", orig.ident) ~  # for all PR samples, there are more fetal than maternal cells
+      if_else(freemuxlet.assignments == 0,
+              TRUE,
+              FALSE),
+    grepl("kc", orig.ident) ~     
+             if_else(
+               orig.ident == "kc.40.1", # Of the KC samples, only kc.40.1 has more fetal than maternal cells
+               if_else(freemuxlet.assignments == 0,
+                       TRUE,
+                       FALSE),
+               if_else(freemuxlet.assignments == 1,
+                       TRUE,
+                       FALSE)
+             ),
+    grepl("tsang", orig.ident) ~
+                   if_else(
+               orig.ident %in% c("tsang_n3c", "tsang_n4c"), # Of the Tsang samples, only n3c and n4c have more maternal than fetal cells
+               if_else(freemuxlet.assignments == 1,
+                       TRUE,
+                       FALSE),
+               if_else(freemuxlet.assignments == 0,
+                       TRUE,
+                       FALSE)
+             )
+  )) %>%
+  mutate(sex =
+           if_else(
+             fetal == F,
+             "female",
+             if_else(
+               biorep %in% c("kc.42", "pr.481", "pr.484", "tsang_n1", "tsang_n2", "tsang_pe1", "tsang_pe2"),
+               "male",
+               "female")
+           )
+  )
+meta.new$fetal <- factor(meta.new$fetal,
+                         levels = c(TRUE, FALSE),
+                         labels = c("Fetal", "Maternal"))
+meta.new$sex <- factor(meta.new$sex,
+                         levels = c("female", "male"),
+                         labels = c("Female", "Male"))
+
+# Add new variables to Seurat object
+seu <- AddMetaData(object = seu, metadata = meta.new$fetal, col.name = 'fetal')
+seu <- AddMetaData(object = seu, metadata = meta.new$sex, col.name = 'sex')
+```
+
+Double-check sex assignment is correct
+```{r}
+VlnPlot(object= seu,
+        features = c("XIST", "RPS4Y1", "EIF1AY", "DDX3Y", "KDM5D"),
+        group.by = 'orig.ident')
+```
+
+```{r}
+VlnPlot(object= seu.initial.analysis,
+        features = c("XIST", "RPS4Y1", "EIF1AY", "DDX3Y", "KDM5D"),
+        group.by = 'orig.ident')
+```
+
+```{r}
+batch <- SplitObject(seu, split.by = "batch")
+kc <- batch$kc
+pr <- batch$pr
+tsang <- batch$tsang
+rm(batch)
+DimPlot(kc, group.by = 'fetal', split.by = 'orig.ident', pt.size = .25)
+DimPlot(pr, group.by = 'fetal', split.by = 'orig.ident', pt.size = .25)
+DimPlot(tsang, group.by = 'fetal', split.by = 'orig.ident', pt.size = .25)
+```
+
+```{r}
+batch <- SplitObject(seu.initial.analysis, split.by = "batch")
+kc <- batch$kc
+pr <- batch$pr
+tsang <- batch$tsang
+rm(batch)
+DimPlot(kc, group.by = 'fetal', split.by = 'orig.ident', pt.size = .25)
+DimPlot(pr, group.by = 'fetal', split.by = 'orig.ident', pt.size = .25)
+DimPlot(tsang, group.by = 'fetal', split.by = 'orig.ident', pt.size = .25)
+```
+
+```{r}
+#saveRDS(seu, here("data", "analytic", "post_anno", paste0(Sys.Date(), "_resubmit_annotated_seu_normal_mnn.rda")))
 ```
 

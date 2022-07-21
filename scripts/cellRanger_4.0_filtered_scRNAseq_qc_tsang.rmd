@@ -899,7 +899,7 @@ colnames(QC) <- c("Sample", "Fetal Sex", "Droplets Sequenced", "Total Unique RNA
 base.size <- 24
 
 rna.vln <- plotColData(sce, x="sample", y="sum", colour_by="discard") + 
-  scale_y_log10() + ggtitle("Total RNA molecules") + theme_bw(base_size = base.size) +
+  scale_y_log10() + ggtitle("Total unique RNA molecules") + theme_bw(base_size = base.size) +
   theme(legend.position = "bottom") +
   guides(colour = guide_legend(override.aes = list(size=20), reverse = TRUE))
 #ggsave(here("results", "single_cell_qc", paste0(Sys.Date(), "rna_molecules_by_rep.png")))

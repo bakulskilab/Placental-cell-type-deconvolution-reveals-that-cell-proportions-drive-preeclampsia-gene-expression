@@ -9,6 +9,7 @@ output:
 ```{r setup, include=FALSE}
 # CRAN Packages
 library(ashr)
+library(edgeR)
 library(ggplot2)
 library(ggrepel)
 library(gprofiler2)
@@ -29,77 +30,66 @@ library(org.Hs.eg.db)
 
 knitr::opts_chunk$set(echo=TRUE)
 ```
+
+Note: we deduced we had two sample swaps within biological replicates (Sample_103903 -> Sample_103906 & Sample_103911 -> Sample_103914) based on marker gene expression and estimated cell type proportions based on the scRNA-seq dataset reference
+
 ## Entering Data, Preproccessing, and Model Fitting
+
 ```{r DESeq2_object}
-#counts <- readRDS(file =  here("data", "bulk", "edgeR_collapsed_counts.Rda"))
-#meta <- readRDS(file = here("data", "bulk", "edgeR_collapsed_metadata.Rda"))
-#gene_annotation <- readRDS(here("data", "bulk", "edgeR_gene_annotation_with_symbols.Rda"))
+counts <- readRDS(file =  here("data", "bulk", "DESeq2_collapsed_count_data.Rda"))
+meta <- readRDS(file = here("data", "bulk", "DESeq2_collapsed_sample_metadata.Rda"))
 
 # Must make meta rownames identical to counts colnames
-#rownames(meta) <- substr(rownames(meta), 8, 14)
+rownames(meta) <- substr(rownames(meta), 8, 14)
 
 # Creating the DESeq2 experiment object from count data and meta info
-#dds <- DESeqDataSetFromMatrix(countData = counts,
-#                              colData = meta,
-#                              design = ~ 0 + sample.ID + cell.type)
-
-# Adding comprehensive gene annotation to dds
-#mcols(dds) <- DataFrame(mcols(dds), gene_annotation)
-
-# NOT using at this point
-# Minimal pre-processing to reduce computational load - does NOT represent meaningful filtering
-#keep <- rowSums(counts(dds)) >= 10
-#dds <- dds[keep,]
-
-# Fitting the model
-#dds <- DESeq(dds)
+dds <- DESeqDataSetFromMatrix(countData = counts,
+                              colData = meta,
+                              design = ~ 0 + sample.ID + cell.type)
 ```
 
 Droppping .xx from ENSG IDs for symbol annotation: https://www.biostars.org/p/293965/
 Explanation of ENSG vs. ENST: https://www.biostars.org/p/199073/
 
-```{r AddGeneAnnotation}
+```{r AddGeneAnnotation, eval = F}
 # Chop off the .xx from the ENSEMBL ID
-#row.names(dds) <- substr(x = row.names(dds), start = 1, stop = 15)
-
-#row.names(dds) <- mapIds(org.Hs.eg.db,
-#                     keys=row.names(dds),
-#                     column="SYMBOL",
-#                     keytype="ENSEMBL",
-#                     multiVals="first")
+row.names(dds) <- substr(x = row.names(dds), start = 1, stop = 15)
 ```
 
 BiomaRt returns 58,069 of 58,381 gene features from DESeq2 results. Of the 58,069 results, 56,521 return unique external gene names and 58,024 return unique ENSEMBL gene IDs.
 
-```{r biomaRt_DESeq2_results}
+```{r biomaRt_DESeq2_results, eval = F}
 # Setting up biomaRt
 # Assigning Mart of interest, human ensembl here
-#mart = useMart("ensembl",dataset="hsapiens_gene_ensembl")
+mart = useMart("ensembl",dataset="hsapiens_gene_ensembl")
 
 # Querying biomaRt using gene names to get back ENSEMBL IDs
-#DESeq2GeneIDs <- getBM(attributes = c('ensembl_gene_id', 'external_gene_name'),
-#             filters = c('ensembl_gene_id'),
-#             values = rownames(dds),
-#             mart = mart)
-#genes.tbl <- as_tibble(DESeq2GeneIDs)
+DESeq2GeneIDs <- getBM(attributes = c('ensembl_gene_id', 'external_gene_name'),
+             filters = c('ensembl_gene_id'),
+             values = rownames(dds),
+             mart = mart)
+genes.tbl <- as_tibble(DESeq2GeneIDs)
 
 #saveRDS(genes.tbl, here("data", "bulk", "deseq2_gene_symbols.rda"))
+```
+
+```{r load_biomaRt_DESeq2_results}
 # Load gene ids
 genes.tbl <- readRDS(here("data", "bulk", "deseq2_gene_symbols.rda"))
 ```
 
 Save/load 
-```{r}
+```{r, eval = F}
 #saveRDS(DESeq2GeneIDs_tbl, "biomaRt_DESeq2_ensembl_ids.rda")
 #DESeq2GeneIDs_tbl <- as_tibble(readRDS("biomaRt_DESeq2_ensembl_ids.rda"))
 ```
 
-```{r SaveLoad}
+```{r SaveLoad, eval = F}
 # Saved the fitted model object to avoid having to reestimate parameters
 #saveRDS(dds, file = "./data/analysis_datasets/DESeq2_dds_noint_celltype_sampleid_nofiltering.rda")
 
-# Load the finished DESeq2 object - note this object has trimmed ensembl IDs
-#dds <- readRDS(here("data", "bulk", "DESeq2_dds_noint_celltype_sampleid_nofiltering.rda"))
+# Load the annotated DESeq2 object - note this object has trimmed ensembl IDs
+dds <- readRDS(here("data", "bulk", "DESeq2_dds_noint_celltype_sampleid_nofiltering.rda"))
 ```
 
 Ideas for how to deal with multiple Ensembl IDs mapping to a single gene symbol
@@ -109,7 +99,7 @@ https://www.researchgate.net/post/How-to-deal-with-multiple-ensemble-IDs-mapping
 
 Our first contrast of interest is how cell type-specific expression differs vs. the average expression across all other cell types. [This thread](https://support.bioconductor.org/p/118090/) recommends fitting a no-intercept model to answer this question. [Another thread](https://support.bioconductor.org/p/86347/) contains a brief discussion of how to code it. These contrasts will exclude the composite tissue group. I wonder if excluding the composite samples from normalization and filtering is appropriate for this particular set of comparisions. I think that also depends on whether we use the composite samples in any analyses.
 
-Updated code (3/2021) and outstanding forks:
+Updated code (3/2021):
 1. Include composite samples in model for gene variance moderation or drop? Leave in
   a. "If I have multiple groups, should I run all together or split into pairs of groups?" DESeq2 vignette recommends to do so unless within-group variability varies differently than other groups, the high variance can disrupt the genewise dispersion estimates in the other groups.
 2. Include endothelial in the cell type comparison group?
@@ -124,35 +114,37 @@ Note: in DESeq2 alpha is the FDR-adjusted significance cutoff
 
 4. Bimodal histograms are a little weird down below. Several threads (https://support.bioconductor.org/p/102313/, https://www.biostars.org/p/331711/, https://www.biostars.org/p/312792/), including Michael Love suggest pre-filtering as low counts may be causing the peaks on the p-value histogram (recall that a well-calibrated statistical test has a uniform p-value distribution with a spike at low p-values if there's a significant difference). 
 
-Pre-filtering: normalized counts greater than 10 per gene and detected in at least three samples, as recommended in the DESeq2 paper to address bimodal p-value distribution.
+Solution: Pre-filtering: normalized counts greater than 10 per gene and detected in at least three samples, as recommended in the DESeq2 paper to address bimodal p-value distribution.
 
-```{r}
-# binary <- as.matrix((counts(dds) > 0) + 0)
-# keep.three <- rowSums(binary) >= 3
-# dds <- dds[keep.three]
+```{r, eval = F}
+binary <- as.matrix((counts(dds) > 0) + 0)
+# Exclude 19048 transcripts that were not detected in at least 3 samples - 39,333 remaining
+keep.three <- rowSums(binary) >= 3
+dds <- dds[keep.three]
 ```
 
-```{r}
-# keep.min <- rowSums(counts(dds, normalized = TRUE)) >= 10
-# dds <- dds[keep.min, ]
+```{r, eval = F}
+keep.min <- rowSums(counts(dds, normalized = TRUE)) >= 10
+# Exclude 865 transcripts that did not have at least 10 normalized counts across all samples, leaving 38,468 for analysis
+dds <- dds[keep.min, ]
 ```
 
-```{r}
-# dds <- DESeq(dds)
+```{r, eval = F}
+dds <- DESeq(dds)
 ```
 
 Save a prefiltered version of the dds for other analyses.
-```{r}
+```{r, eval = F}
 #saveRDS(dds, here("data", "bulk", paste0(Sys.Date(), "_dds_prefiltered.rda")))
 ```
 
 Load the prefiltered version.
-```{r}
+```{r, eval = F}
 dds <- readRDS(here("data", "bulk", "2021-04-16_dds_prefiltered.rda"))
 ```
 
 Format and export metadata table
-```{r}
+```{r, eval = F}
 meta.tb <- dds@colData %>% as.data.frame %>% as_tibble
 levels(meta.tb$sample.ID) <- c("Sample 6", "Sample 7", "Sample 1", "Sample 8")
 meta.tb$sample.ID <- relevel(meta.tb$sample.ID, "Sample 1")
@@ -162,17 +154,78 @@ meta.tb$title <- paste0(meta.tb$sample.ID, " - Bulk RNA-seq - ", str_to_title(me
 #write.csv(meta.tb, here("data", "bulk", "bulk_RNA_seq_meta.csv"), row.names = FALSE)
 ```
 
+Custom function to plot gene counts by sample and cell type
+```{r, eval = F}
+gene.lookup <- rowData(dds) %>% as.data.frame %>% dplyr::select(ensgene, symbol)
+plot_gene_counts<- function(gene) {
+  
+  gene.id <- gene.lookup %>%
+  filter(symbol == gene) %>%
+  pull(ensgene)
+  
+  d <- plotCounts(dds, gene=gene.id, intgroup = "cell.type", returnData = TRUE)
+  ggplot(d, aes(x = cell.type, y = count, color = cell.type)) + 
+    geom_point(position=position_jitter(w = 0.1,h = 0)) +
+    geom_text_repel(aes(label = rownames(d))) + 
+    theme_bw() +
+    ggtitle(gene) +
+    theme(plot.title = element_text(hjust = 0.5))
+}
+```
+
+```{r, eval = F}
+genes <- c("PTPRC", "COL1A1", "HLA-G", "KDR", "KRT7", "CSH1")
+lapply(genes, plot_gene_counts)
+```
+
+```{r, eval = F}
+immune.markers <- c("CD163", "LYVE1", "CD14", "CD8A", "CD3D", "NKG7", "CD79A")
+lapply(immune.markers, plot_gene_counts)
+```
+
+We deduced we had two sample swaps within biological replicates (Sample_103903 -> Sample_103906 & Sample_103911 -> Sample_103914) based on marker gene expression and estimated cell type proportions based on the scRNA-seq dataset reference
+```{r, eval = F}
+dds@colData[dds@colData$run.sample.ID == "Sample_103906", 1] <- "leukocyte"
+dds@colData[dds@colData$run.sample.ID == "Sample_103903", 1] <- "fibroblast"
+
+dds@colData[dds@colData$run.sample.ID == "Sample_103914", 1] <- "leukocyte"
+dds@colData[dds@colData$run.sample.ID == "Sample_103911", 1] <- "fibroblast"
+```
+
+Format and export updated metadata table, including renaming samples
+```{r, eval = F}
+meta.tb <- dds@colData %>% as.data.frame %>% as_tibble
+levels(meta.tb$sample.ID) <- c("Sorted 2", "Sorted 3", "Sorted 1", "Sorted 4")
+meta.tb$sample.ID <- relevel(meta.tb$sample.ID, "Sorted 1")
+
+meta.tb$title <- paste0(meta.tb$sample.ID, " - Bulk RNA-seq - ", str_to_title(meta.tb$cell.type))
+
+dds@colData$sample.ID <- meta.tb$sample.ID
+
+#write.csv(meta.tb, here("data", "bulk", "bulk_RNA_seq_meta.csv"), row.names = FALSE)
+```
+
+Re-run DESeq model with updated dds object
+```{r, eval = F}
+dds <- DESeq(dds)
+```
+
+```{r}
+#saveRDS(dds, here("data", "analytic", "sorted", paste0(Sys.Date(), "DEseq2_object.rda")))
+dds <- readRDS(here("data", "analytic", "sorted", "2022-05-14DEseq2_object.rda"))
+```
 
 ## Data Quality Assessment by Clustering and Visualization
 
-We'll begin by transforming the data to the log-fold-2 scale using the same shrinkage transformation employed in the DEX pipeline without prefiltering.
+We'll begin by transforming the data to the log-fold-2 scale using the same shrinkage transformation employed in the DEX pipeline
 ```{r transformation}
 #rld <- rlog(dds, blind = TRUE)
-#saveRDS(rld, here("data", "bulk", paste0(Sys.Date(), "DESeq2_rld.rda")))
-rld <- readRDS(here("data", "bulk", "2021-03-26DESeq2_rld.rda"))
+#saveRDS(rld, here("data", "bulk", paste0(Sys.Date(), "_DESeq2_rld.rda")))
+#rld <- readRDS(here("data", "bulk", "2021-03-26DESeq2_rld.rda"))
+rld <- readRDS(here("data", "bulk", "2022-05-14_DESeq2_rld.rda"))
 ```
 
-103911 - leukocyte apperas to be an outlier on blind PCA analysis, will remove and rerun. PCA looks similar with 103911 - do not remove
+103911 - leukocyte apperas to be an outlier on blind PCA analysis, will remove and rerun. PCA looks similar with 103911 - do not remove; after sample swap, no longer an outlier
 ```{r}
 #dds_103911 <- dds[,colnames(dds) != "103911"]
 #dds_103911 <- DESeq(dds_103911)
@@ -204,12 +257,12 @@ pcaData <- plotPCA(rld, intgroup=c("cell.type", "sample.ID"), returnData=TRUE)
 percentVar <- round(100 * attr(pcaData, "percentVar"))
 
 # Modify labels for prettier graphing
-cell.type.labels <- c("Composite", "Cytotrophoblast" , "Endothelial", "Extravillous Trophoblast", "Fibroblast", "Hofbauer Cell", "Leukocyte", "Syncytiotrophoblast")
+cell.type.labels <- c("Whole Tissue", "Cytotrophoblast", "Endothelial", "Extravillous Trophoblast", "Fibroblast", "Hofbauer Cell", "Leukocyte", "Syncytiotrophoblast")
 levels(pcaData$cell.type) <- cell.type.labels
 
 # 6 corresponds to KC36, 7 to KC39, 1 to KC40 (the single-cell matched sample), and 8 to KC48
-sample.labels <- c(6, 7, 1, 8)
-levels(pcaData$sample.ID) <- sample.labels
+#sample.labels <- c(6, 7, 1, 8)
+#levels(pcaData$sample.ID) <- sample.labels
 
 ggplot(pcaData, aes(PC1, PC2, color=cell.type, shape=sample.ID)) +
   geom_point(size=3.5) +
@@ -218,11 +271,23 @@ ggplot(pcaData, aes(PC1, PC2, color=cell.type, shape=sample.ID)) +
   labs(color = "Cell Type", shape = "Sample")
   coord_fixed()
 #ggsave(sprintf("%sSorted_PCA.png", local_output_path), device = "png")
-#ggsave(here("results", "bulk", paste0(Sys.Date(), "_sorted_PCA.png")))
+#ggsave(here("results", "bulk", paste0(Sys.Date(), "_analytic_sorted_PCA.png")))
 ```
 
 ### Model
+
 ``` {r}
+cell.types <-
+    list(
+      "cytotrophoblast",
+      "endothelial",
+      "extravilloustrophoblast",
+      "fibroblast",
+      "hofbauer",
+      "leukocyte",
+      "syncytiotrophoblast"
+    )
+
 run_deseq2 <- function(target, dds) {
   
   # Print current target
@@ -230,6 +295,9 @@ run_deseq2 <- function(target, dds) {
   
   # Set alpha
   alpha <- .05
+  
+  # Set logFC cutoff
+  logFC.cutoff <- 1.2
   
   # List coefficients
     cell.types <-
@@ -326,14 +394,14 @@ run_deseq2 <- function(target, dds) {
   upreg <-
     res %>%
     filter(padj < alpha) %>%
-    filter(log2FoldChange > 0) %>%
+    filter(log2FoldChange > logFC.cutoff) %>%
     arrange(desc(log2FoldChange))
   
   # Get and arrange downreg
   downreg <-
     res %>%
     filter(padj < alpha) %>%
-    filter(log2FoldChange < 0) %>%
+    filter(log2FoldChange < -logFC.cutoff) %>%
     arrange(desc(abs(log2FoldChange)))
   
   # Number of top downregulated and upregulated genes to label on Volcano plot
@@ -351,13 +419,17 @@ run_deseq2 <- function(target, dds) {
   # Add significance indicator variable for plotting
   res <-
     res %>%
-    mutate(sig = ifelse(padj < alpha,
+    mutate(sig = ifelse((padj < alpha) & (abs(log2FoldChange) > logFC.cutoff),
                         T,
                         F))
   # Label factor levels for legend purposes
+  #res$sig <- factor(res$sig,
+  #                  levels = c(FALSE, TRUE),
+  #                  labels = c("FDR-adjusted p-value > 0.05", "FDR-adjusted p-value < 0.05"))
+  
   res$sig <- factor(res$sig,
                     levels = c(FALSE, TRUE),
-                    labels = c("FDR-adjusted p-value > 0.05", "FDR-adjusted p-value < 0.05"))
+                    labels = c("Does not meet p-value and logFC criteria", paste0("FDR-adjusted p-value < ", alpha, " & log2FC > ", logFC.cutoff)))
 
   
   # Volcano plot
@@ -375,6 +447,8 @@ run_deseq2 <- function(target, dds) {
     max.overlaps = Inf,
     size = 6) +
     geom_hline(yintercept = -log10(alpha), linetype = "dotted") +
+    geom_vline(xintercept = logFC.cutoff, linetype = "dotted") +
+    geom_vline(xintercept = -logFC.cutoff, linetype = "dotted") +
     ggtitle("Contrast of Interest") +
     xlab("log2 fold change") +
     ylab("-log10 adjusted p-value") +
@@ -422,17 +496,6 @@ run_deseq2 <- function(target, dds) {
                      "shrunk" = resLFC)
   return(returnList)
 }
-
-cell.types <-
-    list(
-      "cytotrophoblast",
-      "endothelial",
-      "extravilloustrophoblast",
-      "fibroblast",
-      "hofbauer",
-      "leukocyte",
-      "syncytiotrophoblast"
-    )
 ```
 
 ``` {r}
@@ -544,7 +607,7 @@ volcano.legend <- get_legend(big.volcano.ct + theme(legend.title = element_blank
 panel <- ggarrange(volcanos[[1]], volcanos[[2]], volcanos[[3]], volcanos[[4]], volcanos[[5]], volcanos[[6]], volcanos[[7]], volcano.legend, ncol = 4, nrow = 2, labels = "AUTO", font.label = list(size = 36, face = "bold", color = "black"))
 #print(panel)
 # Works okay with theme_bw(base_size = 20) and font.label size = 24 in ggarrange
-#ggexport(panel, filename = here("results", "bulk", "volcanos", paste0(Sys.Date(), "_volcano_multipanel.png")), width = 1920, height = 1080)
+ggexport(panel, filename = here("results", "bulk", "volcanos", paste0(Sys.Date(), "_volcano_multipanel.png")), width = 1920, height = 1080)
 ```
 
 ```{r}
@@ -556,8 +619,34 @@ results <- map(mapped, ~ .x[["res"]])
 #View(results)
 ```
 
-Create a top10 table for brief supplemental table.
 ```{r}
+logFC.cutoff <- 1.2
+alpha <- 0.05
+
+all <- plyr::ldply(results, rbind) %>%
+  group_by(.id) %>%
+  arrange(desc(stat)) %>% # Sort by value of test statistic, fine since we want to see the overexpressed hits
+  dplyr::select(.id, gene_symbol, log2FoldChange, baseMean, pvalue, padj) %>% # Pick which columns to keep and in which order
+  # Filter by logFC and pvalue
+  filter(log2FoldChange > logFC.cutoff) %>%
+  filter(padj < alpha) %>%
+  mutate(log2FoldChange = round(log2FoldChange, digits = 2)) %>%
+  mutate(baseMean = round(baseMean, digits = 2)) %>%
+  mutate(pvalue = signif(pvalue, digits = 2)) %>%
+  mutate(padj = signif(padj, digits = 2))
+all$.id <- factor(all$.id)
+levels(all$.id) <- contrast.labels
+colnames(all) <- c("Cell Type", "Gene", "log2 Fold-change", "Base Mean", "P-value", "False-discovery rate-adjusted Q-value")
+
+all.split <- all %>% group_split()
+names(all.split) <- contrast.labels
+
+# Write to multiple sheets
+#write.xlsx(as.list(all.split), file = here("results", "bulk", paste0(Sys.Date(), "_all_sorted_dex_res.xlsx")))
+```
+
+Create a top10 table for brief supplemental table.
+```{r, eval = F, include = F}
 all <- plyr::ldply(results, rbind) %>%
   group_by(.id) %>%
   arrange(desc(stat)) %>% # Sort by value of test statistic, fine since we want to see the overexpressed hits
@@ -584,7 +673,7 @@ all.top10 <- all %>%
 #write_csv(all.top10, here("results", "bulk", paste0(Sys.Date(), "_deseq2_dex_top10.csv")))
 ```
 
-PrerankGSEA does not resolve ties. Code to make GSEA input and diagnostic plots to ensure that there are not excessive ties. GSEA results seem hard to interpret so far. GSEA should always include all genes tested in differential expression. Perhaps subsetting to the most enriched pathways will be easier to interpret. In RNA-seq, GSEA may suffer from very lowly expressed genes that may be artifactual and expressed in any samples.
+PrerankGSEA does not resolve ties. Code to make GSEA input and diagnostic plots to ensure that there are not excessive ties. GSEA should always include all genes tested in differential expression. Perhaps subsetting to the most enriched pathways for interpretation. In RNA-seq, GSEA may suffer from very lowly expressed genes that may be artifactual and expressed in any samples.
 ```{r}
 make_gsea_input <- function(res, title) {
 
@@ -629,7 +718,7 @@ make_gsea_input <- function(res, title) {
   # )
   
   # Write  .rnk file for GSEA input
-  #write_tsv(return, here("results", "GSEA", "sorted", paste0(title, "_all_cell_types_prefilter_gsea_input_stats_", Sys.Date(), ".rnk")), col_names = FALSE)
+  write_tsv(return, here("results", "GSEA", "sorted", paste0(title, "_all_cell_types_prefilter_gsea_input_stats_", Sys.Date(), ".rnk")), col_names = FALSE)
   
   return(return)
 }
@@ -720,6 +809,7 @@ gsea.table <- gsea.table %>%
   mutate(nes = as.numeric(nes)) %>%
   mutate(pval = as.numeric(pval)) %>%
   mutate(qval = as.numeric(qval)) %>%
+  filter(qval < 0.05) %>%
   mutate(nes =  round(nes, digits = 3)) %>%
   mutate(pval = round(pval, digits = 3)) %>%
   mutate(qval = round(qval, digits = 3)) %>%
@@ -728,10 +818,63 @@ gsea.table <- gsea.table %>%
 
 colnames(gsea.table) <- c("Cell Type", "Name", "Size", "Normalized Enrichment Score", "P-value", "False Discovery Rate-Controlled q-value")
 
-gsea.table.top10 <- gsea.table %>%
+
+cell.type.ontologies <- 
+  gsea.table %>%
   group_by(`Cell Type`) %>%
-  slice_head(n = 10)
+  group_split()
+names(cell.type.ontologies) <- contrast.labels
+
+
+#write.xlsx(as.list(cell.type.ontologies), file = here("results", "bulk", paste0(Sys.Date(), "_all_sorted_gsea_res.xlsx")))
+
+#gsea.table.top10 <- gsea.table %>%
+#  group_by(`Cell Type`) %>%
+#  slice_head(n = 10)
 
 #write_csv(gsea.table, here("results", "GSEA", "sorted", paste0(Sys.Date(), "_gsea_hits.csv")))
 #write_csv(gsea.table.top10, here("results", "GSEA", "sorted", paste0(Sys.Date(), "_gsea_hits_top10.csv")))
 ```
+
+# Export for CIBERSORTx mixture deconvolution
+```{r}
+# CPM-normalize DESeq2 count matrix
+cpm <- fpm((dds))
+
+cpm.tbl <- 
+  cpm %>%
+  as.data.frame() %>%
+  rownames_to_column("ensembl_gene_id") %>%
+  left_join(genes.tbl)
+
+# Dropped genes due to duplication or missing annotation
+duplicated.genes <- 
+  cpm.tbl %>%
+  group_by(external_gene_name) %>%
+  filter(n()>1) %>%
+  dplyr::select(external_gene_name, everything())
+
+# Reformat table
+cpm.tbl.unique <-
+  cpm.tbl %>%
+  group_by(external_gene_name) %>%
+  filter(n() == 1) %>%
+  ungroup() %>%
+  dplyr::select(-ensembl_gene_id) %>%
+  dplyr::select(external_gene_name, everything())
+
+# Create sample names
+labels <- paste0(dds@colData$sample.ID, "_", str_to_title(dds@colData$cell.type))
+labels <- str_replace(labels, " ", "_")
+
+# Annotate sample names
+colnames(cpm.tbl.unique)[1] <- "GeneSymbol"
+colnames(cpm.tbl.unique)[2:length(colnames(cpm.tbl.unique))] <- labels
+
+# Check for missingness
+is.na(cpm.tbl.unique) %>% summary
+
+# Write
+#write_tsv(cpm.tbl.unique, here("data", "bulk", paste0(Sys.Date(), "_bulk_mixture_CIBERSORTx_input_fpm.txt")))
+```
+

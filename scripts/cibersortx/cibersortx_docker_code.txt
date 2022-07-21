@@ -6,7 +6,38 @@
 docker `
 -v
 
-# A1) Deconvolute GSE75010 w KC, PR, Tsang
+# A1) Deconvolute GSE75010 w KC, PR, Tsang, resubmit, 05-01-2022
+docker run `
+-v G:\My` Drive\Placenta_Cell_Types\RNA\placenta_cell_types_rna\data\cibersortx_local:/src/data `
+-v G:\My` Drive\Placenta_Cell_Types\RNA\placenta_cell_types_rna\results\cibersortx_local\analytic_gse75010:/src/outdir `
+cibersortx/fractions `
+--username kyleac@umich.edu `
+--token 027ef63505e8202ff51c424562d3c328 `
+--verbose TRUE `
+--perm 100 `
+--fraction 0 `
+--single_cell TRUE `
+--refsample KC_PR_Tsang_sc_signature_matrix_input_2022-05-01.txt `
+--mixture GSE75010_input_mixture_2020-10-13.txt `
+--rmbatchSmode TRUE
+
+# A2) Deconvolute FACS cell fractions with analytic settings, from A1
+docker run `
+-v G:\My` Drive\Placenta_Cell_Types\RNA\placenta_cell_types_rna\data\cibersortx_local:/src/data `
+-v G:\My` Drive\Placenta_Cell_Types\RNA\placenta_cell_types_rna\results\cibersortx_local\analytic_kc_facs_mixtures:/src/outdir `
+cibersortx/fractions `
+--username kyleac@umich.edu `
+--token 027ef63505e8202ff51c424562d3c328 `
+--verbose TRUE `
+--perm 100 `
+--fraction 0 `
+--single_cell TRUE `
+--refsample KC_PR_Tsang_sc_signature_matrix_input_2022-05-01.txt `
+--mixture 2021-11-17_bulk_mixture_CIBERSORTx_input_fpm.txt `
+--rmbatchSmode TRUE
+
+# 1) Deconvolute GSE75010
+# Deconvolute GSE75010 w KC, PR, Tsang; outdated at 3/15/2022
 docker run `
 -v G:\My` Drive\Placenta_Cell_Types\RNA\placenta_cell_types_rna\data\cibersortx_local:/src/data `
 -v G:\My` Drive\Placenta_Cell_Types\RNA\placenta_cell_types_rna\results\cibersortx_local\analytic_gse75010:/src/outdir `
@@ -21,7 +52,7 @@ cibersortx/fractions `
 --mixture GSE75010_input_mixture_2020-10-13.txt `
 --rmbatchSmode TRUE
 
-# 1) Deconvolute GSE75010
+
 docker run ` 
 -v G:\My` Drive\Placenta_Cell_Types\RNA\placenta_cell_types_rna\data\cibersortx_local:/src/data/ `
 -v G:\My` Drive\Placenta_Cell_Types\RNA\placenta_cell_types_rna\results\cibersortx_local\gse75010:/src/outdir `
@@ -50,7 +81,10 @@ cibersortx/fractions `
 --mixture GSE75010_input_mixture_2020-10-13.txt `
 --rmbatchSmode TRUE
 
-# A2) Deconvolute FACS cell fractions with analytic settings, from A1
+
+# 2) Deconvolute FACS cell fractions, CibersortX recommends fraction 0 argument for droplet-based scRNA-seq
+
+# Outdated, using Tsang sc sig matrix 03-15-2022
 docker run `
 -v G:\My` Drive\Placenta_Cell_Types\RNA\placenta_cell_types_rna\data\cibersortx_local:/src/data `
 -v G:\My` Drive\Placenta_Cell_Types\RNA\placenta_cell_types_rna\results\cibersortx_local\analytic_kc_facs_mixtures:/src/outdir `
@@ -65,7 +99,6 @@ cibersortx/fractions `
 --mixture 2021-11-17_bulk_mixture_CIBERSORTx_input_fpm.txt `
 --rmbatchSmode TRUE
 
-# 2) Deconvolute FACS cell fractions, CibersortX recommends fraction 0 argument for droplet-based scRNA-seq
 docker run `
 -v G:\My` Drive\Placenta_Cell_Types\RNA\placenta_cell_types_rna\data\cibersortx_local:/src/data/ `
 -v G:\My` Drive\Placenta_Cell_Types\RNA\placenta_cell_types_rna\results\cibersortx_local\facs_mixtures:/src/outdir `

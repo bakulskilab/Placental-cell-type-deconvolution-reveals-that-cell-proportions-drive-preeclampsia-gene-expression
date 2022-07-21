@@ -1,0 +1,306 @@
+---
+title: "scRNA-seq import and QC of placental villous tissue"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::knit_engines$set(python = reticulate::eng_python)
+
+#install.packages("package_name",  repos="http://cran.us.r-project.org") # Only this mirror worked for multiple packages
+library(here)
+library(knitr)
+library(tidyverse)
+library(devtools)
+library(Seurat)
+#remotes::install_github('satijalab/seurat-wrappers')
+library(SeuratWrappers)
+library(cowplot)
+library(rgl)
+library(EnvStats)
+library(reticulate)
+library(clustree)
+library(Matrix)
+
+# Bioconductor packages
+library(batchelor)
+library(edgeR)
+library(scater)
+# Set seed since this pipeline includes stochastic algorithms
+set.seed(1)
+# Set default working directory
+#data_dir <- "C:/Users/k_cam/Google Drive/Placenta_Cell_Types/RNA/placenta_rna/data/"
+data_dir <- paste0(here("data"), "/")
+```
+# Single-cell RNA-seq analysis of KC and TNL Pique-Regi placental villous tissue samples
+### Important References
+Minimal QC recommended: Current best practices in single‐cell RNA‐seq analysis: a tutorial
+Orchestrating Single-cell Analysis
+### Compiling Issues
+This document had trouble compiling via knitr and pandoc. The following thread fixed the issue (https://github.com/rstudio/rstudio/issues/3661).
+
+## Load Data
+```{r}
+seu <- readRDS(paste0(data_dir, "kc_pr_qc_merged_2020-12-15.rda"))
+```
+
+## QC Plots
+Post-filtering QC violin plots. Cells that expressed more than 1000 genes detected in three or more cells are included for downstream analyses. Samples KC_40_1 and KC_40_2 have been renamed 1A and 1B. KC_42_1 and KC_42_2 have been renamed 2A and 2B.
+
+```{r QC_plots}
+VlnPlot(object=seu, features='nCount_RNA', pt.size=0.15, group.by = 'orig.ident') + NoLegend() + ggtitle("Total RNA Molecules") + theme(axis.title.x = element_blank())
+VlnPlot(object=seu, features='nFeature_RNA',pt.size=0.15, group.by = 'orig.ident') + NoLegend() + ggtitle("Unique Genes Per Cell") + theme(axis.title.x = element_blank())
+VlnPlot(object=seu, features='subsets_Mito_percent',pt.size=0.15, group.by = 'orig.ident') + NoLegend() + ggtitle("Percentage of Reads Mapping to Mitochondrial Genes") + theme(axis.title.x = element_blank())
+```
+
+## QC Tabulation
+```{r QC_Tabulation}
+# Total number of genes
+#genes <- AverageExpression(object = All, features = 'nFeature_RNA', verbose = T)
+#dim(genes$RNA)[1]
+```
+
+## Pre-processing for Clustering
+
+After filtering of unwanted cells and QC assessment, the first step of clustering is to normalize the data. By default (used here), Seurat globally normalizes feature expression for each cell by total expression, multiplies by a scale factor of 10,000, and log-transforms the result.
+
+Find variable features identifies variable genes in a feature selection step for downstream analysis. Default options are the "vst" selection method, and top 2000 features returned. The variance stabilizing transformation (VST) first fits a line to the relationship of log(variance) and log(mean) using local polynomial regression ("loess"). The second step standardizes the feature values using the observed mean and expected variance (given by the fitted line). Feature variance is then calculated on the standardized values after clipping to a maximum (clip.max parameter). "loess.span" is the span paramter used when fitting the variance-mean relationship. After standardization, values larger than "clip.max" will be set to "clip.max"; by default, is 'auto' which sets "clip.max" to the square root of the number of cells.
+
+The top 25 most variables genes are labelled in the plot of standardized varaince versus average gene expression presented below. The top 2000 most variable genes are highlighted in red and are carried through for downstream analysis.
+
+```{r Normalization_and_Feature_Selection}
+# Should normalize and find variable features in each dataset separately
+seu <- NormalizeData(object = seu, normalization.method = "LogNormalize", scale.factor = 10000)
+seu <- FindVariableFeatures(object = seu)
+```
+
+```{r}
+all.genes <- rownames(seu)
+seu <- ScaleData(seu, features = all.genes)
+seu <- RunPCA(seu, features = VariableFeatures(object = seu))
+```
+
+Elbow plot to identify the dimensionality of the dataset. Seurat errs on the side of selecting more rather than fewer PCs because too few PCs can significantly affect the result.
+
+ElbowPlot() plots the standard deviations (or approximate singular values if running PCAFast) of the principle components for easy identification of an elbow in the graph. This elbow often corresponds well with the significant dims.
+
+GSEA could be conducted on the PCs to see if they identify cell types or a group of similar cell types.
+
+50 looks like more than enough to capture the variability in the dataset.
+
+```{r}
+DimPlot(seu, reduction = "pca", group.by = 'orig.ident')
+```
+
+```{r Dataset_Dimensionality}
+ElbowPlot(object = seu, ndims = 100)
+```
+
+## Uncorrected Clustering, t-SNE, UMAP 
+
+Next, we use a non-linear dimensional reduction technique to embed the first 50 PCs of the dataset into two dimensions for visualization and exploration. Seurat recommends using the same number of PCs for t-SNE and neighbor-graph. Each point represents a single cell's transcriptome. Cells with similar gene expression profiles are plotted closer together. To identify communities (cell types in this biological context), Seurat creates a shared nearest neighbor graph and creates communities that optimize "modularity", the density of links within communities compared to links between communities.
+```{r tSNE_cluster}
+# Don't want to re-run
+seu <- RunTSNE(seu, dims.use = 1:50, do.fast = T, dim.embed = 2)
+seu <- FindNeighbors(object=seu, dims=1:50, reduction='pca')
+seu <- RunUMAP(object = seu, dims = 1:50)
+seu <- FindClusters(object = seu, resolution = 0.8) #default is 0.8; 0.2 looks stable in the kc dataset
+
+table(seu@meta.data$seurat_clusters)
+table(seu@meta.data$seurat_clusters,seu$orig.ident)
+
+# tSNE plot by sample cluster
+DimPlot(object = seu,pt.size=0.7,reduction='tsne',group.by='seurat_clusters', label = T)
+DimPlot(object = seu,pt.size=0.7,reduction='tsne',group.by='orig.ident')
+DimPlot(object = seu,pt.size=0.01,reduction='tsne',group.by='batch')
+
+# UMAP plot by sample cluster
+DimPlot(object = seu,pt.size=0.7,reduction='umap',group.by='ident', label = T)
+DimPlot(object = seu,pt.size=0.01,reduction='umap',group.by='orig.ident')
+DimPlot(object = seu,pt.size=0.01, reduction='umap',group.by='batch')
+
+#saveRDS(All,file='combined_uncorrected.rda')
+```
+## MNN Correction and Clustering
+
+Re-running pipeline after MNN correction, batch correct for biological replicate
+```{r}
+# Mutual Nearest Neighbor Reduction
+# RunFastMNN, splitting by biological replicate (i.e., KC40 vs. KC42 vs. each tnl sample)
+seu <- RunFastMNN(object.list = SplitObject(seu, split.by = "biorep"))
+DimPlot(object = seu,pt.size=0.7,reduction='mnn', group.by='orig.ident')
+DimPlot(object = seu,pt.size=0.7,reduction='mnn', group.by='biorep')
+
+# Re-run UMAP and cluster pipeline after MNN correction
+seu <- RunUMAP(seu, reduction = "mnn", dims = 1:50)
+seu <- FindNeighbors(seu, reduction = "mnn", dims = 1:50)
+seu <- FindClusters(seu, resolution = 0.2)
+```
+
+```{r}
+# 'biorep' is metadata describing biological replicates
+DimPlot(seu, group.by = 'biorep')
+# 'seurat_clusters' is metadata describing default clustering'
+DimPlot(seu, group.by = 'seurat_clusters', label = T, pt.size = .25)
+# 'SampleName' describes KC40A (1A), KC40B (1B), KC42A (2A), KC42B (2B)
+DimPlot(seu, group.by = 'orig.ident')
+DimPlot(seu, group.by = 'freemuxlet.assignments')
+```
+## Assigning maternal/fetal status and sex
+Plotting several sex-specific transcripts, it is clear that KC42, PR478, and PR484 are all male fetuses. Markers come from "Robust and tissue-independent gender-specific transcript biomarkers.", published using peripheral blood as sample source (RPS4Y1, EIF1AY, DDX3Y, KDM5D and XIST; XIST being upregulated in females compared to males).
+```{r}
+VlnPlot(object= seu,
+        features = c("XIST", "RPS4Y1", "EIF1AY", "DDX3Y", "KDM5D"),
+        group.by = 'biorep')
+```
+
+Grouping by biological replicate and then splitting by freemux assignment (0/1), plotting the three most robustly expressed genes in the dataset, we clearly see that 0 (the more abundant of the two individuals) corresponds to the fetus in PR478 and PR484, and 1 corresponds to the fetus in KC42 (the less abundant of the two individuals). It can be inferred this pattern holds for PR481 and KC40, but will verify with placental gene expression below. 
+```{r}
+VlnPlot(object= seu,
+        features = c("XIST", "RPS4Y1", "EIF1AY"),
+        group.by = 'biorep',
+        split.by = 'freemuxlet.assignments',
+        split.plot = T)
+```
+Yes, the pattern holds, clearly visible in KRT7 in PR481, 0 is still the fetus in all the PR biological replicates. In other other genes, it looks like kc40.1 freemux 0 is the fetus
+```{r}
+VlnPlot(object= seu,
+        features = c("KRT8"),
+        group.by = 'orig.ident',
+        split.by = 'freemuxlet.assignments',
+        split.plot = T)
+VlnPlot(object= seu,
+        features = c("COL1A1"),
+        group.by = 'orig.ident',
+        split.by = 'freemuxlet.assignments',
+        split.plot = T)
+VlnPlot(object= seu,
+        features = c("CD163"),
+        group.by = 'orig.ident',
+        split.by = 'freemuxlet.assignments',
+        split.plot = T)
+```
+
+```{r}
+VlnPlot(object= seu,
+        features = c("total"),
+        group.by = 'orig.ident',
+        split.by = 'freemuxlet.assignments',
+        split.plot = T)
+VlnPlot(object= seu,
+        features = c("detected"),
+        group.by = 'orig.ident',
+        split.by = 'freemuxlet.assignments',
+        split.plot = T)
+VlnPlot(object= seu,
+        features = c("subsets_Mito_percent"),
+        group.by = 'orig.ident',
+        split.by = 'freemuxlet.assignments',
+        split.plot = T)
+```
+
+From above, KC42, freemux 1 is the fetus. It looks like in almost every KC sample except kc.40.1, freemux 1 is the fetus.
+Based on these findings, PR freemux 0 corresponds to fetus, KC freemux 0 corresponds to maternal except for KC40.1
+```{r}
+batch <- SplitObject(seu, split.by = "batch")
+kc <- batch$kc
+pr <- batch$pr
+rm(batch)
+DimPlot(kc, group.by = 'freemuxlet.assignments', split.by = 'orig.ident', pt.size = .25)
+DimPlot(pr, group.by = 'freemuxlet.assignments', split.by = 'orig.ident', pt.size = .25)
+rm(kc)
+rm(pr)
+```
+Add maternal/fetal assignment and sex
+```{r}
+meta <- seu@meta.data
+barcode <- rownames(meta)
+df <- as_tibble(cbind(barcode, meta))
+```
+
+Use conditional mutate to recode fetal with helpful guide: https://rstudio-pubs-static.s3.amazonaws.com/116317_e6922e81e72e4e3f83995485ce686c14.html#/9
+```{r}
+meta.new <- df %>%
+  mutate(fetal =
+           if_else(
+             grepl("pr", orig.ident),
+             if_else(freemuxlet.assignments == 0,
+                     TRUE,
+                     FALSE),
+             if_else(
+               orig.ident == "kc.40.1",
+               if_else(freemuxlet.assignments == 0,
+                       TRUE,
+                       FALSE),
+               if_else(freemuxlet.assignments == 1,
+                       TRUE,
+                       FALSE)
+             )
+             
+           )
+  ) %>%
+  mutate(sex =
+           if_else(
+             fetal == F,
+             "female",
+             if_else(
+               biorep %in% c("kc.42", "pr.481", "pr.484"),
+               "male",
+               "female")
+           )
+  )
+meta.new$fetal <- factor(meta.new$fetal,
+                         levels = c(FALSE, TRUE),
+                         labels = c("Maternal", "Fetal"))
+meta.new$sex <- factor(meta.new$sex,
+                         levels = c("female", "male"),
+                         labels = c("Female", "Male"))
+
+```
+
+```{r}
+seu <- AddMetaData(object = seu, metadata = meta.new$fetal, col.name = 'fetal')
+seu <- AddMetaData(object = seu, metadata = meta.new$sex, col.name = 'sex')
+```
+
+```{r}
+DimPlot(seu, group.by = 'fetal', pt.size = .25)
+DimPlot(seu, group.by = 'biorep', split.by = 'fetal', pt.size = .25)
+DimPlot(seu, group.by = 'sex', pt.size = .25)
+```
+
+```{r}
+# Function that accepts Seurat  that has been processed up to the clustering step, clusters at desired resolutions (vector), adds cluster identities at different resolutions, and returns Seurat object with resolution cluster identities
+Seurat_clustree <- function (seuratObject, resolutions) {
+  
+  for(hyperparameter in resolutions) {
+    print(hyperparameter)
+    prefix <- paste0("res.", hyperparameter)
+    print(prefix)
+    seuratObject <- FindClusters(object = seuratObject, resolution = hyperparameter)
+    seuratObject <- AddMetaData(object = seuratObject, metadata = seuratObject$seurat_clusters, col.name = prefix)
+  }
+  return(seuratObject)
+}
+
+resolutions <- seq(from = 0.2, to = 0.7, by = .1)
+seu <- Seurat_clustree(seu, resolutions)
+```
+
+Iterating over 0.2 to 0.7 clustering resolution, .3 looks stable. Additional divisions at .5
+```{r clustree_graph}
+clustree(seu, prefix = "res.", node_colour = "sc3_stability") + theme(legend.position = "bottom") + guides(edge_alpha = F)
+```
+res of 0.3 splits the large T-cell containing cluster into 4 groups instead of 2 and splits the monocyte group into 2 groups.
+```{r}
+# 'seurat_clusters' is metadata describing default clustering'
+DimPlot(seu, group.by = 'res.0.3', label = T, pt.size = .25)
+DimPlot(seu, group.by = 'res.0.2', label = T, pt.size = .25)
+```
+
+```{r}
+# Reset default cluster resolution
+seu <- FindClusters(seu, resolution = 0.3)
+#saveRDS(seu, paste0(data_dir, "fetal_assigned_res.0.3_",Sys.Date(), ".rda"))
+seu.res.0.3 <- FindAllMarkers(seu)
+```

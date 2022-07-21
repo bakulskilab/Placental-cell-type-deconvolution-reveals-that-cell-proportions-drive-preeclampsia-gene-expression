@@ -16,6 +16,7 @@ library(ggrepel)
 library(ggpubr)
 library(gprofiler2)
 library(knitr)
+library(openxlsx)
 library(tidyverse)
 library(Seurat)
 #remotes::install_github('satijalab/seurat-wrappers')
@@ -38,7 +39,9 @@ set.seed(1)
 
 Load cleaned Seurat data
 ```{r}
-seu <- readRDS(here("data", "analytic", "2022-04-18_all_merged_pruned_batch_mnn.rda"))
+#seu <- readRDS(here("data", "analytic", "2022-04-18_all_merged_pruned_batch_mnn.rda"))
+# Analytic Tsang resubmit
+seu <- readRDS(here("data", "analytic", "2022-05-01_all_merged_pruned_batch_mnn.rda"))
 ```
 
 QC metrics by replicate, TODO: relabel orig.ident for nicer graphs
@@ -61,6 +64,8 @@ VlnPlot(seu, features = "nFeature_RNA", pt.size = .1, group.by = "orig.ident") +
   ggtitle("Detected Genes Per Cell by Replicate")
 #ggsave(paste0(results_dir, "qc_replicate_total_genes_", Sys.Date(), ".png"))
 ```
+
+### Supplementary Figure - QC metrics by cell type cluster 
 
 QC metrics by cluster
 ```{r}
@@ -119,8 +124,10 @@ seurat.cluster.qc.plot <- VlnPlot(
 #ggsave(plot = seurat.cluster.qc.plot, filename = here("results", "seurat", paste0(Sys.Date(), "_seurat_cluster_qc_vlns.png")))
 ```
 
-Fetal sex check using XIST as a biomarker for female sex.
+### Supplementary Figure - XIST expression by biological replicate
+Fetal sex check using XIST as a biomarker for female sex
 ```{r}
+seu <- NormalizeData(seu)
 seu$fetal <- seu$fetal %>% as.factor()
 fetal <- subset(seu, subset = fetal == "Fetal")
 
@@ -138,6 +145,7 @@ ggplot(data = biorep.expr, aes(x = biorep, y = XIST)) + geom_point() + labs(x = 
 #ggsave(here("results", "seurat", paste0(Sys.Date(), "xist_sex_expression.png")))
 ```
 
+### Figure 1
 UMAP plots for Figure 1
 ```{r}
 # Set label size for Seurat DimPlots
@@ -161,7 +169,10 @@ umap.panel <- ggarrange(
   font.label = list(size = 36, face = "bold", color = "black")
 )
 
-ggexport(umap.panel, filename = here("results", "seurat", "umap", paste0(Sys.Date(), "_umap_multipanel.png")), width = 1920, height = 1080)
+#ggexport(umap.panel, filename = here("results", "seurat", "umap", paste0(Sys.Date(), "_umap_multipanel.png")), width = 1920, height = 1080)
+
+DimPlot(seu, label = T, repel = T) + NoLegend()
+#ggsave(filename = here("results", "seurat", paste0(Sys.Date(), "_all_umap.png")))
 ```
 
 VEGFR Receptor expression by cluster
@@ -220,7 +231,7 @@ DimPlot(seu, group.by = 'batch')
 
 ```{r}
 seu.graph <- seu
-seu.graph$biorep <- factor(seu.graph$biorep, labels = c("Sample 1" , "Sample 2" , "Sample 3", "Sample 4", "Sample 5"))
+seu.graph$biorep <- factor(seu.graph$biorep, labels = c("Sample 1" , "Sample 2" , "Sample 3", "Sample 4", "Sample 5", "Sample 6", "Sample 7", "Sample 8", "Sample 9"))
 
 umap.biorep <- DimPlot(seu.graph, group.by = 'biorep', pt.size = umap.pt.size) + ggtitle("") + theme(legend.text = element_text(size = legend.text.size))
 
@@ -246,17 +257,26 @@ rm(kc.40)
 Average expression by cell type cluster and run corrtest.
 ```{r}
 # Subset to the technical replicate
-kc.40.1 <- subset(seu, subset = orig.ident == "kc.40.1")
+kc.40.1 <- subset(seu, subset = orig.ident == "kc.40.1") %>% NormalizeData()
 # Average expression by cell type
 expr.1a <- AverageExpression(kc.40.1, group.by = "cell.type")
 # Clean-up the returned object
 a1 <- expr.1a$RNA %>% as.data.frame()
 
-kc.40.2 <- subset(seu, subset = orig.ident == "kc.40.2")
+kc.40.2 <- subset(seu, subset = orig.ident == "kc.40.2")  %>% NormalizeData()
 #cluster.expr.40.2 <- flatten(AverageExpression(kc.40.2)) %>% as.numeric
 expr.1b <- AverageExpression(kc.40.2, group.by = "cell.type")
 b1 <- expr.1b$RNA %>% as.data.frame()
 
+# Subset a1 and b1 to the cell types that are contained in both
+common <- intersect(a1 %>% colnames, b1 %>% colnames)
+
+a1 <- a1 %>% dplyr::select(all_of(common))
+b1 <- b1 %>% dplyr::select(all_of(common))
+```
+
+
+```{r}
 corr.test.res <- map2(a1,
                       b1,
                       ~ cor.test(.x, .y, method = "pearson"))
@@ -308,16 +328,22 @@ rm(kc.42)
 
 ```{r}
 # Subset to the technical replicate
-kc.42.1 <- subset(seu, subset = orig.ident == "kc.42.1")
+kc.42.1 <- subset(seu, subset = orig.ident == "kc.42.1") %>% NormalizeData()
 # Average expression by cell type
 expr.1a <- AverageExpression(kc.42.1, group.by = "cell.type")
 # Clean-up the returned object
 a2 <- expr.1a$RNA %>% as.data.frame()
 a2$`Fetal Cytotrophoblasts` <- NULL
 
-kc.42.2 <- subset(seu, subset = orig.ident == "kc.42.2")
+kc.42.2 <- subset(seu, subset = orig.ident == "kc.42.2") %>% NormalizeData()
 expr.1b <- AverageExpression(kc.42.2, group.by = "cell.type")
 b2 <- expr.1b$RNA %>% as.data.frame()
+
+# Subset a1 and b1 to the cell types that are contained in both
+common <- intersect(a2 %>% colnames, b2 %>% colnames)
+
+a2 <- a2 %>% dplyr::select(all_of(common))
+b2 <- b2 %>% dplyr::select(all_of(common))
 
 corr.test.res <- map2(a2,
                       b2,
@@ -359,8 +385,8 @@ ggplot(cor.df, aes(x = correlation)) +
 
 
 ```{r}
-panel <- ggarrange(umap.sample1, umap.sample2, umap.mf, umap.biorep, ncol = 2, nrow = 2, labels = "AUTO", font.label = list(size = 30, face = "bold", color = "black"))
-#ggexport(panel, filename = here("results", "seurat", "umap", paste0(Sys.Date(), "_umaps_var.png")), width = 1980, height = 1080)
+panel <- ggarrange(umap.sample1, umap.sample2, umap.biorep, umap.mf, ncol = 2, nrow = 2, labels = "AUTO", font.label = list(size = 30, face = "bold", color = "black"))
+ggexport(panel, filename = here("results", "seurat", "umap", paste0(Sys.Date(), "_umaps_var.png")), width = 1980, height = 1080)
 ```
 
 ```{r}
@@ -368,15 +394,27 @@ seu$cell.type %>% factor %>% levels
 ```
 
 ```{r}
+table <- table(seu$orig.ident, seu$cell.type)
+```
+
+
+```{r}
 table <- table(Idents(seu), seu$ident)
-samples <- c("1A", "1B", "2A", "2B", "3", "4", "5")
+samples <- c("1A", "1B", "2A", "2B", "3", "4", "5", "6", "7", "8C", "8P", "9C", "9P")
 colnames(table) <- samples
 table.df <- as.data.frame(table)
+
+
+#table.df <- table.df %>% rownames_to_column(var = "cell.type") #%>%
+#  arrange(cell.type) #%>%
+#  column_to_rownames(var = "cell.type")
 
 total <- sum(table.df$Freq) %>% as.numeric
 
 #write.csv(table, file = here("results", "seurat", paste0(Sys.Date(), "_cell_counts.csv")))
 ```
+
+### Compare proliferative and non-proliferative cytotrophoblasts - Supplementary Figure
 
 Compare proliferative and cytotrophoblasts.
 ```{r}
@@ -385,12 +423,14 @@ prolif.genes <- FindMarkers(seu, ident.1 = "Fetal Proliferative Cytotrophoblasts
 
 Full list of genes, formatted for publication
 ```{r}
+p_val_adj_threshold <- 0.05
+
 prolif.markers <- prolif.genes %>%
   rownames_to_column(var = "gene") %>%
   #filter(avg_log2FC > 0) %>%
-  #filter(p_val_adj < p_val_adj_threshold) %>%
+  filter(p_val_adj < p_val_adj_threshold) %>%
   #group_by(cluster) %>%
-  arrange(desc(avg_log2FC)) %>%
+  arrange(desc(abs(avg_log2FC))) %>%
   #slice_head(n=10) %>%  # Formatting after this line
   mutate(p_val = if_else(p_val == 0, 2.23e-308, p_val)) %>%
   mutate(p_val_adj = if_else(p_val_adj == 0, 2.23e-308, p_val_adj)) %>%
@@ -402,7 +442,7 @@ prolif.markers <- prolif.genes %>%
   mutate('adjusted p-value' = if_else(p_val_adj == 2.23e-308, "< 2.23E-308", as.character(p_val_adj))) %>%
   dplyr::select(-c(p_val, p_val_adj))
 
-prolif.markers.colnames <- c("Gene", "log2 Fold-change", "Percentage cluster cells expressing gene", "Percentage other cells expressing gene", "P-value", "Bonferroni-adjusted p-value")
+prolif.markers.colnames <- c("Gene", "Average log2 Fold-change", "Percentage cluster cells expressing gene", "Percentage other cells expressing gene", "P-value", "Bonferroni-adjusted p-value")
 colnames(prolif.markers) <- prolif.markers.colnames
 
 # Write to .csv
@@ -480,7 +520,11 @@ gostres <- gost(query = list.gProfiler,
                measure_underrepresentation = FALSE, evcodes = FALSE,
                user_threshold = 0.05, correction_method = "g_SCS",
                domain_scope = "annotated", custom_bg = NULL,
-               numeric_ns = "", sources = NULL, as_short_link = FALSE)
+               numeric_ns = "", sources = "GO:BP", as_short_link = FALSE)
+
+# Code snippet to modify the term_name label to fit plotting window later
+gostres$result <- gostres$result %>%
+  mutate(ifelse(term_name == "L13a-mediated translational silencing of Ceruloplasmin expression", "L13a translational silencing of Ceruloplasmin expression", term_name))
 ```
 
 Get full enrichment results
@@ -492,7 +536,7 @@ gostres.table$parents <- NULL
 gostres.table <- 
   gostres.table %>%
   relocate(term_name, .after = significant) %>%
-  dplyr::select(-c(query))
+  dplyr::select(-c(query)) 
 #write.csv(gostres.table, here("results", "seurat", paste0("prolif_ct_vs_ct_markers_gost_results_table_", Sys.Date(), ".csv")), row.names = FALSE)
 ```
 
@@ -502,12 +546,58 @@ p
 ```
 
 ```{r}
-terms.to.plot <- gostres$result %>% arrange(p_value)
+# Drop parent column list for .csv save of all results
+gostres.table <- gostres$result
+gostres.table$parents <- NULL
+
+gostres.table <- 
+  gostres.table %>%
+  relocate(term_name, .after = significant)
+#write.csv(gostres.table, here("results", "seurat", paste0("seurat_all_markers_gost_results_table_", Sys.Date(), ".csv")), row.names = FALSE)
+
+gostres.table$query %>% factor %>% levels
+
+# Drop parent column list for .csv save of filtered GO:BP results
+#gostres.small.table <- gostres.small$result
+#gostres.small.table$parents <- NULL
+
+#gostres.small.table <- gostres.small.table %>%
+  #dplyr::filter(source == "GO:BP") %>%
+  #dplyr::relocate(term_name, .after=query) %>%
+  #dplyr::select(!significant)
+
+
+cluster.ontologies <- gostres.table %>% #gostres.small.table %>%
+  dplyr::select(term_name, p_value, term_size, query_size, intersection_size, source, term_id) %>%
+  arrange(p_value)
+colnames(cluster.ontologies) <- c("Term name", "Adjusted P-value", "Term size", "Query size", "Intersection size", "Ontology Source", "Term ID")
+```
+
+```{r}
+#terms.to.plot <- gostres$result %>% group_by(source) %>% filter(!(source %in% c("HPA", "MIRNA", "CORUM" , "TF", "GO:CC", "WP"))) %>% slice_min(order_by = p_value, n = 3)
+terms.to.plot <-
+  gostres$result %>%
+  filter(source %in% c("GO:BP")) %>%
+  #filter(!(source %in% c("HPA", "MIRNA", "CORUM" , "TF", "WP"))) %>%
+  arrange(p_value) %>%
+  #filter(!(term_id == "REAC:R-HSA-156827")) %>%
+  filter(term_size < 500 & term_size > 15)
+  #filter(term_size < 1000 & term_size > 125)
+  
+#terms.to.plot <- gostres$result %>% filter(source == "GO:BP") %>% arrange(p_value)
+#terms.to.plot <- terms.to.plot$term_id[1:10]
 terms.to.plot <- terms.to.plot$term_id[1:10]
 ```
 
 ```{r}
 #pp <- publish_gostplot(p, highlight_terms = terms.to.plot, filename = here("results", "seurat", paste0(Sys.Date(), "_prolif_ct_enriched_gost_plot.png")))
+```
+
+### Export proliferative vs. cytotrophoblast results to multiple sheets
+```{r}
+list <- list(dex = prolif.markers, gost = cluster.ontologies)
+names(list) <- c("Differential Expression", "Gene Ontology Enrichment")
+#write.xlsx(x = list, file = here("results", "seurat", paste0(Sys.Date(), "_prolif_ct_vs_ct_res.xlsx")))
 ```
 
 Compare mesenchymal stem cells and fibroblasts
