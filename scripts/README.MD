@@ -20,11 +20,11 @@ Single-cell analysis:
 	input: (2)
 	
 4. seurat_fetal_cell_type_assignment_biorep_mnn
-	Fine-scale doublet removal, clustering, and annotation of fetal cell types
+	Fine-scale doublet removal, clustering, and annotation of fetal cell types. These results were used to annotate newly added Tsang et al. (2017) dataset.
 	input: (3)
 	
 5. seurat_maternal_cell_type_assignment_biorep_mnn
-	Fine-scale doublet removal, clustering, and annotation of maternal cell types
+	Fine-scale doublet removal, clustering, and annotation of maternal cell types. These results were used to annotate newly added Tsang et al. (2017) dataset.
 	input: (3),(4)
 	
 6. seurat_dex
