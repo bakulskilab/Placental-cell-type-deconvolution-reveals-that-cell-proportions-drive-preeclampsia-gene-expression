@@ -607,7 +607,7 @@ volcano.legend <- get_legend(big.volcano.ct + theme(legend.title = element_blank
 panel <- ggarrange(volcanos[[1]], volcanos[[2]], volcanos[[3]], volcanos[[4]], volcanos[[5]], volcanos[[6]], volcanos[[7]], volcano.legend, ncol = 4, nrow = 2, labels = "AUTO", font.label = list(size = 36, face = "bold", color = "black"))
 #print(panel)
 # Works okay with theme_bw(base_size = 20) and font.label size = 24 in ggarrange
-ggexport(panel, filename = here("results", "bulk", "volcanos", paste0(Sys.Date(), "_volcano_multipanel.png")), width = 1920, height = 1080)
+#ggexport(panel, filename = here("results", "bulk", "volcanos", paste0(Sys.Date(), "_volcano_multipanel.png")), width = 1920, height = 1080)
 ```
 
 ```{r}
