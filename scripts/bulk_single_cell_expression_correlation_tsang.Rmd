@@ -378,7 +378,7 @@ Which genes are all zero across all single-cell groups
 ```{r}
 gene.sums <- data.ciber %>%
   rowwise() %>%
-  mutate(gene.sum = sum(c(Cytotrophoblast, Endothelial, `Extravillous Trophoblast`, Fibroblast, `Hofbauer Cell`, Leukocytes, Syncytiotrophoblast)))
+  mutate(gene.sum = sum(c(`Single-cell Cytotrophoblast`, `Single-cell Endothelial`, `Single-cell Extravillous Trophoblast`, `Single-cell Fibroblast`, `Single-cell Hofbauer Cell`, `Single-cell Leukocytes`, `Single-cell Syncytiotrophoblast`)))
 summary(gene.sums)
 quantile(gene.sums$gene.sum, probs = c(.01, .05, .1, .25))
 
@@ -455,22 +455,6 @@ mean(spearmans)
 sd(spearmans)
 
 # All correlation tests return p = 0 (report as p < .001 )
-```
-
-```{r}
-testRes = cor.mtest(data.ciber, conf.level = 0.95)
-```
-
-```{r}
-clusters <- hclust(dist(iris[, 3:4]))
-plot(clusters)
-```
-
-
-```{r}
-corrplot(M, p.mat = testRes$p, method = 'color', diag = FALSE, type = 'upper',
-         sig.level = c(0.001, 0.01, 0.05), pch.cex = 0.9,
-         insig = 'label_sig', pch.col = 'grey20', order = 'AOE')
 ```
 
 ## Export for figures
