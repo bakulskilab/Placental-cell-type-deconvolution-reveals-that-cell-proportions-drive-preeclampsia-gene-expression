@@ -158,12 +158,11 @@ DimPlot(tsang, group.by = "cluster", label = T, repel = T)
 dbl.score.plot <- FeaturePlot(tsang, features = "scDblFinder.score")
 ```
 
-### Manually lassoing of nearby doublets
+### Manual lassoing of nearby doublets
 
 ```{r, eval = F}
 dbl.3 <- CellSelector(dbl.score.plot)
 ```
-
 
 ```{r, eval = F}
 dbl.12.8 <- CellSelector(dbl.score.plot)
@@ -256,6 +255,11 @@ FeaturePlot(tsang.dbl.filtered, features = "scDblFinder.score")
 ### DROP 268 outliers from SingleR notation
 TSANG.QC
 
+```{r}
+#Load the initial Tsang analytic dataset
+seu.ini <- readRDS(here("data", "analytic", "2022-04-18_all_merged_pruned_batch_mnn.rda"))
+```
+
 Get IDs of dropped cells
 ```{r}
 # Get SingleR pruned IDs
@@ -264,7 +268,7 @@ pruned.ids <- rownames(tsang@meta.data)[tsang@meta.data$pruned == T]
 tsang.putative.doublets <- union(pruned.ids, dbl.ids.to.drop)
 #saveRDS(tsang.putative.doublets, here("data", "analytic", "post_cell_type", paste0(Sys.Date(), ".tsang.putative.doublets")))
 # Get analytic initial Tsang analysis
-tsang.initial.seu <- subset(seu.initial.analysis, subset = batch == "tsang")
+tsang.initial.seu <- subset(seu.ini, subset = batch == "tsang")
 # What are the low feature (< 200 genes) cells ids from the initial analysis
 tsang.low.feature.ids <- rownames(tsang.initial.seu@meta.data)[tsang.initial.seu$nFeature_RNA < 200]
 # None of the low feature cells fall into the putative doublets; so just drop the low feature cells from the initial Tsang analysis
@@ -298,7 +302,7 @@ DimPlot(merged, group.by = "cell.type", label = T, repel = T) + NoLegend() + ggt
 ```
 
 # Updated resubmit
-TODO
+
 ## Tsang resubmit - how many doublets above were removed with more stringent QC
 PR and Tsang have more strict thresholds, compare drop nFeature_RNA < 200 with expected removal based on updated QC pipeline, doublet and SingleR being excluded as putative doublets
 Doublets for KC/PR and maybe keep manual lassoing; where do number of doublets removed come from in kc/pr samples - done
@@ -309,7 +313,7 @@ SingleR on unannotated KC cells - done, no pruned
 seu.ini <- readRDS(here("data", "analytic", "2022-04-18_all_merged_pruned_batch_mnn.rda"))
 
 # The minimum nFeature_RNA for all of batch KC is 624 genes
-seu.initial.analysis@meta.data %>% filter(batch == "kc") %>% pull(nCount_RNA) %>% min()
+seu.ini@meta.data %>% filter(batch == "kc") %>% pull(nCount_RNA) %>% min()
 ```
 
 Load the WIP resubmit analysis
