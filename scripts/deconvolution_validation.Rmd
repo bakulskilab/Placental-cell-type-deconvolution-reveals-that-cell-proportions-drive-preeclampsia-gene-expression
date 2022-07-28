@@ -375,7 +375,7 @@ x.groups <-seu.test@meta.data %>%
   group_by(sex) %>%
   group_by(fetal, .add = T) %>%
   group_split()
-names(x.groups) <- c("female.fetal", "female.maternal", "male.fetal")
+names(x.groups) <- c("female.fetal", "female.maternal", "male.fetal") 
 
 sex.test.maternal.ids <- sample(x.groups$female.maternal$cell.id, size = 1284, replace = F)
 sex.test.female.fetal.ids <- x.groups$female.fetal$cell.id
@@ -391,8 +391,7 @@ Load data
 testing.ids <- readRDS(here("data", "2022-07-21deconvolution_sex_testing_ids.rda"))
 ```
 
-
-```{r, eval = F}
+```{r}
 sex.test.female <- format_seu_for_cibersortx_mixture(subset(seu.test, cells = c(sex.test.female.fetal.ids, sex.test.maternal.ids)), export_name = "sex.test.female")
 
 sex.test.male <- format_seu_for_cibersortx_mixture(subset(seu.test, cells = c(sex.test.male.fetal.ids, sex.test.maternal.ids)), export_name= "sex.test.male")
