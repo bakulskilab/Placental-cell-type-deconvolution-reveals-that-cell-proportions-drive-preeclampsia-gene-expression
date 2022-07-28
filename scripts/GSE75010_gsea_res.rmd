@@ -20,8 +20,14 @@ Read in GSEA results
 #pc.down <- read_tsv(here("results", "GSEA", "pc_model_go_bp.GseaPreranked.1615234194720", "gsea_report_for_na_neg_1615234194720.tsv"))
 #pc.up <- read_tsv(here("results", "GSEA", "pc_model_go_bp.GseaPreranked.1615234194720", "gsea_report_for_na_pos_1615234194720.tsv"))
 
-base.down <- read_tsv(here("results", "GSEA", "gse75010", "GSE75010_dex_base_placenta_rna_commbio_resubmit.GseaPreranked.1652890724582", "gsea_report_for_na_neg_1652890724582.tsv"))
-base.up <- read_tsv(here("results", "GSEA", "gse75010", "GSE75010_dex_base_placenta_rna_commbio_resubmit.GseaPreranked.1652890724582", "gsea_report_for_na_pos_1652890724582.tsv"))
+#base.down <- read_tsv(here("results", "GSEA", "gse75010", "GSE75010_dex_base_placenta_rna_commbio_resubmit.GseaPreranked.1652890724582", "gsea_report_for_na_neg_1652890724582.tsv"))
+
+base.down <- read_tsv(here("results", "GSEA", "gse75010", "gse75010_dex_base.GseaPreranked.1658956290012", "gsea_report_for_na_neg_1658956290012.tsv"))
+
+#base.up <- read_tsv(here("results", "GSEA", "gse75010", "GSE75010_dex_base_placenta_rna_commbio_resubmit.GseaPreranked.1652890724582", "gsea_report_for_na_pos_1652890724582.tsv"))
+
+base.up <- read_tsv(here("results", "GSEA", "gse75010", "gse75010_dex_base.GseaPreranked.1658956290012", "gsea_report_for_na_pos_1658956290012.tsv"))
+
 pc.down <- read_tsv(here("results", "GSEA", "gse75010", "GSE75010_dex_pc_placenta_rna_commbio_resubmit.GseaPreranked.1652890874873", "gsea_report_for_na_neg_1652890874873.tsv"))
 pc.up <- read_tsv(here("results", "GSEA", "gse75010", "GSE75010_dex_pc_placenta_rna_commbio_resubmit.GseaPreranked.1652890874873", "gsea_report_for_na_pos_1652890874873.tsv"))
 ```
