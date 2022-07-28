@@ -324,7 +324,7 @@ unadj.ranked.genes <- ranked.list$gene_symbol
 
 ## Not adjusted for GA
 ```{r}
-base.model <- run_limma_model(d = d,
+base.model.no.ga <- run_limma_model(d = d,
                               covariates = c("phenotype", "sex", "batch"),
                               threshold = threshold,
                               logFC.cutoff = logFC.cutoff,
@@ -488,11 +488,13 @@ panel_subplot <- function(res, threshold, base.size, geom.label.size, geom.point
     downreg <- res %>%
       filter(adj.P.Val < threshold) %>%
       filter(logFC < 0) %>%
+      filter(abs(logFC) > logFC.cutoff) %>%
       arrange(logFC)
     #Get the top upregulated hits.
     upreg <- res %>%
       filter(adj.P.Val < threshold) %>%
       filter(logFC > 0) %>%
+      filter(abs(logFC) > logFC.cutoff) %>%
       arrange(desc(logFC))
     #Label genes of interest by name, the top 10 unregulated and downregulated hits and hand-chosen genes of interest.
     num.to.plot <- 10
