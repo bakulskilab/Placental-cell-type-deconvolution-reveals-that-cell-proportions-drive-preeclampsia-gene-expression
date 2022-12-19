@@ -189,7 +189,7 @@ FeaturePlot(object = maternal,
             features = c("IL3RA"),
             cols = c("lightgrey", "blue"),
             pt.size = .1)
-# DC 1, bizarrely, no CLEC9A expression, which is supposed to clearly delineate a THBD+ subset, but shows up in the small cluster thought to be pDC
+# DC 1, no CLEC9A expression, which is supposed to clearly delineate a THBD+ subset, but shows up in the small cluster thought to be pDC
 FeaturePlot(object = maternal,
             features = c("THBD", "CLEC9A"),
             cols = c("lightgrey", "blue"),
