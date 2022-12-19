@@ -101,7 +101,7 @@ names(cluster.markers)[names(cluster.markers) == "Fetal Plasmacytoid Dendritic C
 names(cluster.markers)[names(cluster.markers) == "Fetal Proliferative Cytotrophoblasts"] <- "Fetal Prolif. Cytotrophoblasts"
 
 # Write to multiple sheets
-write.xlsx(as.list(cluster.markers), file = here("results", "seurat", paste0(Sys.Date(), "_findallmakers_res.xlsx")))
+#write.xlsx(as.list(cluster.markers), file = here("results", "seurat", paste0(Sys.Date(), "_findallmakers_res.xlsx")))
 
 # Write to .csv
 #write.csv(all.cluster.markers, here("results", "seurat", paste0("all_markers_cleaned_combined_seurat_", Sys.Date(), ".csv")), row.names = FALSE)
