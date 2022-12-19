@@ -42,6 +42,8 @@ Load cleaned Seurat data
 #seu <- readRDS(here("data", "analytic", "2022-04-18_all_merged_pruned_batch_mnn.rda"))
 # Analytic Tsang resubmit
 seu <- readRDS(here("data", "analytic", "2022-05-01_all_merged_pruned_batch_mnn.rda"))
+seu$cell.type <- seu$cell.type %>% factor()
+Idents(seu) <- seu$cell.type
 ```
 
 QC metrics by replicate, TODO: relabel orig.ident for nicer graphs
@@ -65,6 +67,101 @@ VlnPlot(seu, features = "nFeature_RNA", pt.size = .1, group.by = "orig.ident") +
 #ggsave(paste0(results_dir, "qc_replicate_total_genes_", Sys.Date(), ".png"))
 ```
 
+### Supplementary Figure - Marker gene expression by cell type cluster
+
+REORDER factor levels for Idents (it's this way on some of the supplementary plots)
+```{r}
+# Indicator for whether non-immune fetal cell
+seu$immune <- ifelse(seu$cell.type %in% c("Fetal CD14+ Monocytes", "Fetal CD8+ Activated T Cells", "Fetal Naive CD4+ T Cells", "Fetal Naive CD8+ T Cells", "Fetal Natural Killer T Cells", 
+"Fetal B Cells", "Fetal GZMK+ Natural Killer", "Fetal Memory CD4+ T Cells", "Fetal Plasmacytoid Dendritic Cells", 
+"Fetal GZMB+ Natural Killer", "Maternal CD8+ Activated T Cells", 
+"Maternal Naive CD4+ T Cells", "Maternal FCGR3A+ Monocytes", 
+"Maternal CD14+ Monocytes", "Maternal Natural Killer Cells", 
+"Maternal B Cells", "Maternal Plasma Cells", "Maternal Naive CD8+ T Cells"), T, F)
+
+seu.immune <- subset(seu, immune == T)
+seu.nonimmune <- subset(seu, immune == F)
+
+
+DotPlot(seu.nonimmune, features = c("KRT7", "STMN1", "HLA-G", "PSG4","CD163", "PECAM1", "COL1A1", "TAGLN", "LUM", "HBA"), scale.by = "size") + RotatedAxis() 
+
+genes.seurat <- rownames(seu@assays$RNA@data) %>% as.data.frame()
+```
+
+```{r}
+base.size = 24
+#dotplot.nonimmune <- DotPlot(seu.nonimmune, features = c("KRT7", "STMN1", "HLA-G", "PSG4","CD163", "PECAM1", "COL1A1", "TAGLN", "LUM", "HBB"), scale.by = "size") + theme_bw(base_size = base.size) + RotatedAxis() 
+#dotplot.immune <- DotPlot(seu.immune, features = c("CD79A", "IGHA1", "XBP1", "NKG7", "CD3E", "CD4", "IL2", "CCR7", "CD8A", "GZMB", "GZMK", "FCGR3A", "CD14", "FLT3", "ITM2C"), scale.by = "size") + theme_bw(base_size = base.size, ) + RotatedAxis()
+#dotplot.legend <- get_legend(dotplot.immune)
+
+dotplot.nonimmune <- DotPlot(seu.nonimmune, features = c("KRT7", "STMN1", "HLA-G", "PSG4","CD163", "PECAM1", "COL1A1", "TAGLN", "LUM", "HBB"), scale.by = "size") + theme_bw(base_size = base.size) + RotatedAxis() 
+dotplot.immune <- DotPlot(seu.immune, features = c("CD79A", "IGHA1", "XBP1", "NKG7", "CD3E", "CD4", "IL2", "CCR7", "CD8A", "GZMB", "GZMK", "FCGR3A", "CD14", "FLT3", "ITM2C"), scale.by = "size") + theme_bw(base_size = base.size) + theme(legend.box = "horizontal") + RotatedAxis()
+dotplot.legend <- get_legend(dotplot.immune)
+
+panel <- ggarrange(dotplot.nonimmune, dotplot.immune, ncol = 2, nrow = 1, labels = "AUTO", font.label = list(size = 30, face = "bold", color = "black"), legend = "bottom", legend.grob = dotplot.legend)
+#ggexport(panel, filename = here("results", "seurat", paste0(Sys.Date(), "_dotplot_marker_genes.png")), width = 1980, height = 1080)
+```
+
+
+plasma cell vs B cell
+Huge overepxression of immunoglobulins compared to B cells
+```{r}
+plasma.cell <- FindMarkers(seu, ident.1 = "Maternal Plasma Cells", ident.2 = "Maternal B Cells")
+```
+
+
+```{r}
+DimPlot(seu, label = T, repel = T) + NoLegend()
+FeaturePlot(object = seu,
+            features = c("HLA-DRA"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+FeaturePlot(object = seu,
+            features = c("CLEC4C", "IL3RA"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+FeaturePlot(object = seu,
+            features = c("GZMB", "SERPINF1"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+FeaturePlot(object = seu,
+            features = c("IL3RA"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+FeaturePlot(object = seu,
+            features = c("SMIM24"),
+            cols = c("lightgrey", "blue"),
+            pt.size = .1)
+```
+
+```{r}
+x.vlnplot <- function(gene_vector) {
+  map(gene_vector, ~ VlnPlot(seu.immune, .x) + NoLegend())
+}
+```
+
+```{r}
+x.vlnplot(c("NKG7", "CD3E", "CD4", "S100A4", "CCR7", "IL2RA", "FOXP3", "CD8A"))
+```
+
+
+```{r}
+x.dotplot <- function(gene_vector) {
+  DotPlot(seu.immune, features = gene_vector) + RotatedAxis()
+}
+```
+https://doi.org/10.3389/fimmu.2019.01222 also indicates IL-7R+ and FLT3+ precursor population can give rise to B cells or pDCs, consistent with some pDC genes being expressed in both
+```{r}
+x.dotplot(c("SERPINF1", "AK128525", "IGJ", "ITM2C", "PLD4", "CCDC50"))
+x.dot
+```
+
+
+```{r}
+x.vlnplot(c("GZMB", "SELPLG", "DERL3", "PTPRCAP", "BCL11A", "LAMP5", "SLA2", "NRP1", "SIDT1", "TCF4", "SLC15A4", "IRF7", "TRAF4"))
+```
+
+
 ### Supplementary Figure - QC metrics by cell type cluster 
 
 QC metrics by cluster
@@ -75,11 +172,11 @@ x.lab.hjust <- 0.75
 
 cluster.rna <- VlnPlot(seu, features = "nCount_RNA", pt.size = .1) + theme_bw(base_size = base.size) + NoLegend() + coord_flip() + 
   theme(axis.text.y = element_blank(), axis.title.y = element_blank(), plot.title = element_text(hjust = 0.5), axis.text.x = element_text(size = x.lab.size, hjust = x.lab.hjust)) + 
-  ggtitle("Total RNA molecules") 
+  ggtitle("Total unique RNA molecules") 
 
 cluster.rna.legend <- VlnPlot(seu, features = "nCount_RNA", pt.size = .1) + theme_bw(base_size = base.size) + coord_flip() + 
   theme(legend.text = element_text(size = 32, hjust = 1), legend.spacing = unit(1, "npc")) + 
-  ggtitle("Total RNA molecules") +  guides(fill = guide_legend(ncol = 1, keyheight = 2.5, reverse = T))
+  ggtitle("Total unique RNA molecules") +  guides(fill = guide_legend(ncol = 1, keyheight = 2.5, reverse = T))
 legend <- get_legend(cluster.rna.legend)
 #as_ggplot(legend)
 
