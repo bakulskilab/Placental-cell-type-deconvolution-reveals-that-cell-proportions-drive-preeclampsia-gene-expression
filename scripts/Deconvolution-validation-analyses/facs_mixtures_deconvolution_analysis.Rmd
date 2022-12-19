@@ -10,9 +10,7 @@ knitr::opts_chunk$set(echo = TRUE)
 library(here)
 library(factoextra)
 library(tidyverse)
-library(betareg)
 library(boot)
-library(psych)
 library(readxl)
 ```
 
@@ -104,6 +102,7 @@ lk <- facs.cats %>% filter(`Cell Type` == "Leukocyte") %>% pull(Leukocyte)
 mean(lk)
 sd(lk)
 ```
+
 ```{r}
 hb <- facs.cats %>% filter(`Cell Type` == "Hofbauer") %>% pull(Leukocyte)
 mean(hb)
