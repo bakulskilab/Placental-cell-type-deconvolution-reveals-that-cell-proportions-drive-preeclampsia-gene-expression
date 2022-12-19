@@ -19,11 +19,13 @@ library(knitr)
 library(pheatmap)
 library(RColorBrewer)
 library(tidyverse)
+library(UpSetR)
 
 # Bioconductor Packages
 library(BiocManager)
 library(biomaRt)
 library(DESeq2)
+library(fgsea)
 library(GO.db)
 library(mygene)
 library(org.Hs.eg.db)
@@ -738,7 +740,7 @@ gost_deseq2 <- function(res, alpha) {
     res %>%
     filter(padj < alpha) %>%
     arrange(desc(stat)) %>%
-    filter(log2FoldChange > 0)
+    filter(log2FoldChange > 1.2)
   gost.input <- res$gene_symbol
   
   # gost from ggprofiler2 with ordered query and manually curated annotation background
@@ -762,6 +764,171 @@ gost_deseq2 <- function(res, alpha) {
 }
 
 gost.mapped <- map(results, ~ gost_deseq2(.x, alpha = .05))
+```
+
+```{r}
+#cell.types.formatted <- c("Cytotrophoblast", "Endothelial", "Extravillous Trophoblast", "Fibroblast", "Hofbauer", "Leukocyte", "Syncytiotrophoblast")
+
+names(gost.mapped) <- cell.type.labels[-1]
+
+gost.mapped.res <- map(gost.mapped, ~ .x$gostres$result)
+gost.mapped.res$Cytotrophoblast$query <- "Cytotrophoblast"
+gost.mapped.res$Endothelial$query <- "Endothelial"
+gost.mapped.res$`Extravillous Trophoblast`$query <- "Extravillous Trophoblast"
+gost.mapped.res$Fibroblast$query <- "Fibroblast"
+gost.mapped.res$`Hofbauer Cell`$query <- "Hofbauer"
+gost.mapped.res$Leukocyte$query <- "Leukocyte"
+gost.mapped.res$Syncytiotrophoblast$query <- "Syncytiotrophoblast"
+
+colnames(gostres.table)
+gostres.table <- gost.mapped$Cytotrophoblast$gostres$result
+
+gost.mapped.table <- map(gost.mapped.res, ~ .x %>%
+                           # Subset to only GO biological processes
+                           dplyr::filter(source == "GO:BP") %>%
+                           # Rearrange to make more human-readable
+                           dplyr::relocate(term_name, .after=query) %>%
+                           # Clean up column names
+                           dplyr::rename("Cell type" = query,
+                                         "Term name" = term_name,
+                                         "Adjusted P-value" = p_value,
+                                         "Term size" = term_size,
+                                         "Query size" = query_size,
+                                         "Intersection size" = intersection_size,
+                                         "Term ID" = term_id) %>%
+                           dplyr::select("Cell type", "Term name", "Adjusted P-value",
+                                         "Term size", "Query size", "Intersection size", "Term ID")
+)
+
+#gostres.small.table.top.10 <- gostres.small.table %>%
+  #filter(term_size < 1500) %>%
+  #arrange(p_value) %>%
+  #group_by(query) #%>%
+  #slice_head(n=20)
+
+# View a couple cell types individually
+#gostres.small.table %>% filter(query %in% c("Fetal Cytotrophoblasts", "Fetal Proliferative Cytotrophoblasts")) %>% View
+#gostres.small.table %>% filter(query == "Fetal Hofbauer Cells") %>% View
+
+# Write to multiple sheets
+#write.xlsx(gost.mapped.table, file = here("results", "bulk", "analytic", paste0(Sys.Date(), "_deseq2_gprofiler2_ontologies_res.xlsx")))
+```
+
+```{r}
+gost.pathways <- map(gost.mapped.table, ~ .x %>% filter(`Adjusted P-value` < 0.05) %>% pull(`Term name`))
+upset(fromList(gost.pathways), nsets = 7)
+```
+
+```{r}
+list.intersect <- fromList_dm(gost.pathways)
+
+colnames(list.intersect)[3] <- "Extravillous_Trophoblast"
+colnames(list.intersect)[5] <- "Hofbauer_Cell"
+
+get_intersect_members(list.intersect, c("Cytotrophoblast")) #Q%>% rownames_to_column(var = `Term name`) %>% pull(`Term name`)
+get_intersect_members(list.intersect, c("Cytotrophoblast")) %>% rownames_to_column(var = "term") %>% pull(term)
+get_intersect_members(list.intersect, c("Extravillous_Trophoblast", "Syncytiotrophoblast")) %>% rownames_to_column(var = "term") %>% pull(term)
+st.only <- get_intersect_members(list.intersect, c("Syncytiotrophoblast")) %>% rownames_to_column(var = "term") %>% pull(term)
+get_intersect_members(list.intersect, c("Extravillous_Trophoblast")) %>% rownames_to_column(var = "term") %>% pull(term)
+get_intersect_members(list.intersect, c("Hofbauer_Cell", "Leukocyte")) %>% rownames_to_column(var = "term") %>% pull(term)
+get_intersect_members(list.intersect, c("Hofbauer_Cell")) %>% rownames_to_column(var = "term") %>% pull(term)
+
+gost.mapped.table$Syncytiotrophoblast %>% filter(`Term name` %in% st.only) %>% filter(`Term size` < 500 & `Term size` > 15)
+```
+
+
+This custom function creates a "design" matrix for get_intersect_members below
+```{r}
+fromList_dm <- function (input) {
+  # Same as original fromList()...
+  elements <- unique(unlist(input))
+  data <- unlist(lapply(input, function(x) {
+      x <- as.vector(match(elements, x))
+      }))
+  data[is.na(data)] <- as.integer(0)
+  data[data != 0] <- as.integer(1)
+  data <- data.frame(matrix(data, ncol = length(input), byrow = F))
+  data <- data[which(rowSums(data) != 0), ]
+  names(data) <- names(input)
+  # ... Except now it conserves your original value names!
+  row.names(data) <- elements
+  return(data)
+  }
+
+get_intersect_members <- function (x, ...){
+  require(dplyr)
+  require(tibble)
+  x <- x[,sapply(x, is.numeric)][,0<=colMeans(x[,sapply(x, is.numeric)],na.rm=T) & colMeans(x[,sapply(x, is.numeric)],na.rm=T)<=1]
+  n <- names(x)
+  x %>% rownames_to_column() -> x
+  l <- c(...)
+  a <- intersect(names(x), l)
+  ar <- vector('list',length(n)+1)
+  ar[[1]] <- x
+  i=2
+  for (item in n) {
+    if (item %in% a){
+      if (class(x[[item]])=='integer'){
+        ar[[i]] <- paste(item, '>= 1')
+        i <- i + 1
+      }
+    } else {
+      if (class(x[[item]])=='integer'){
+        ar[[i]] <- paste(item, '== 0')
+        i <- i + 1
+      }
+    }
+  }
+  do.call(filter_, ar) %>% column_to_rownames() -> x
+  return(x)
+}
+```
+
+
+fgsea (uses a stochastic algorithm to approximate p-values; set seed for reproducibility)
+```{r}
+# Custom function to take the differential expression results that formatted for export to GSEA and run fgsea here, instead
+run_fgsea <- function(input) {
+  set.seed(42)
+  myGO = fgsea::gmtPathways(here("data", "c5.go.bp.v7.5.1.symbols.gmt"))
+  gene_list = input$stat
+  names(gene_list) = input$gene_symbol
+  res.fgsea <- fgseaMultilevel(pathways = myGO, stats = gene_list, eps = 0, minSize = 15, maxSize = 500)
+  return(res.fgsea)
+}
+
+# Ties 0.02% of list for each cell type
+inputs.res.fgsea <- map(inputs, ~ run_fgsea(.x))
+
+inputs.res.fgsea.sig <- map(inputs.res.fgsea, ~ .x %>% filter(padj < 0.0s5) %>% pull(pathway))
+names(inputs.res.fgsea.sig)
+names(inputs.res.fgsea.sig) <- cell.type.labels[-1]
+
+upset(fromList(inputs.res.fgsea.sig), nsets = 7)
+```
+
+Pull the intersecting pathways
+
+```{r}
+# Binary table with colnames:
+test.list <- fromList_dm(inputs.res.fgsea.sig)
+
+colnames(test.list)[3] <- "Extravillous_Trophoblast"
+colnames(test.list)[5] <- "Hofbauer_Cell"
+```
+
+```{r}
+get_intersect_members(test.list, c("Cytotrophoblast")) %>% rownames_to_column(var = "term") %>% pull(term)
+get_intersect_members(test.list, c("Endothelial")) %>% rownames_to_column(var = "term") %>% pull(term)
+get_intersect_members(test.list, c("Extravillous_Trophoblast")) %>% rownames_to_column(var = "term") %>% pull(term)
+get_intersect_members(test.list, c("Fibroblast")) %>% rownames_to_column(var = "term") %>% pull(term)
+get_intersect_members(test.list, c("Hofbauer_Cell")) %>% rownames_to_column(var = "term") %>% pull(term)
+get_intersect_members(test.list, c("Leukocyte")) %>% rownames_to_column(var = "term") %>% pull(term)
+get_intersect_members(test.list, c("Syncytiotrophoblast")) %>% rownames_to_column(var = "term") %>% pull(term)
+
+get_intersect_members(test.list, c("Leukocyte", "Hofbauer_Cell")) %>% rownames_to_column(var = "term") %>% pull(term)
+get_intersect_members(test.list, c(colnames(test.list)[1:5])) %>% rownames_to_column(var = "term") %>% pull(term)
+get_intersect_members(test.list, c("Cytotrophoblast", "Syncytiotrophoblast")) %>% rownames_to_column(var = "term") %>% pull(term)
 ```
 
 Processing GSEA results
