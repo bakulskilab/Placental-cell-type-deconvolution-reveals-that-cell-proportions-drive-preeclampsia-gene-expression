@@ -29,6 +29,54 @@ library(mygene)
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+
+Custom functions - This custom function creates a "design" matrix for get_intersect_members below
+```{r}
+fromList_dm <- function (input) {
+  # Same as original fromList()...
+  elements <- unique(unlist(input))
+  data <- unlist(lapply(input, function(x) {
+      x <- as.vector(match(elements, x))
+      }))
+  data[is.na(data)] <- as.integer(0)
+  data[data != 0] <- as.integer(1)
+  data <- data.frame(matrix(data, ncol = length(input), byrow = F))
+  data <- data[which(rowSums(data) != 0), ]
+  names(data) <- names(input)
+  # ... Except now it conserves your original value names!
+  row.names(data) <- elements
+  return(data)
+  }
+
+get_intersect_members <- function (x, ...){
+  require(dplyr)
+  require(tibble)
+  x <- x[,sapply(x, is.numeric)][,0<=colMeans(x[,sapply(x, is.numeric)],na.rm=T) & colMeans(x[,sapply(x, is.numeric)],na.rm=T)<=1]
+  n <- names(x)
+  x %>% rownames_to_column() -> x
+  l <- c(...)
+  a <- intersect(names(x), l)
+  ar <- vector('list',length(n)+1)
+  ar[[1]] <- x
+  i=2
+  for (item in n) {
+    if (item %in% a){
+      if (class(x[[item]])=='integer'){
+        ar[[i]] <- paste(item, '>= 1')
+        i <- i + 1
+      }
+    } else {
+      if (class(x[[item]])=='integer'){
+        ar[[i]] <- paste(item, '== 0')
+        i <- i + 1
+      }
+    }
+  }
+  do.call(filter_, ar) %>% column_to_rownames() -> x
+  return(x)
+}
+```
+
 Import Supplementary table results (2, 3 for single-cell)
 ```{r ImportSuppData}
 #seu <- readRDS(here("data", "analytic", "2022-05-01_all_merged_pruned_batch_mnn.rda"))
@@ -52,8 +100,10 @@ names(hits.sorted) <- cell.types.sorted
 
 pathways.sorted <- map(cell.types.sorted, ~ read.xlsx(file.path("G:/.shortcut-targets-by-id/0B5TU2UlL9eC0VmhGUzZWM05DdUE/Placenta_Cell_Types/RNA/Manuscript/commbio_resubmit_2/Supplementary Tables/Supplementary Table 6.xlsx"), sheet = .x))
 names(pathways.sorted) <- cell.types.sorted
-```
 
+# Limit to FDR <0.05
+pathways.sorted <- map(pathways.sorted, ~ .x %>% filter(`Adjusted.P-value` < 0.05) %>% pull(Term.name))
+```
 
 ```{r}
 #sc.sorted.overlay <- c("Leukocytes", "Leukocytes", "Leukocytes", "Cytotrophoblast", "Endothelial", "Extravillous Trophoblast", "Fibroblast", "Leukocytes", "Leukocytes", "Hofbauer Cell", "Leukocytes", "Fibroblast", "Leukocytes", "Leukocytes", "Leukocytes", "Fetal Nucleated Red Blood Cells", "Leukocytes", "Cytotrophoblast", "Syncytiotrophoblast", "Leukocytes", "Leukocytes", "Leukocytes", "Leukocytes", "Leukocytes", "Leukocytes", "Leukocytes", "Leukocytes")
@@ -184,63 +234,130 @@ names(hits.sorted) <- paste0("Sorted ", names(hits.sorted))
 
 hits.concat <- c(hits.sc.relabelled.list, hits.sorted)
 
+#pathways.sorted <- map(pathways.sorted, ~ .x %>% pull(Term.name))
+names(pathways.sorted) <- paste0("Sorted ", names(pathways.sorted))
+names(pathways.sc.relabelled.list) <- paste0("Single-cell ", names(pathways.sc.relabelled.list))
+pathways.concat <- c(pathways.sc.relabelled.list, pathways.sorted)
+
+
+
 upset(fromList(hits.sc.relabelled.list))
 ```
 
 ```{r}
-upset(fromList(hits.concat), nsets=17)
+# Get number of single-cell gene hits
+map(hits.sc, ~dim(.x)[1])
+
+dim(hits.sc$`Fetal Syncytiotrophoblast`)[1]
+
+# Get number of sorted gene hits
+map(hits.sorted, ~ length(.x))
+
+hits.sorted$`Sorted Syncytiotrophoblast`%>% length
 ```
+
+```{r}
+map(hits.concat, ~ length(.x))
+hits.concat$`Single-cell Cytotrophoblast` %>% length
+```
+
+```{r}
+x <- fromList(hits.concat)
+x %>% filter(`Single-cell Cytotrophoblast` & `Sorted Cytotrophoblast` == 1) %>% tally %>% pull(n)
+
+x %>% filter(`Single-cell Cytotrophoblast` & `Sorted Cytotrophoblast` == 1) %>% tally %>% pull(n)
+
+x %>% filter(`Single-cell Endothelial` & `Sorted Endothelial` == 1) %>% tally %>% pull(n)
+
+x %>% filter(`Single-cell Extravillous Trophoblast` & `Sorted Extravillous Trophoblast` == 1) %>% tally %>% pull(n)
+
+x %>% filter(`Single-cell Fibroblast` & `Sorted Fibroblast` == 1) %>% tally %>% pull(n)
+
+x %>% filter(`Single-cell Hofbauer Cell` & `Sorted Hofbauer Cell` == 1) %>% tally %>% pull(n)
+
+x %>% filter(`Single-cell Leukocytes` & `Sorted Leukocyte` == 1) %>% tally %>% pull(n)
+
+#map2(.x = cell.types.sorted.labelled, .y = cell.types.single.cell, ~ x %>% filter(.x == 1 & .y == 1) %>% tally %>% pull(n))
+```
+
+```{r}
+# Get number of single-cell pathway hits
+map(pathways.sc.relabelled.list, ~  length(.x))
+
+pathways.sc.relabelled.list$Cytotrophoblast %>% length
+
+# Get number of sorted pathway hits
+map(pathways.sorted, ~ length(.x))
+
+pathways.sorted$`Sorted Cytotrophoblast` %>% length
+
+pathways.sorted$Cytotrophoblast %>% length
+
+hits.sorted$`Sorted Syncytiotrophoblast`%>% length
+```
+
+```{r}
+x <- fromList(pathways.concat)
+
+x %>% filter(`Single-cell Cytotrophoblast` & `Sorted Cytotrophoblast` == 1) %>% tally %>% pull(n)
+
+x %>% filter(`Single-cell Endothelial` & `Sorted Endothelial` == 1) %>% tally %>% pull(n)
+
+x %>% filter(`Single-cell Extravillous Trophoblast` & `Sorted Extravillous Trophoblast` == 1) %>% tally %>% pull(n)
+
+x %>% filter(`Single-cell Fibroblast` & `Sorted Fibroblast` == 1) %>% tally %>% pull(n)
+
+x %>% filter(`Single-cell Hofbauer Cell` & `Sorted Hofbauer Cell` == 1) %>% tally %>% pull(n)
+
+x %>% filter(`Single-cell Leukocytes` & `Sorted Leukocyte` == 1) %>% tally %>% pull(n)
+
+x %>% filter(`Single-cell Syncytiotrophoblast` & `Sorted Syncytiotrophoblast` == 1) %>% tally %>% pull(n)
+```
+
+14 cell type groups (7 cell types * 2 technologies), 14 choose 2 is 91 possible intersections; just picked out the relevant cell types
+```{r}
+
+upset(fromList(hits.concat), nsets=100, nintersects = 89, cutoff=2, keep.order = T)
+```
+
+```{r}
+paste0("Single-cell ", cell.types.sorted) %>% dput
+
+cell.types.single.cell <-c("Single-cell Cytotrophoblast", "Single-cell Endothelial", "Single-cell Extravillous Trophoblast",  "Single-cell Fibroblast", "Single-cell Hofbauer Cell", "Single-cell Leukocyte", "Single-cell Syncytiotrophoblast")
+cell.types.sorted.labelled <- paste0("Sorted ", cell.types.sorted)
+
+upset.cell.type.list <- map2(.x = cell.types.sorted.labelled, .y = cell.types.single.cell, ~ list((.x), (.y)))
+
+
+
+upset.cell.type.list %>% dput
+
+x.test <- add.backtick(upset.cell.type.list)
+#upset.cell.type.list[8] <- upset.cell.type.list[7]
+#upset.cell.type.list[6] <- list(list("Sorted Leukocyte" ,"Single-cell Fetal Leukocyte"))
+#upset.cell.type.list[7] <- list(list("Sorted Leukocyte" ,"Single-cell Maternal Leukocyte"))
+#names(upset.cell.type.list) <- c("Cytotrophoblast", "Endothelial", "Extravillous Trophoblast","Fibroblast", "Hofbauer Cell", "Fetal Leukocyte", "Maternal Leukocyte", "Syncytiotrophoblast")
+
+movies <- read.csv(system.file("extdata", "movies.csv", package = "UpSetR"), 
+    header = T, sep = ";")
+upset(fromList(movies), intersections = list(list("Western", "Horror")))
+
+upset(fromList(hits.concat), nset=21, nintersects = 2, intersections = list(list(`Sorted Cytotrophoblast`, `Single cell Cytotrophoblast`), 
+    list(`Sorted Endothelial`, `Single cell Endothelial`), list(
+        `Sorted Extravillous Trophoblast`, `Single cell Extravillous Trophoblast`), 
+    list(`Sorted Fibroblast`, `Single cell Fibroblast`), list(
+        `Sorted Hofbauer Cell`, `Single cell Hofbauer Cell`), 
+    list(`Sorted Leukocyte`, `Single cell Leukocyte`), list(`Sorted Syncytiotrophoblast`, 
+        `Single cell Syncytiotrophoblast`)))
+```
+
 
 ```{r}
 list.intersect <- fromList_dm(hits.concat)
+
+get_intersect_members(list.intersect, c("Extravillous Trophoblast", "Syncytiotrophoblast")) %>% rownames_to_column(var = "term") %>% pull(term)
 ```
 
-This custom function creates a "design" matrix for get_intersect_members below
-```{r}
-fromList_dm <- function (input) {
-  # Same as original fromList()...
-  elements <- unique(unlist(input))
-  data <- unlist(lapply(input, function(x) {
-      x <- as.vector(match(elements, x))
-      }))
-  data[is.na(data)] <- as.integer(0)
-  data[data != 0] <- as.integer(1)
-  data <- data.frame(matrix(data, ncol = length(input), byrow = F))
-  data <- data[which(rowSums(data) != 0), ]
-  names(data) <- names(input)
-  # ... Except now it conserves your original value names!
-  row.names(data) <- elements
-  return(data)
-  }
-
-get_intersect_members <- function (x, ...){
-  require(dplyr)
-  require(tibble)
-  x <- x[,sapply(x, is.numeric)][,0<=colMeans(x[,sapply(x, is.numeric)],na.rm=T) & colMeans(x[,sapply(x, is.numeric)],na.rm=T)<=1]
-  n <- names(x)
-  x %>% rownames_to_column() -> x
-  l <- c(...)
-  a <- intersect(names(x), l)
-  ar <- vector('list',length(n)+1)
-  ar[[1]] <- x
-  i=2
-  for (item in n) {
-    if (item %in% a){
-      if (class(x[[item]])=='integer'){
-        ar[[i]] <- paste(item, '>= 1')
-        i <- i + 1
-      }
-    } else {
-      if (class(x[[item]])=='integer'){
-        ar[[i]] <- paste(item, '== 0')
-        i <- i + 1
-      }
-    }
-  }
-  do.call(filter_, ar) %>% column_to_rownames() -> x
-  return(x)
-}
-```
 
 Not really feasible to compare the two at all, https://www.biostars.org/p/399869/. Batch effect would be larger than biological effect and no way to control for that. Look at overlap at differentially expressed genes/enriched pathways level.
 

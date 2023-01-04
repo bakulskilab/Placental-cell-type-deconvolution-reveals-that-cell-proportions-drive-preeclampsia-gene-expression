@@ -242,15 +242,21 @@ ggplot(data = biorep.expr, aes(x = biorep, y = XIST)) + geom_point() + labs(x = 
 #ggsave(here("results", "seurat", paste0(Sys.Date(), "xist_sex_expression.png")))
 ```
 
+```{r}
+DimPlot(seu, label = T, label.size = label.size, repel = T) + NoLegend() + theme(axis.text = element_text(size = axis.text.size), axis.title = element_text(size = axis.title.size))
+```
+
 ### Figure 1
 UMAP plots for Figure 1
 ```{r}
 # Set label size for Seurat DimPlots
 label.size <- 9
+axis.text.size <- 24
+axis.title.size <- 28
 
-all.umap <- DimPlot(seu, label = T, label.size = label.size, repel = T) + NoLegend()
-fetal.umap <- subset(seu, subset = fetal == "Fetal") %>% DimPlot(label = T, label.size = label.size, repel = T) + NoLegend()
-maternal.umap <- subset(seu, subset = fetal == "Maternal") %>% DimPlot(label = T, label.size = label.size, repel = T) + NoLegend()
+all.umap <- DimPlot(seu, label = T, label.size = label.size, repel = T) + NoLegend() + theme(axis.text = element_text(size = axis.text.size), axis.title = element_text(size = axis.title.size))
+fetal.umap <- subset(seu, subset = fetal == "Fetal") %>% DimPlot(label = T, label.size = label.size, repel = T) + NoLegend() + theme(axis.text = element_text(size = axis.text.size), axis.title = element_text(size = axis.title.size))
+maternal.umap <- subset(seu, subset = fetal == "Maternal") %>% DimPlot(label = T, label.size = label.size, repel = T) + NoLegend() + theme(axis.text = element_text(size = axis.text.size), axis.title = element_text(size = axis.title.size))
 
 umap.panel <- ggarrange(
   all.umap,
@@ -266,7 +272,7 @@ umap.panel <- ggarrange(
   font.label = list(size = 36, face = "bold", color = "black")
 )
 
-#ggexport(umap.panel, filename = here("results", "seurat", "umap", paste0(Sys.Date(), "_umap_multipanel.png")), width = 1920, height = 1080)
+ggexport(umap.panel, filename = here("results", "seurat", "umap", paste0(Sys.Date(), "_umap_multipanel.png")), width = 1920, height = 1080)
 
 DimPlot(seu, label = T, repel = T) + NoLegend()
 #ggsave(filename = here("results", "seurat", paste0(Sys.Date(), "_all_umap.png")))
