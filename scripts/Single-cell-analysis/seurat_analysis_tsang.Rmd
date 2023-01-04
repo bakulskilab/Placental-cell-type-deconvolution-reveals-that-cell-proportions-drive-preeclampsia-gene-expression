@@ -272,7 +272,7 @@ umap.panel <- ggarrange(
   font.label = list(size = 36, face = "bold", color = "black")
 )
 
-ggexport(umap.panel, filename = here("results", "seurat", "umap", paste0(Sys.Date(), "_umap_multipanel.png")), width = 1920, height = 1080)
+#ggexport(umap.panel, filename = here("results", "seurat", "umap", paste0(Sys.Date(), "_umap_multipanel.png")), width = 1920, height = 1080)
 
 DimPlot(seu, label = T, repel = T) + NoLegend()
 #ggsave(filename = here("results", "seurat", paste0(Sys.Date(), "_all_umap.png")))
