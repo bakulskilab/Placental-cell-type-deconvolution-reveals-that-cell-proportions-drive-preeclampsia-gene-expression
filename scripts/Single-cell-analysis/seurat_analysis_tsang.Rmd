@@ -250,7 +250,7 @@ DimPlot(seu, label = T, label.size = label.size, repel = T) + NoLegend() + theme
 UMAP plots for Figure 1
 ```{r}
 # Set label size for Seurat DimPlots
-label.size <- 9
+label.size <- 8
 axis.text.size <- 24
 axis.title.size <- 28
 
@@ -264,15 +264,68 @@ umap.panel <- ggarrange(
     fetal.umap,
     maternal.umap,
     ncol = 2,
-    labels = c("B", "C"),
+    labels = c("b", "c"),
     font.label = list(size = 36, face = "bold", color = "black")
   ),
   nrow = 2,
-  labels = "A",
+  labels = "a",
   font.label = list(size = 36, face = "bold", color = "black")
 )
+```
 
-#ggexport(umap.panel, filename = here("results", "seurat", "umap", paste0(Sys.Date(), "_umap_multipanel.png")), width = 1920, height = 1080)
+Tweak size parameters here for png() dev.off()
+```{r}
+# Set label size for Seurat DimPlots
+label.size <- 3
+axis.text.size <- 8
+axis.title.size <- 12
+box.padding.size <- 0.1
+
+all.umap <- DimPlot(seu) + NoLegend() + theme(axis.text = element_text(size = axis.text.size), axis.title = element_text(size = axis.title.size))
+all.umap <- LabelClusters(all.umap, id = "ident", size = label.size, repel = T, box.padding = box.padding.size, max.overlaps = Inf)
+
+# Still having some overlap readability issues here, so adding a nudge_x to take advantage of some of the whitespace to the left of the points
+fetal.umap <- subset(seu, subset = fetal == "Fetal") %>% DimPlot() + NoLegend() + theme(axis.text = element_text(size = axis.text.size), axis.title = element_text(size = axis.title.size))
+fetal.umap <- LabelClusters(fetal.umap, id = "ident", size = label.size, repel = T, box.padding = box.padding.size, max.overlaps = Inf, nudge_x = -1)#, nudge_y = 1)
+
+maternal.umap <- subset(seu, subset = fetal == "Maternal") %>% DimPlot() + NoLegend() + theme(axis.text = element_text(size = axis.text.size), axis.title = element_text(size = axis.title.size))
+maternal.umap <- LabelClusters(maternal.umap, id = "ident", size = label.size, repel = T, box.padding = box.padding.size, max.overlaps = Inf)
+
+umap.panel <- ggarrange(
+  all.umap,
+  ggarrange(
+    fetal.umap,
+    maternal.umap,
+    ncol = 2,
+    labels = c("b", "c"),
+    font.label = list(size = 18, face = "bold", color = "black")
+  ),
+  nrow = 2,
+  labels = "a",
+  font.label = list(size = 18, face = "bold", color = "black")
+)
+```
+
+Need to run the png() dev.off() command in the console to work
+```{r, eval = F}
+png(filename = here("results", "seurat", "umap", paste0(Sys.Date(), "_umap_multipanel.png")), width = 2816, height = 2160, units = "px", res = 300)
+umap.panel
+dev.off()
+```
+
+
+```{r}
+# Run below if receive error: "Error in dev.off() : cannot shut down device 1 (the null device)"
+dev.set(dev.next())
+```
+
+
+```{r}
+umap.panel
+
+#ggsave(filename = here("results", "seurat", "umap", paste0(Sys.Date(), "_umap_multipanel.png"), plot = umap.panel, width = 1080, height = 1920))
+
+ggexport(umap.panel, filename = here("results", "seurat", "umap", paste0(Sys.Date(), "_umap_multipanel.png")), res = 300)
 
 DimPlot(seu, label = T, repel = T) + NoLegend()
 #ggsave(filename = here("results", "seurat", paste0(Sys.Date(), "_all_umap.png")))
