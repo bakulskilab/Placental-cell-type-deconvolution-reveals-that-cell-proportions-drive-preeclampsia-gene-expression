@@ -576,7 +576,10 @@ panel_subplot <- function(res, threshold, base.size, geom.label.size, geom.point
     # Create list of volcano plot and models result for export
     return(plot)
 }
+```
 
+
+```{r}
 # FDR threshold
 threshold = 0.05
 
@@ -584,13 +587,13 @@ threshold = 0.05
 genes.of.interest <- c("FLT1", "LEP", "ENG")
 
 # Text parameters
-base.size = 28
-geom.label.size = 12
-geom.text.repel.size = 10
+base.size = 14
+geom.label.size = 5
+geom.text.repel.size = 6
 
 # Graphic parameters
-geom.point.size = 5
-geom.hline.size = 2
+geom.point.size = 1
+geom.hline.size = 1
 
 p1 <- panel_subplot(res = base.model$res, threshold = threshold, genes.of.interest = genes.of.interest, base.size = base.size, geom.label.size = geom.label.size, geom.point.size = geom.point.size, geom.text.repel.size = geom.text.repel.size, geom.hline.size = geom.hline.size)
 
@@ -599,19 +602,27 @@ p2 <- panel_subplot(res = pc.model$res, threshold = threshold, genes.of.interest
 #Manually set axis limits and drawing side-by-side.
 p1 <- p1 + coord_cartesian(xlim = c(-.45, 1.2), ylim = c(0, 5)) + ggtitle("Base model") + theme(legend.title = element_blank())
 
-p1.legend.plot <- p1 + theme(legend.text = element_text(size = 36))
+p1.legend.plot <- p1 + theme(legend.text = element_text(size = 12))
 
 # Get legend for shared legend
-p1.legend <- get_legend(p1.legend.plot + guides(colour = guide_legend(override.aes = list(size=20), reverse = TRUE)))
+p1.legend <- get_legend(p1.legend.plot + guides(colour = guide_legend(override.aes = list(size=6), reverse = TRUE)))
 
 p2 <- p2 + coord_cartesian(xlim = c(-.45, 1.2), ylim = c(0, 5)) + ggtitle("Cell type-adjusted")
 
 # Arrange multipanel figure
-panel <- ggarrange(p1, p2, ncol = 2, nrow = 1, labels = "AUTO", font.label = list(size = 36, face = "bold", color = "black"), common.legend = TRUE, legend.grob = p1.legend, legend = "bottom")
+panel <- ggarrange(p1, p2, ncol = 2, nrow = 1, labels = "auto", font.label = list(size = 24, face = "bold", color = "black"), common.legend = TRUE, legend.grob = p1.legend, legend = "bottom")
 #print(panel)
 # Works okay with theme_bw(base_size = 20) and font.label size = 24 in ggarrange
 #ggexport(panel, filename = here("results", "GSE75010", paste0(Sys.Date(), "_cell_type_adj_compare_multipanel.png")), width = 1920, height = 1080)
 ```
+
+Need to run this chunk in the console to function properly
+```{r, eval = F}
+png(filename = here("results", "GSE75010", paste0(Sys.Date(), "_cell_type_adj_compare_multipanel.png")), width = 2816, height = 2160, units = "px", res = 300)
+panel
+dev.off()
+```
+
 
 ## Distribution of PC3
 Notes:
