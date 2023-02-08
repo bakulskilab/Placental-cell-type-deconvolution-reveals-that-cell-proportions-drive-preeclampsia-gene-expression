@@ -39,7 +39,7 @@ merged <- readRDS(here("data", "GSE75010_with_abundances_2022-05-01.rda"))
 ```
 
 Summary stats about the correlation measurement
-```{r}
+```{r, eval = F}
 describe(merged$Correlation)
 ```
 
@@ -115,12 +115,12 @@ rndr.strat <- function(label, n, ...) {
 ```
 
 Bivariate outcome with t-test for continuous variables and Chi-square test for categorical outcomes.
-```{r}
+```{r, eval = F}
 table1(~ sex + ga + batch | phenotype, data=t1, droplevels=F, render=rndr, render.strat=rndr.strat, overall=F)
 ```
 
 Bivariate batch with Kruskal-Wallis ANOVA (regular ANOVA homogeneity of variances violated) for continuous variables and Chi-square test for categorical outcomes.
-```{r}
+```{r, eval = F}
 t1$phenotype <- droplevels(t1$phenotype)
 label(t1$phenotype) <- "Preeclampsia"
 t1$batch <- factor(t1$batch, levels = append(levels(t1$batch), "99"), labels = append(levels(t1$batch), "P-value"))
@@ -932,6 +932,7 @@ factor.order <- estimates.graph$Cell.Type
 
 # Relevel the factor with the ordered cell types
 estimates.graph$Cell.Type <- factor(estimates.graph$Cell.Type, levels = factor.order)
+estimates.graph$is.sig <- factor(estimates.graph$is.sig, levels = c(FALSE, TRUE), labels = c("Not significant", "Statistically significant"))
 ```
 
 Forest plot code
@@ -942,7 +943,8 @@ forest <- ggplot(data=estimates.graph,
     geom_hline(yintercept=1, linetype=2) +
     theme_bw() +
     theme(text = element_text(size=16),
-          legend.position = 'none') +
+          legend.title = element_blank(),
+          legend.position = 'bottom') +
     xlab('') + ylab('Prevalence Odds Ratio') +
     coord_flip() +
     scale_color_manual(values = c("grey", "red"))
@@ -951,6 +953,14 @@ forest
 
 #ggsave(paste0(results_dir, "beta_forest_", Sys.Date(), ".png"), device = png())
 ```
+
+Need to run this chunk in the console to function properly
+```{r, eval = F}
+png(filename = here("results", "GSE75010", paste0("beta_forest_", Sys.Date(), ".png")), width = 2816, height = 2160, units = "px", res = 300)
+forest
+dev.off()
+```
+
 
 Pull all sex model effect estimates and combine to a single tibble for graphing.
 ```{r}
