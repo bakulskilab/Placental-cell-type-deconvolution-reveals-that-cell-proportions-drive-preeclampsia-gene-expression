@@ -182,7 +182,7 @@ dim(merge.summary.wide)
 ```
 
 ```{r}
-stats::cor.test(x = merge.summary.wide$GSE75010, y = merge.summary.wide$Sorted)
+#stats::cor.test(x = merge.summary.wide$GSE75010, y = merge.summary.wide$Sorted)
 ```
 
 ```{r}
@@ -530,6 +530,8 @@ res.S <- read_tsv(file = here("results", "cibersortx_local", "analytic_deconvolu
 
 # Reformat for analysis
 res.df.S <- get_imputed_matrix(res.S)
+
+base.size <- 8
 ```
 
 ### All cell types at natural rates
@@ -549,7 +551,7 @@ pearson
 rmse.deconvolution = round(rmse(actual = actual, predicted = predicted), 3)
 rmse.deconvolution
 
-plot <- ggplot(gg.data, aes(x = predicted, y = actual)) + geom_point() + labs(subtitle = paste0("Correlation = ", pearson, ", Root mean square error = ", rmse.deconvolution)) + xlab("Predicted cell type proportions") + ylab("Actual cell type proportions") + ggtitle("Deconvolution validation - 50/50 split") + theme_bw(base_size = 16) + geom_smooth(method='lm', formula= y~x)
+plot <- ggplot(gg.data, aes(x = predicted, y = actual)) + geom_point() + labs(subtitle = paste0("Correlation = ", pearson, ", Root mean square error = ", rmse.deconvolution)) + xlab("Predicted cell type proportions") + ylab("Actual cell type proportions") + ggtitle("Deconvolution validation - 50/50 split") + theme_bw(base_size = base.size) + geom_smooth(method='lm', formula= y~x)
 
 # Store plot for gg panel later
 plot.test.5050 <- plot
@@ -576,7 +578,7 @@ pearson
 rmse.deconvolution = round(rmse(actual = actual, predicted = predicted), 3)
 rmse.deconvolution
 
-plot <- ggplot(gg.data, aes(x = predicted, y = actual)) + geom_point() + labs(subtitle = paste0("Correlation = ", pearson, ", Root mean square error = ", rmse.deconvolution)) + xlab("Predicted cell type proportions") + ylab("Actual cell type proportions") + ggtitle("Only fetal cells present") + theme_bw(base_size = 16) + geom_smooth(method='lm', formula= y~x)
+plot <- ggplot(gg.data, aes(x = predicted, y = actual)) + geom_point() + labs(subtitle = paste0("Correlation = ", pearson, ", Root mean square error = ", rmse.deconvolution)) + xlab("Predicted cell type proportions") + ylab("Actual cell type proportions") + ggtitle("Only fetal cells present") + theme_bw(base_size = base.size) + geom_smooth(method='lm', formula= y~x)
 
 # Store plot for gg panel later
 plot.fetal.5050 <- plot
@@ -603,7 +605,7 @@ pearson
 rmse.deconvolution = round(rmse(actual = actual, predicted = predicted), 3)
 rmse.deconvolution
 
-plot <- ggplot(gg.data, aes(x = predicted, y = actual)) + geom_point() + labs(subtitle = paste0("Correlation = ", pearson, ", Root mean square error = ", rmse.deconvolution)) + xlab("Predicted cell type proportions") + ylab("Actual cell type proportions") + ggtitle("Only maternal cells present") + theme_bw(base_size = 16) + geom_smooth(method='lm', formula= y~x)
+plot <- ggplot(gg.data, aes(x = predicted, y = actual)) + geom_point() + labs(subtitle = paste0("Correlation = ", pearson, ", Root mean square error = ", rmse.deconvolution)) + xlab("Predicted cell type proportions") + ylab("Actual cell type proportions") + ggtitle("Only maternal cells present") + theme_bw(base_size = base.size) + geom_smooth(method='lm', formula= y~x) #+ theme(plot.subtitle=element_text(size=base.size*.5))
 
 # Store plot for gg panel later
 plot.maternal.5050 <- plot
@@ -630,7 +632,7 @@ pearson
 rmse.deconvolution = round(rmse(actual = actual, predicted = predicted), 3)
 rmse.deconvolution
 
-plot <- ggplot(gg.data, aes(x = predicted, y = actual)) + geom_point() + labs(subtitle = paste0("Correlation = ", pearson, ", Root mean square error = ", rmse.deconvolution)) + xlab("Predicted cell type proportions") + ylab("Actual cell type proportions") + ggtitle("Only female fetal cells present") + theme_bw(base_size = 16) + geom_smooth(method='lm', formula= y~x)
+plot <- ggplot(gg.data, aes(x = predicted, y = actual)) + geom_point() + labs(subtitle = paste0("Correlation = ", pearson, ", Root mean square error = ", rmse.deconvolution)) + xlab("Predicted cell type proportions") + ylab("Actual cell type proportions") + ggtitle("Only female fetal cells present") + theme_bw(base_size = base.size) + geom_smooth(method='lm', formula= y~x)
 
 # Store plot for gg panel later
 plot.sex.test.female <- plot
@@ -657,7 +659,7 @@ pearson
 rmse.deconvolution = round(rmse(actual = actual, predicted = predicted), 3)
 rmse.deconvolution
 
-plot <- ggplot(gg.data, aes(x = predicted, y = actual)) + geom_point() + labs(subtitle = paste0("Correlation = ", pearson, ", Root mean square error = ", rmse.deconvolution)) + xlab("Predicted cell type proportions") + ylab("Actual cell type proportions") + ggtitle("Only male fetal cells present") + theme_bw(base_size = 16) + geom_smooth(method='lm', formula= y~x)
+plot <- ggplot(gg.data, aes(x = predicted, y = actual)) + geom_point() + labs(subtitle = paste0("Correlation = ", pearson, ", Root mean square error = ", rmse.deconvolution)) + xlab("Predicted cell type proportions") + ylab("Actual cell type proportions") + ggtitle("Only male fetal cells present") + theme_bw(base_size = base.size, ) + geom_smooth(method='lm', formula= y~x)
 
 # Store plot for gg panel later
 plot.sex.test.male <- plot
@@ -671,12 +673,18 @@ plot(x = res.df.S$sex.test.male, y = Test$sex.test.male_actual)
 
 Optimal file export settings are much different from display in R
 ```{r}
-panel <- ggarrange(plot.test.5050, plot.fetal.5050, plot.maternal.5050, plot.sex.test.female, plot.sex.test.male, ncol = 3, nrow = 2, labels = "AUTO", font.label = list(size = 24, face = "bold", color = "black"))
+panel <- ggarrange(plot.test.5050, plot.fetal.5050, plot.maternal.5050, plot.sex.test.female, plot.sex.test.male, ncol = 3, nrow = 2, labels = "auto", font.label = list(size = 16, face = "bold", color = "black"))
 print(panel)
 # Works okay with theme_bw(base_size = 20) and font.label size = 24 in ggarrange
 #ggexport(panel, filename = here("results", "deconvolution_validation", paste0(Sys.Date(), "_deconvolution_validation_multipanel.png")), width = 1920, height = 1080)
 ```
 
+Need to run the png() dev.off() command in the console to work
+```{r, eval = F}
+png(filename = here("results", "deconvolution_validation", paste0(Sys.Date(), "_deconvolution_validation_multipanel.png")), width = 2816, height = 2160, units = "px", res = 300)
+panel
+dev.off()
+```
 
 ## test data w/ g-max = 1000 {.tabset}
 
