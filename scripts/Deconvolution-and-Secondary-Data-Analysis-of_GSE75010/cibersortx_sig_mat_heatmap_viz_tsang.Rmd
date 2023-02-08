@@ -16,7 +16,7 @@ Load CIBERSORTx signature matrix output
 ```{r}
 dat <- read_tsv(here("results", "cibersortx_local", "analytic_gse75010", "kc_pr_tsang_sig_matrix.txt"))
 dat.mat <- column_to_rownames(dat, var = "NAME")
-dat.mat.log <- log(dat.mat)
+dat.mat.log <- log2(dat.mat)
 ```
 
 ```{r}
@@ -38,7 +38,11 @@ maxes.log
 pheatmap tips, https://slowkow.com/notes/pheatmap-tutorial/
 ```{r}
 pheatmap(dat.mat, kmeans_k = 50, show_rownames = FALSE, main = "Raw counts - 50 gene clusters")
-pheatmap(dat.mat.log, show_rownames = FALSE, main = "CIBERSORTx signature gene matrix - log library size-normalized counts", cluster_rows = F)
+```
+
+
+```{r}
+pheatmap(dat.mat.log, show_rownames = FALSE, main = "CIBERSORTx signature gene matrix - log library size-normalized counts", cluster_rows = F, legend_labels = c("log normalized counts"))
 ```
 
 
@@ -46,6 +50,22 @@ pheatmap(dat.mat.log, show_rownames = FALSE, main = "CIBERSORTx signature gene m
 heatmap.log <- pheatmap(dat.mat.log, show_rownames = FALSE, main = "CIBERSORTx signature gene matrix - log library size-normalized counts", cluster_rows = F, fontsize = 24)
 heatmap.log
 ```
+
+```{r}
+dat.mat.log.gg <- dat.mat.log %>%
+  rownames_to_column(var = "Gene") %>%
+  pivot_longer(cols = all_of(colnames(dat.mat.log)), names_to = "Cell Type", values_to = "Log2 Normalized Counts") 
+ggplot(dat.mat.log.gg,aes(`Cell Type`, Gene)) + geom_tile(aes(fill=`Log2 Normalized Counts`)) +
+        #Creating legend
+        guides(fill=guide_colorbar("Log2 Normalized\n Counts")) +
+        #Creating color range
+        scale_fill_gradientn(colors=c("skyblue","yellow","tomato"),guide="colorbar") +
+        #Rotating labels
+        theme(axis.text.x = element_text(angle = 270, hjust = 0,vjust=-0.05),
+              axis.text.y = element_blank()) +
+  ggtitle("CIBERSORTx signature gene matrix")
+```
+
 
 https://stackoverflow.com/questions/43051525/how-to-draw-pheatmap-plot-to-screen-and-also-save-to-file
 ```{r}
