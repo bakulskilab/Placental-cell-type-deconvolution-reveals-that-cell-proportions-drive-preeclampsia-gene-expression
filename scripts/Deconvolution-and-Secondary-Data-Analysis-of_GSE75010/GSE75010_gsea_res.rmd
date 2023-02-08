@@ -113,6 +113,17 @@ pc.pos %>%
   arrange(desc(abs(NES)))
 ```
 
+Size parameters for 300 dpi figure export
+```{r}
+# Text parameters
+base.size = 6
+#geom.label.size = 5
+#geom.text.repel.size = 6
+
+# Graphic parameters
+#geom.point.size = 1
+#geom.hline.size = 1
+```
 
 Graph GSEA results
 ```{r}
@@ -132,13 +143,12 @@ p1 <- ggplot(data = base.graph, mapping = aes(x = NES, y = fct_rev(fct_reorder(N
   geom_col() +
   scale_fill_gradient2(midpoint = fdr.threshold) +
   ylab("") + xlab("Normalized Enrichment Score") + ggtitle("Base model") +
-  theme_minimal(base_size = 20) + theme(title = element_text(size = 28), legend.position = "bottom", legend.text = element_text(angle = 45), axis.text.y = element_text(color = "black")) + labs(fill = "False discovery rate-adjusted q-value  ")
+  theme_minimal(base_size = base.size) + theme(title = element_text(size = base.size+2), legend.position = "bottom", legend.text = element_text(angle = 45), axis.text.y = element_text(color = "black")) + labs(fill = "False discovery rate-adjusted q-value  ")
 
 #theme_minimal(base_size = 20)
 
 p1
 ```
-
 
 ```{r}
 pc.graph <- pc.res %>% arrange(desc(abs(NES))) %>% slice_head(n = 25)
@@ -155,7 +165,7 @@ p2 <- ggplot(data = pc.graph, mapping = aes(x = NES, y = fct_rev(fct_reorder(NAM
   geom_col() +
   scale_fill_gradient2(midpoint = fdr.threshold) +
   ylab("") + xlab("Normalized Enrichment Score") + ggtitle("Cell Type-adjusted") +
-  theme_minimal(base_size = 20) + theme(title = element_text(size = 28), legend.position = "bottom", legend.text = element_text(angle = 45), axis.text.y = element_text(color = "black"))
+  theme_minimal(base_size = base.size) + theme(title = element_text(size = base.size + 2), legend.position = "bottom", legend.text = element_text(angle = 45), axis.text.y = element_text(color = "black"))
 p2
 
 #theme_minimal(base_size = 20)
@@ -174,13 +184,21 @@ p2
 ```
 
 ```{r}
-p1.legend.plot <- p1 + theme(legend.title = element_text(size = 28), legend.text = element_text(size = 24)) + guides( fill = guide_colorbar(barwidth = 24, barheight = 3))
+p1.legend.plot <- p1 + theme(legend.title = element_text(size = base.size + 4), legend.text = element_text(size = base.size)) + guides(fill = guide_colorbar(barwidth = 6, barheight = 1))
 
 # Get legend for shared legend
 legend <- get_legend(p1.legend.plot)
 ```
 
 ```{r}
-panel <- ggarrange(p1, p2, ncol = 2, nrow = 1, labels = "AUTO", font.label = list(size = 24, face = "bold", color = "black"), common.legend = TRUE, legend = "bottom", legend.grob = legend)
-ggexport(panel, filename = here("results", "GSE75010", paste0(Sys.Date(), "_limma_gsea.png")), width = 1980, height = 1080)
+panel <- ggarrange(p1, p2, ncol = 2, nrow = 1, labels = "auto", font.label = list(size = 20, face = "bold", color = "black"), common.legend = TRUE, legend = "bottom", legend.grob = legend)
+#ggexport(panel, filename = here("results", "GSE75010", paste0(Sys.Date(), "_limma_gsea.png")), width = 1980, height = 1080)
 ```   
+
+Need to run this chunk in the console to function properly
+```{r, eval = F}
+png(filename = here("results", "GSE75010", paste0(Sys.Date(), "_enrichment_analysis_compare_multipanel.png")), width = 2816, height = 2160, units = "px", res = 300)
+panel
+dev.off()
+```
+
