@@ -21,6 +21,7 @@ library(here)
 library(lmtest)
 #library(memisc)
 # Had to detach memisc due to shared function with dplyr that producing annoying warning
+library(openxlsx)
 library(pheatmap)
 library(psych)
 library(readxl)
@@ -802,7 +803,7 @@ beta_reg_models <- function(outcomes, covariates, data) {
   models <- list()
   # Loop over outcomes of interest
   for(outcome in outcomes) {
-    # transform the data to accomodate 0s for beta regression if necessary
+    # transform the data to accommodate 0s for beta regression if necessary
     if (0 %in% data[, outcome]) {
       data[, outcome] <- beta_transform(data[, outcome], nrow(data))
     }
@@ -832,6 +833,7 @@ beta_reg_model_fits <- function(outcomes, covariates, data) {
   return(model_fits)
 }
 ```
+
 Run a model across all the cell types.
 TODO Model Fit Statistics, low pseudo-r-sq, possibly precision parameter optimization required?
 
@@ -908,6 +910,49 @@ estimates$Cell.Type <- str_replace_all(string = estimates$Cell.Type, pattern = "
 
 # Save results
 #write.csv(estimates, paste0(results_dir, "beta_models_estimates.csv"))
+```
+
+Pull all regression model estimates
+```{r}
+pull_all_model_estimates <- function(data) {
+  return(
+    data %>%
+      mutate(
+        or = ifelse(component == "precision", NA, exp(estimate)),
+        conf.low.or = ifelse(component == "precision", NA, exp(conf.low)),
+        conf.high.or = ifelse(component == "precision", NA, exp(conf.high)),
+        conf.low = ifelse(component == "precision", NA, conf.low),
+        conf.high = ifelse(component == "precision", NA, conf.high),
+        term = ifelse(term == "ga", "Gestational Age (wks)", term),
+        term = ifelse(term == "phenotypePE", "Preeclampsia", term),
+        term = ifelse(term == "sexM", "Male Sex", term)
+      ) %>%
+      mutate(across(c("estimate", "std.error", "statistic", 
+"p.value", "conf.low", "conf.high"), ~round(., digits = 3))) %>%
+      mutate(p.value = ifelse(p.value == 0, "p<0.001", p.value))
+  )
+}
+
+estimates <- lapply(X = models, FUN = pull_all_model_estimates)
+
+# First, recode all ".." to "+ "
+names(estimates) <- str_replace_all(string = names(estimates), pattern = "\\.{2}", replacement = "+ ")
+# Then, replace remaining "." with " "
+names(estimates) <- str_replace_all(string = names(estimates), pattern = "\\.{1}", replacement = " ")
+
+names(estimates)[names(estimates) == "Fetal Plasmacytoid Dendritic Cells"] <- "Fetal Plasmacytoid Dendritic"
+names(estimates)[names(estimates) == "Fetal Proliferative Cytotrophoblasts"] <- "Fetal Prolif. Cytotrophoblasts"
+```
+
+```{r}
+write.xlsx(as.list(estimates), file = here("results", "GSE75010", paste0(Sys.Date(), "_beta_reg_full_res.xlsx")))
+```
+
+
+```{r}
+#list <- list(dex = prolif.markers, gost = cluster.ontologies)
+#names(list) <- c("Differential Expression", "Gene Ontology Enrichment")
+#write.xlsx(x = list, file = here("results", "seurat", paste0(Sys.Date(), "_prolif_ct_vs_ct_res.xlsx")))
 ```
 
 Make modifications to the results table for graphing.
