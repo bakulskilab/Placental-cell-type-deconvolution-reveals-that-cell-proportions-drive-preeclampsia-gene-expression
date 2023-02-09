@@ -616,6 +616,31 @@ panel <- ggarrange(p1, p2, ncol = 2, nrow = 1, labels = "auto", font.label = lis
 #ggexport(panel, filename = here("results", "GSE75010", paste0(Sys.Date(), "_cell_type_adj_compare_multipanel.png")), width = 1920, height = 1080)
 ```
 
+```{r}
+base.res.formated <- base.model$res %>%
+  dplyr::select(gene_symbol, logFC, CI.L, CI.R, AveExpr, t, P.Value, adj.P.Val) %>%
+  arrange(adj.P.Val, desc = T) %>%
+  #mutate(across(c("estimate", "std.error", "statistic", "p.value", "conf.low", "conf.high"), ~round(., digits = 3)))
+  mutate(across(c(logFC, CI.L, CI.R, AveExpr, t, P.Value, adj.P.Val), ~round(., digits = 3))) %>%
+  mutate(P.Value = ifelse(P.Value == 0, "p<0.001", P.Value)) %>%
+  mutate(adj.P.Val = ifelse(adj.P.Val == 0, "p<0.001", adj.P.Val))
+colnames(base.res.formated) <- c("Gene", "Log2 Fold Change", "Lower 95% Confidence Interval", "Upper 95% Confidence Interval", "Average Expression", "Moderated t-statistic", "p-value", "False discovery adjusted p-value")
+
+pc.res.formated <- pc.model$res %>%
+  dplyr::select(gene_symbol, logFC, CI.L, CI.R, AveExpr, t, P.Value, adj.P.Val) %>%
+  arrange(adj.P.Val, desc = T) %>%
+  #mutate(across(c("estimate", "std.error", "statistic", "p.value", "conf.low", "conf.high"), ~round(., digits = 3)))
+  mutate(across(c(logFC, CI.L, CI.R, AveExpr, t, P.Value, adj.P.Val), ~round(., digits = 3))) %>%
+  mutate(P.Value = ifelse(P.Value == 0, "p<0.001", P.Value)) %>%
+  mutate(adj.P.Val = ifelse(adj.P.Val == 0, "p<0.001", adj.P.Val))
+colnames(pc.res.formated) <- c("Gene", "Log2 Fold Change", "Lower 95% Confidence Interval", "Upper 95% Confidence Interval", "Average Expression", "Moderated t-statistic", "p-value", "False discovery adjusted p-value")
+
+list.for.export <- list(`Base Model` = base.res.formated, `Cell Type Adjusted Model` = pc.res.formated)
+
+#write.xlsx(x = list.for.export, file = here("results", "GSE75010", paste0(Sys.Date(), "_GSE75010_dex_full_res.xlsx")))
+```
+
+
 Need to run this chunk in the console to function properly
 ```{r, eval = F}
 png(filename = here("results", "GSE75010", paste0(Sys.Date(), "_cell_type_adj_compare_multipanel.png")), width = 2816, height = 2160, units = "px", res = 300)
