@@ -239,6 +239,10 @@ levels(biorep.expr$biorep) <- c("Sample 1", "Sample 2", "Sample 3", "Sample 4", 
 
 ggplot(data = biorep.expr, aes(x = biorep, y = XIST)) + geom_point() + labs(x = "Biological Replicate") + ggtitle("Average XIST expression in fetal cells by biological replicate") + theme_minimal()
 
+fetal$biorep <- factor(fetal$biorep, levels = c("kc.40", "kc.42", "pr.478", "pr.481", "pr.484", "tsang_n1", 
+"tsang_n2", "tsang_n3", "tsang_n4"), labels =  c("Sample 1", "Sample 2", "Sample 3", "Sample 4", "Sample 5", "Sample 6", "Sample 7", "Sample 8", "Sample 9"))
+VlnPlot(fetal, features = "XIST", group.by = "biorep") + NoLegend()
+
 #ggsave(here("results", "seurat", paste0(Sys.Date(), "xist_sex_expression.png")))
 ```
 
