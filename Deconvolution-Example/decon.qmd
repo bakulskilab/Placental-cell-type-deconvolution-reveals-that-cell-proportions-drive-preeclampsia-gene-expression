@@ -1,0 +1,113 @@
+---
+title: "Placenta Cell Type Deconvolution Example"
+format: gfm
+editor: source
+embed-resources: true
+---
+
+This document demonstrates how to use our single cell RNA-sequencing reference panel from [Campbell et al. 2023](https://www.nature.com/articles/s42003-023-04623-6) with the [MuSiC package](https://xuranw.github.io/MuSiC/index.html) in R to deconvolute cell type proportions from bulk placenta tissue RNA-sequencing data. Code for use of the CIBERSORTx software to deconvolute as described in the Campbell paper is also available on [GitHub](https://github.com/bakulskilab/Placental-cell-type-deconvolution-reveals-that-cell-proportions-drive-preeclampsia-gene-expression/blob/main/scripts/cibersortx/cibersortx_docker_code.txt). Some users have expressed difficulty using the CIBERSORTx software, and this document provides an alternative in R.
+
+To deconvolute placental tissue RNA data, you will need:
+
+1.  Placental single cell reference data with marker genes for each of the cell types. The placenta single cell reference Seurat object developed in the Campbell paper can be downloaded from the associated GEO [accession GSE182381](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE182381).
+
+2.  A bulk tissue placental RNA-sequencing dataset that you would like to deconvolute. The example bulk placenta dataset used for demonstration in this document was download from GEO [accession GSE253158](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE253158). You can substitute your own bulk tissue dataset of interest.
+
+3.  A deconvolution R package. Here we use MuSiC.
+
+```{r}
+#| message: False
+#| warning: False
+
+library(MuSiC)
+library(Seurat)
+library(SingleCellExperiment)
+library(data.table)
+```
+
+MuSiC takes the input bulk data as a matrix of raw counts of RNA expression. The row names of the matrix are genes that should match up with gene identifiers in the single cell reference. Column names are the sample names.
+
+```{r}
+# load bulk dataset
+bulk_dataset <- fread("GSE253158_raw_counts_GRCh38.p13_NCBI.tsv")
+
+# convert gene ids to gene symbols
+annot <- fread("Human.GRCh38.p13.annot.tsv")
+bulk_dataset$GeneID <- annot[match(bulk_dataset$GeneID,annot$GeneID),]$Symbol
+
+# one duplicated gene, very low/no expression, so remove since matrix can't have duplicated row names
+bulk_dataset <- bulk_dataset[bulk_dataset$GeneID != 'TRNAV-CAC',] 
+
+# make into matrix format
+temp <- bulk_dataset$GeneID
+bulk_dataset <- as.matrix(bulk_dataset[,-1])
+rownames(bulk_dataset) <- temp
+```
+
+MuSiC takes the single cell reference input as a SingleCellExperiment object, which we can create from the Seurat object provided.
+
+```{r}
+# load single cell reference
+scref <- readRDS("GSE182381_processed_single_cell_Seurat_object.rda")
+
+# construct singlecellexperiment object for use in music function
+ref <- SingleCellExperiment(
+  list(counts=scref[["RNA"]]$counts), #grab count data
+  colData=scref[[]] #grab meta data
+)
+```
+
+Use prepared input with MuSiC to get cell proportion estimates:
+
+```{r}
+# use music to get cell proportion estimates
+est <- music_prop(bulk.mtx = bulk_dataset,
+                  sc.sce = ref,
+                  clusters = 'cell.type',
+                  samples = 'ident')
+```
+
+Here we plot the estimated cell proportions. For sake of clarity in the plot, cell types with zero proportion estimated across all samples are removed.
+
+```{r}
+#| fig-width: 11
+#| fig-height: 9
+#| message: False
+# load packages 
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+library(gt)
+
+# converting cell proportion estimates to long for plotting 
+# (note: you probably would prefer wide format for use in analysis)
+cell.prop <- est$Est.prop.weighted 
+temp.names <- colnames(cell.prop)
+cell.prop <- data.frame(cell.prop)
+colnames(cell.prop) <- temp.names
+cell.prop$ID <- rownames(cell.prop)
+cell.prop <- pivot_longer(cell.prop, 
+                          cols = !ID,
+                          names_to="cell.type",
+                          values_to="proportion")
+
+# summary table of estimates
+cell.prop %>% group_by(cell.type) %>%
+  summarize("Mean Percent"=(mean(proportion)*100) %>% round(2)) %>%
+  gt()
+
+# for sake of clearer legend, filter cell types with zero estimated in all samples
+cell.prop <- cell.prop %>% group_by(cell.type) %>%
+  filter(!mean(proportion)==0)
+
+# stacked bar chart of cell proportions
+ggplot(cell.prop, aes(x=ID, y=proportion, fill=cell.type)) +
+  geom_bar(position="stack", stat='identity') +
+  xlab('sample') +
+  theme_classic() +
+  theme(axis.text.x=element_blank(),
+        legend.text=element_text(size=12),
+        legend.title=element_blank(),
+        axis.title=element_text(size=16),
+        axis.text=element_text(size=14))
+```
